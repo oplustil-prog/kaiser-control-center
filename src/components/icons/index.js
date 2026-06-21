@@ -1,0 +1,12 @@
+export { CollectionRoutesIcon } from "./CollectionRoutesIcon.js";
+export { CostsIcon } from "./CostsIcon.js";
+export { DashboardIcon } from "./DashboardIcon.js";
+export { DriverReportsIcon } from "./DriverReportsIcon.js";
+export { FleetIcon } from "./FleetIcon.js";
+export { ReportsIcon } from "./ReportsIcon.js";
+export { SamplingRoutesIcon } from "./SamplingRoutesIcon.js";
+export { ServiceMaintenanceIcon } from "./ServiceMaintenanceIcon.js";
+export { SettingsIcon } from "./SettingsIcon.js";
+export { TyresIcon } from "./TyresIcon.js";
+export { UsersRolesIcon } from "./UsersRolesIcon.js";
+export { VistosIcon } from "./VistosIcon.js";
