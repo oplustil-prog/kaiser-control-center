@@ -1,4 +1,5 @@
 import {
+  AbsenceIcon,
   CollectionRoutesIcon,
   CostsIcon,
   DashboardIcon,
@@ -133,6 +134,18 @@ export const modules = [
     order: 10
   },
   {
+    id: "absence",
+    title: "Dovolená / Nemoc",
+    description: "Žádosti, schvalování, zůstatky, kalendář a měsíční report nepřítomností.",
+    route: "/dovolena-nemoc",
+    dashboardRoute: "/dovolena-nemoc/dashboard",
+    icon: AbsenceIcon,
+    status: "mock data",
+    active: true,
+    disabled: false,
+    order: 11
+  },
+  {
     id: "users",
     title: "Uživatelé a role",
     description: "Řidiči, garážmistři, management, admin a oprávnění.",
@@ -142,7 +155,7 @@ export const modules = [
     status: "skeleton",
     active: true,
     disabled: false,
-    order: 11
+    order: 12
   },
   {
     id: "settings",
@@ -154,7 +167,7 @@ export const modules = [
     status: "skeleton",
     active: true,
     disabled: false,
-    order: 12
+    order: 13
   }
 ];
 

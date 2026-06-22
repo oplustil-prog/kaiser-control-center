@@ -1,3 +1,4 @@
+export { AbsenceIcon } from "./AbsenceIcon.js";
 export { CollectionRoutesIcon } from "./CollectionRoutesIcon.js";
 export { CostsIcon } from "./CostsIcon.js";
 export { DashboardIcon } from "./DashboardIcon.js";
