@@ -113,7 +113,11 @@ export function saveAccessState(state) {
   const target = storage();
 
   if (target) {
-    target.setItem(ACCESS_STORAGE_KEY, JSON.stringify(normalized));
+    try {
+      target.setItem(ACCESS_STORAGE_KEY, JSON.stringify(normalized));
+    } catch (error) {
+      console.error("smart_odpady_access_storage_failed", error);
+    }
   }
 
   return normalized;

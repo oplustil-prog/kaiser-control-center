@@ -304,6 +304,14 @@ function setAccessState(nextState) {
   accessState = saveAccessState(nextState);
 }
 
+function scrollToPageTop() {
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  } catch {
+    window.scrollTo(0, 0);
+  }
+}
+
 function currentUser() {
   return withAccessContext(authState.user, accessState);
 }
@@ -502,8 +510,12 @@ function focusAccessUserEditor() {
     return;
   }
 
-  editor.scrollIntoView({ block: "start", behavior: "smooth" });
-  editor.querySelector("input[name='name']")?.focus({ preventScroll: true });
+  try {
+    editor.scrollIntoView({ block: "start", behavior: "auto" });
+    editor.querySelector("input[name='name']")?.focus({ preventScroll: true });
+  } catch (error) {
+    console.error("smart_odpady_access_focus_failed", error);
+  }
 }
 
 function accessUserForm(user, canEditUsers) {
@@ -2051,6 +2063,7 @@ function render() {
     console.error("smart_odpady_render_failed", error);
     app.innerHTML = appErrorPage();
     document.title = `Chyba | ${APP_NAME}`;
+    scrollToPageTop();
   }
 }
 
@@ -2365,6 +2378,19 @@ function setAccessError(error, feedbackTarget = "") {
   });
 }
 
+function handleAccessActionError(error, message, feedbackTarget = "user") {
+  console.error("smart_odpady_access_action_failed", error);
+  try {
+    setAccessError(message, feedbackTarget);
+    render();
+  } catch (renderError) {
+    console.error("smart_odpady_access_error_render_failed", renderError);
+    app.innerHTML = appErrorPage();
+    document.title = `Chyba | ${APP_NAME}`;
+    scrollToPageTop();
+  }
+}
+
 function saveAccessUserForm(form) {
   if (!canEditAccessUsers()) {
     setAccessError("Nemáte oprávnění upravovat uživatele.", "user");
@@ -2495,23 +2521,27 @@ function createAccessUser() {
 }
 
 function selectAccessUser(userId) {
-  const user = findAccessUser(userId);
+  try {
+    const user = findAccessUser(userId);
 
-  if (!user) {
-    setAccessError("Uživatel nebyl nalezen.", "user");
+    if (!user) {
+      setAccessError("Uživatel nebyl nalezen.", "user");
+      render();
+      return;
+    }
+
+    setAccessState({
+      ...accessState,
+      selectedUserId: user.id,
+      message: "",
+      error: "",
+      feedbackTarget: ""
+    });
     render();
-    return;
+    requestAnimationFrame(focusAccessUserEditor);
+  } catch (error) {
+    handleAccessActionError(error, "Uživatele se nepodařilo otevřít. Zkuste obnovit aplikaci.", "user");
   }
-
-  setAccessState({
-    ...accessState,
-    selectedUserId: user.id,
-    message: "",
-    error: "",
-    feedbackTarget: ""
-  });
-  render();
-  focusAccessUserEditor();
 }
 
 function selectAccessRole(roleId) {
