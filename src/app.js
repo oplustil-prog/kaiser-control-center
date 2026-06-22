@@ -1,15 +1,41 @@
 import { moduleDashboards, modules } from "./data/modules.js";
 import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
+import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
+import { ReportsIcon } from "./components/icons/index.js";
+import {
+  FEEDBACK_PRIORITIES,
+  FEEDBACK_STATUSES,
+  canManageFeedback,
+  createModuleFeedback,
+  feedbackSummary,
+  filterModuleFeedback,
+  moduleFeedbackToCsv,
+  readModuleFeedback,
+  updateModuleFeedback,
+  visibleFeedbackForUser
+} from "./data/moduleFeedback.js";
 
 const app = document.querySelector("#app");
 const orderedModules = [...modules].sort((a, b) => a.order - b.order);
+const feedbackMenuItem = {
+  id: "feedback",
+  title: "Připomínky",
+  description: "Přehled připomínek k modulům, stavů, priorit a interních poznámek.",
+  route: "/pripominky",
+  icon: ReportsIcon,
+  status: "správa",
+  active: true,
+  disabled: false,
+  order: 13
+};
 const primaryRoutes = new Map(orderedModules.map((moduleItem) => [moduleItem.route, moduleItem]));
 const dashboardRoutes = new Map(moduleDashboards.map((moduleItem) => [moduleItem.route, moduleItem]));
 const TYRES_MODULE_URL = "https://oplustil-prog.github.io/kaiser-pneu-evidence/";
 const APP_NAME = "Smart odpady";
 const HOME_SUBTITLE = "Provozní systém pro odpady, vozidla a trasy";
 const LOGIN_SUBTITLE = "Přihlášení do interního provozního systému";
+const FEEDBACK_ROUTE = "/pripominky";
 const basePath = new URL(document.querySelector("base")?.href || "/", window.location.origin)
   .pathname
   .replace(/\/$/, "");
@@ -55,6 +81,15 @@ const adminUsersState = {
   loading: false,
   users: [],
   error: ""
+};
+
+const feedbackFormState = {};
+const feedbackFilters = {
+  moduleId: "",
+  status: "",
+  priority: "",
+  author: "",
+  search: ""
 };
 
 function escapeHtml(value) {
@@ -127,9 +162,46 @@ function visibleModules(user) {
   return orderedModules.filter((moduleItem) => allowed.has(moduleItem.id));
 }
 
+function menuModules(user) {
+  const items = visibleModules(user);
+
+  if (canManageFeedback(user)) {
+    return [...items, feedbackMenuItem];
+  }
+
+  return items;
+}
+
 function visibleDashboardRoutes(user) {
   const allowed = allowedModuleIds(user);
   return moduleDashboards.filter((moduleItem) => allowed.has(moduleItem.id));
+}
+
+function moduleFeedbackItems(moduleId, user) {
+  const items = readModuleFeedback().filter((item) => item.moduleId === moduleId);
+  return visibleFeedbackForUser(items, user);
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "neuvedeno";
+  }
+
+  return new Intl.DateTimeFormat("cs-CZ", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function optionList(options, selected, emptyLabel = "Vše") {
+  return [
+    `<option value="">${escapeHtml(emptyLabel)}</option>`,
+    ...options.map((option) => `
+      <option value="${escapeHtml(option.value ?? option)}" ${(option.value ?? option) === selected ? "selected" : ""}>
+        ${escapeHtml(option.label ?? option)}
+      </option>
+    `)
+  ].join("");
 }
 
 function userBar(user) {
@@ -235,7 +307,7 @@ function loginPage() {
 }
 
 function homePage(user) {
-  const modulesForUser = visibleModules(user);
+  const modulesForUser = menuModules(user);
   const completedCount = modulesForUser.filter((moduleItem) => moduleItem.status === "HOTOVO").length;
   const cards = modulesForUser
     .map(
@@ -351,6 +423,15 @@ function modulePage(moduleItem, user, isDashboard = false) {
       `
     : "";
   const usersPanel = moduleItem.id === "users" && !isDashboard ? usersManagementSection() : "";
+  const feedbackState = feedbackFormState[moduleItem.id] || {};
+  const feedbackBox = ModuleFeedbackBox({
+    moduleId: moduleItem.id,
+    moduleName: moduleItem.title,
+    currentUser: user,
+    feedbackItems: moduleFeedbackItems(moduleItem.id, user),
+    notice: feedbackState.message || "",
+    error: feedbackState.error || ""
+  });
 
   return `
     <main class="app-shell module-page">
@@ -377,6 +458,182 @@ function modulePage(moduleItem, user, isDashboard = false) {
         </div>
       </section>
       ${usersPanel}
+      ${feedbackBox}
+    </main>
+  `;
+}
+
+function compactStatsList(items, emptyText) {
+  const entries = Object.entries(items).sort((a, b) => b[1] - a[1]);
+
+  if (!entries.length) {
+    return `<p class="feedback-empty">${emptyText}</p>`;
+  }
+
+  return `
+    <ul class="feedback-breakdown">
+      ${entries.map(([label, count]) => `
+        <li>
+          <span>${escapeHtml(label)}</span>
+          <strong>${count}</strong>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
+function priorityTone(priority) {
+  return {
+    Nízká: "low",
+    Běžná: "normal",
+    Důležitá: "important",
+    Kritická: "critical"
+  }[priority] || "normal";
+}
+
+function feedbackAdminItem(item) {
+  return `
+    <article class="feedback-ticket">
+      <header class="feedback-ticket__header">
+        <div>
+          <p class="feedback-ticket__module">${escapeHtml(item.moduleName)}</p>
+          <h3>${escapeHtml(item.userName)}</h3>
+        </div>
+        <span class="feedback-priority feedback-priority--${priorityTone(item.priority)}">${escapeHtml(item.priority)}</span>
+      </header>
+
+      <p class="feedback-ticket__message">${escapeHtml(item.message)}</p>
+
+      <dl class="feedback-ticket__meta">
+        <div>
+          <dt>Vytvořeno</dt>
+          <dd>${formatDateTime(item.createdAt)}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>${escapeHtml(roleLabel(item.userRole))}</dd>
+        </div>
+        <div>
+          <dt>ID</dt>
+          <dd>${escapeHtml(item.id.slice(0, 8))}</dd>
+        </div>
+      </dl>
+
+      <div class="feedback-ticket__controls">
+        <label class="module-feedback__field">
+          <span>Stav</span>
+          <select data-feedback-status data-feedback-id="${escapeHtml(item.id)}">
+            ${FEEDBACK_STATUSES.map((status) => `
+              <option value="${escapeHtml(status)}" ${status === item.status ? "selected" : ""}>${escapeHtml(status)}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label class="module-feedback__field module-feedback__field--message">
+          <span>Interní poznámka</span>
+          <textarea
+            rows="3"
+            data-feedback-note
+            data-feedback-id="${escapeHtml(item.id)}"
+            placeholder="Interní poznámka pro admin/management"
+          >${escapeHtml(item.internalNote)}</textarea>
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function feedbackPage(user) {
+  const allFeedback = readModuleFeedback();
+  const summary = feedbackSummary(allFeedback);
+  const filteredFeedback = filterModuleFeedback(allFeedback, feedbackFilters);
+  const moduleOptions = orderedModules.map((moduleItem) => ({
+    value: moduleItem.id,
+    label: moduleItem.title
+  }));
+  const items = filteredFeedback
+    .map(feedbackAdminItem)
+    .join("");
+
+  return `
+    <main class="app-shell module-page">
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="feedback-admin" aria-labelledby="feedback-title">
+        <div class="feedback-admin__head">
+          <div>
+            <p class="module-detail__eyebrow">Správa</p>
+            <h1 id="feedback-title">Připomínky</h1>
+            <p>Seznam připomínek k modulům, jejich stavů, priorit a interních poznámek.</p>
+          </div>
+          <button class="primary-action feedback-admin__export" type="button" data-feedback-export>
+            Export CSV
+          </button>
+        </div>
+
+        <div class="feedback-stats" aria-label="Dashboard připomínek">
+          <div class="feedback-stat">
+            <span>Nové</span>
+            <strong>${summary.newCount}</strong>
+          </div>
+          <div class="feedback-stat">
+            <span>V řešení</span>
+            <strong>${summary.inProgressCount}</strong>
+          </div>
+          <div class="feedback-stat">
+            <span>Hotovo</span>
+            <strong>${summary.doneCount}</strong>
+          </div>
+        </div>
+
+        <div class="feedback-dashboard">
+          <section>
+            <h2>Podle modulů</h2>
+            ${compactStatsList(summary.byModule, "Zatím nejsou uložené žádné připomínky.")}
+          </section>
+          <section>
+            <h2>Podle priority</h2>
+            ${compactStatsList(summary.byPriority, "Zatím nejsou uložené žádné priority.")}
+          </section>
+        </div>
+
+        <form class="feedback-filters" data-feedback-filters>
+          <label>
+            <span>Modul</span>
+            <select name="moduleId" data-feedback-filter>
+              ${optionList(moduleOptions, feedbackFilters.moduleId)}
+            </select>
+          </label>
+          <label>
+            <span>Stav</span>
+            <select name="status" data-feedback-filter>
+              ${optionList(FEEDBACK_STATUSES, feedbackFilters.status)}
+            </select>
+          </label>
+          <label>
+            <span>Priorita</span>
+            <select name="priority" data-feedback-filter>
+              ${optionList(FEEDBACK_PRIORITIES, feedbackFilters.priority)}
+            </select>
+          </label>
+          <label>
+            <span>Autor</span>
+            <input name="author" value="${escapeHtml(feedbackFilters.author)}" placeholder="Jméno autora" />
+          </label>
+          <label class="feedback-filters__search">
+            <span>Vyhledat</span>
+            <input name="search" value="${escapeHtml(feedbackFilters.search)}" placeholder="Text připomínky nebo poznámky" />
+          </label>
+          <button class="secondary-link feedback-filter-button" type="submit">Filtrovat</button>
+        </form>
+
+        <div class="feedback-list" aria-label="Seznam připomínek">
+          ${items || '<p class="feedback-empty feedback-empty--large">Žádná připomínka neodpovídá filtru.</p>'}
+        </div>
+      </section>
     </main>
   `;
 }
@@ -574,6 +831,18 @@ function renderAuthenticatedApp(user) {
     return;
   }
 
+  if (path === FEEDBACK_ROUTE) {
+    if (!canManageFeedback(user)) {
+      app.innerHTML = forbiddenPage(user);
+      document.title = `Bez oprávnění | ${APP_NAME}`;
+      return;
+    }
+
+    app.innerHTML = feedbackPage(user);
+    document.title = `Připomínky | ${APP_NAME}`;
+    return;
+  }
+
   if (userPrimaryRoutes.has(path)) {
     const moduleItem = userPrimaryRoutes.get(path);
     app.innerHTML = modulePage(moduleItem, user);
@@ -645,7 +914,75 @@ async function bootstrapAuth() {
   render();
 }
 
+function submitModuleFeedback(form) {
+  const moduleId = form.dataset.moduleId || "";
+  const moduleName = form.dataset.moduleName || "";
+  const message = form.elements.message.value;
+  const priority = form.elements.priority.value;
+
+  try {
+    createModuleFeedback({
+      moduleId,
+      moduleName,
+      currentUser: authState.user,
+      message,
+      priority
+    });
+    feedbackFormState[moduleId] = {
+      message: "Děkujeme, připomínka byla uložena.",
+      error: ""
+    };
+  } catch {
+    feedbackFormState[moduleId] = {
+      message: "",
+      error: "Připomínku se nepodařilo uložit. Zkuste to prosím znovu."
+    };
+  }
+
+  render();
+}
+
+function applyFeedbackFilters(form) {
+  feedbackFilters.moduleId = form.elements.moduleId?.value || "";
+  feedbackFilters.status = form.elements.status?.value || "";
+  feedbackFilters.priority = form.elements.priority?.value || "";
+  feedbackFilters.author = form.elements.author?.value || "";
+  feedbackFilters.search = form.elements.search?.value || "";
+  render();
+}
+
+function currentFilteredFeedback() {
+  return filterModuleFeedback(readModuleFeedback(), feedbackFilters);
+}
+
+function exportFeedbackCsv() {
+  const csv = moduleFeedbackToCsv(currentFilteredFeedback());
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `smart-odpady-pripominky-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 document.addEventListener("submit", (event) => {
+  const feedbackForm = event.target.closest("[data-feedback-form]");
+  if (feedbackForm) {
+    event.preventDefault();
+    submitModuleFeedback(feedbackForm);
+    return;
+  }
+
+  const filtersForm = event.target.closest("[data-feedback-filters]");
+  if (filtersForm) {
+    event.preventDefault();
+    applyFeedbackFilters(filtersForm);
+    return;
+  }
+
   const form = event.target.closest("[data-auth-form]");
 
   if (!form) {
@@ -662,7 +999,36 @@ document.addEventListener("submit", (event) => {
   startLogin(form);
 });
 
+document.addEventListener("change", (event) => {
+  const filterField = event.target.closest("[data-feedback-filter]");
+  if (filterField) {
+    const form = filterField.closest("[data-feedback-filters]");
+    if (form) {
+      applyFeedbackFilters(form);
+    }
+    return;
+  }
+
+  const statusField = event.target.closest("[data-feedback-status]");
+  if (statusField) {
+    updateModuleFeedback(statusField.dataset.feedbackId, { status: statusField.value }, authState.user);
+    render();
+    return;
+  }
+
+  const noteField = event.target.closest("[data-feedback-note]");
+  if (noteField) {
+    updateModuleFeedback(noteField.dataset.feedbackId, { internalNote: noteField.value }, authState.user);
+  }
+});
+
 document.addEventListener("click", (event) => {
+  const feedbackExport = event.target.closest("[data-feedback-export]");
+  if (feedbackExport) {
+    exportFeedbackCsv();
+    return;
+  }
+
   const changeIdentifier = event.target.closest("[data-change-identifier]");
   if (changeIdentifier) {
     authState = {
