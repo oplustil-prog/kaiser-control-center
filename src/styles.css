@@ -522,7 +522,7 @@ h1 {
 
 .version-news-info__list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px 16px;
   margin: 16px 0 0;
   padding: 0;
