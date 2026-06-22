@@ -90,7 +90,7 @@ SENDGRID_API_KEY=...
 
 V produkci se mock OTP nepovolí na větvi `main`; testovací kód `123456` je pouze pro lokální vývoj nebo neprodukční prostředí s `AUTH_MODE=mock`.
 
-Trvalé vytváření a úpravy uživatelů v admin modulu vyžadují další krok s databází, například Cloudflare D1. Aktuální první verze umí povolené uživatele bezpečně číst ze serverové konfigurace; bez vlastní `AUTH_USERS_JSON` použije výchozí kontakty Kaiser servis a uživatele převzaté z modulu Pneumatiky.
+Trvalé vytváření a úpravy uživatelů v admin modulu vyžadují další krok s databází, například Cloudflare D1. Aktuální první verze umí povolené uživatele bezpečně číst ze serverové konfigurace; `AUTH_USERS_JSON` doplňuje nebo přepisuje výchozí kontakty Kaiser servis a uživatele převzaté z modulu Pneumatiky.
 
 ## Ověření buildu
 

@@ -89,12 +89,58 @@ export function clearSessionCookie(env) {
   return `${cookieName(env)}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+function userKey(user) {
+  const email = normalizeIdentifier(user.email);
+  return email || String(user.id || "").trim().toLowerCase();
+}
+
+function mergeUser(baseUser, configuredUser) {
+  const mergedUser = { ...baseUser };
+
+  for (const [key, value] of Object.entries(configuredUser || {})) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (value === "" && mergedUser[key]) {
+      continue;
+    }
+
+    mergedUser[key] = value;
+  }
+
+  return mergedUser;
+}
+
+function mergeConfiguredUsers(configuredUsers) {
+  const mergedUsers = new Map();
+
+  for (const user of DEFAULT_USERS) {
+    const key = userKey(user);
+    if (key) {
+      mergedUsers.set(key, user);
+    }
+  }
+
+  for (const user of configuredUsers) {
+    const key = userKey(user);
+    if (!key) {
+      continue;
+    }
+
+    const existingUser = mergedUsers.get(key);
+    mergedUsers.set(key, existingUser ? mergeUser(existingUser, user) : user);
+  }
+
+  return [...mergedUsers.values()];
+}
+
 export async function getUsers(env) {
   if (env.AUTH_USERS_JSON) {
     try {
       const users = JSON.parse(env.AUTH_USERS_JSON);
       if (Array.isArray(users)) {
-        return users;
+        return mergeConfiguredUsers(users);
       }
     } catch (error) {
       console.error("auth.users_json_invalid", { message: error.message });
