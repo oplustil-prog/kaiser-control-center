@@ -99,7 +99,7 @@ export async function onRequestPost({ request, env }) {
     MailerSid: MAILER_SID
   });
 
-  const response = await fetch(`https://verify.twilio.com/v2/Services/${serviceSid}`, {
+  const twilioResponse = await fetch(`https://verify.twilio.com/v2/Services/${serviceSid}`, {
     method: "POST",
     headers: {
       Authorization: authHeader(accountSid, authToken),
@@ -108,8 +108,8 @@ export async function onRequestPost({ request, env }) {
     body
   });
 
-  if (!response.ok) {
-    return page("Twilio e-mail se nepodařilo připojit", `Twilio vrátilo stav ${response.status}.`, 502);
+  if (!twilioResponse.ok) {
+    return page("Twilio e-mail se nepodařilo připojit", `Twilio vrátilo stav ${twilioResponse.status}.`, 502);
   }
 
   return page("Twilio e-mail připojen", `Mailer ${MAILER_SID} je připojený k Verify službě.`);
