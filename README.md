@@ -84,6 +84,8 @@ Frontend nevolá Twilio přímo. API vrstva je připravená ve složce `function
 - `POST /api/users`
 - `PATCH /api/users/:id` včetně částečné změny nadřízeného přes `{ "managerId": "USER_ID" }`
 - `PATCH /api/users/:id/disable`
+- `GET /api/theme-settings`
+- `PATCH /api/theme-settings`
 
 Produkční hodnoty patří do Cloudflare Variables / Secrets, ne do GitHubu:
 
@@ -126,11 +128,18 @@ Databázové migrace jsou v:
 ```text
 migrations/0001_create_users.sql
 migrations/0002_add_user_manager.sql
+migrations/0003_create_theme_settings.sql
 ```
 
 Po vytvoření databáze je potřeba migrace spustit proti D1. Aplikace potom čte výchozí kontakty a změny z D1 slučuje podle `id`; úprava uživatele v admin modulu uloží aktuální verzi uživatele do D1.
 
 Pokud D1 binding v produkci chybí, čtení výchozích uživatelů dál funguje, ale vytvoření nebo úprava uživatele vrátí bezpečnou chybu konfigurace. Aplikace nesmí ukládat provozní uživatele do `localStorage`, `sessionStorage` ani jiné prohlížečové databáze.
+
+## Nastavení vzhledu
+
+Modul Nastavení obsahuje box `Vzhled aplikace`. Uložené hodnoty se ukládají přes cloud API do D1 tabulky `theme_settings`.
+
+Theme settings se aplikují pouze na vnitřní modulové stránky přes wrapper `module-theme-scope`. Hlavní stránka HP má wrapper `home-page-fixed-theme` a její karty, grid, badge, logo i hero nejsou řízené nastavením vzhledu.
 
 ## Ověření buildu
 

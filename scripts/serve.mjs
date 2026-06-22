@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { buildMetaModuleSource, resolveBuildMeta } from "./build-meta.mjs";
 import { DEFAULT_USERS } from "../functions/_lib/default-users.js";
 import { normalizeUserInput } from "../functions/_lib/users-store.js";
+import { DEFAULT_THEME_SETTINGS, normalizeThemeSettings } from "../src/data/themeSettings.js";
 import { hasPermission, isFullAccessRole } from "../src/permissions.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,6 +18,7 @@ const preferredPort = Number(process.env.PORT || 5173);
 const devCookieName = "smart_odpady_dev_session";
 const devSessions = new Map();
 let mockUsers = DEFAULT_USERS.map((user) => ({ ...user }));
+let mockThemeSettings = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -321,6 +323,40 @@ async function handleApi(request, response) {
       return true;
     }
     sendJson(response, 200, { user: publicUser(user) });
+    return true;
+  }
+
+  if (url.pathname === "/api/theme-settings" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    sendJson(response, 200, { settings: mockThemeSettings });
+    return true;
+  }
+
+  if (url.pathname === "/api/theme-settings" && request.method === "PATCH") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "settings", "manage")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    try {
+      const payload = await readJsonBody(request);
+      mockThemeSettings = normalizeThemeSettings(payload, {
+        updatedAt: new Date().toISOString(),
+        updatedByUserId: user.id
+      });
+      sendJson(response, 200, { settings: mockThemeSettings });
+    } catch {
+      sendJson(response, 400, { error: "Vzhled se nepodařilo uložit. Zkuste to prosím znovu." });
+    }
     return true;
   }
 

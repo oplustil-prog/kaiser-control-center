@@ -2,6 +2,7 @@ import { moduleDashboards, modules } from "./data/modules.js";
 import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
 import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
+import { AppearanceSettingsBox } from "./components/AppearanceSettingsBox.js";
 import { ReportsIcon } from "./components/icons/index.js";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard.js";
 import {
@@ -72,6 +73,12 @@ import {
   saveAccessState,
   withAccessContext
 } from "./data/accessControl.js";
+import {
+  DEFAULT_THEME_SETTINGS,
+  normalizeThemeSettings,
+  sameThemeSettings,
+  themeSettingsToCssProperties
+} from "./data/themeSettings.js";
 
 const app = document.querySelector("#app");
 const orderedModules = [...modules].sort((a, b) => a.order - b.order);
@@ -122,6 +129,17 @@ const accessManagerState = {
 
 let accessState = loadAccessState();
 
+const themeState = {
+  loaded: false,
+  loading: false,
+  saving: false,
+  settings: normalizeThemeSettings(DEFAULT_THEME_SETTINGS),
+  draft: normalizeThemeSettings(DEFAULT_THEME_SETTINGS),
+  preview: null,
+  message: "",
+  error: ""
+};
+
 const feedbackFormState = {};
 const feedbackFilters = {
   moduleId: "",
@@ -150,6 +168,19 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function activeThemeSettings() {
+  return normalizeThemeSettings(themeState.preview || themeState.settings);
+}
+
+function moduleThemeStyleAttribute() {
+  const properties = themeSettingsToCssProperties(activeThemeSettings());
+  const style = Object.entries(properties)
+    .map(([name, value]) => `${name}: ${String(value).replaceAll('"', "&quot;")}`)
+    .join("; ");
+
+  return `style="${style}"`;
 }
 
 function normalizePath(pathname) {
@@ -558,6 +589,45 @@ function currentAccessDirtyTarget() {
   return null;
 }
 
+function appearanceFormData(form) {
+  return normalizeThemeSettings({
+    logoUrl: form.elements.logoUrl.value,
+    primaryColor: form.elements.primaryColor.value,
+    secondaryColor: form.elements.secondaryColor.value,
+    backgroundColor: form.elements.backgroundColor.value,
+    cardColor: form.elements.cardColor.value,
+    textColor: form.elements.textColor.value,
+    mutedTextColor: form.elements.mutedTextColor.value,
+    cardRadius: form.elements.cardRadius.value,
+    buttonRadius: form.elements.buttonRadius.value,
+    buttonStyle: form.elements.buttonStyle.value,
+    backgroundStyle: form.elements.backgroundStyle.value,
+    cardShadow: form.elements.cardShadow.value,
+    fontFamily: form.elements.fontFamily.value
+  });
+}
+
+function currentAppearanceDirtyTarget() {
+  if (normalizePath(window.location.pathname) !== "/nastaveni" || !canManageAppearanceSettings()) {
+    return null;
+  }
+
+  const form = document.querySelector("[data-appearance-form]");
+  const current = form ? appearanceFormData(form) : themeState.draft;
+
+  return {
+    type: "appearance",
+    form,
+    current,
+    baseline: themeState.settings,
+    isDirty: !sameThemeSettings(current, themeState.settings)
+  };
+}
+
+function currentDirtyTarget() {
+  return currentAccessDirtyTarget() || currentAppearanceDirtyTarget();
+}
+
 function discardAccessUserDraft(userId, referenceUser = null) {
   const reference = referenceUser || findAccessUser(userId) || { id: userId };
   const users = accessState.users.filter((user) => !sameAccessUserIdentity(user, reference));
@@ -593,6 +663,14 @@ function discardAccessDirtyChanges() {
     });
     render();
   }
+}
+
+function discardAppearanceDirtyChanges() {
+  themeState.draft = normalizeThemeSettings(themeState.settings);
+  themeState.preview = null;
+  themeState.message = "Neuložené změny vzhledu byly zahozeny.";
+  themeState.error = "";
+  render();
 }
 
 function roleOptions(selectedRole) {
@@ -1033,7 +1111,7 @@ function homePage(user) {
     .join("");
 
   return `
-    <main class="app-shell">
+    <main class="app-shell home-page-fixed-theme">
       ${userBar(user)}
       <section class="home-hero" aria-labelledby="home-title">
         <div class="home-hero__main">
@@ -1141,6 +1219,26 @@ function usersManagementSection() {
     ${accessUserForm(selectedUser, canEditUsers)}
     ${rolesManagementSection(canManageRoles)}
   `;
+}
+
+function canManageAppearanceSettings(user = currentUser()) {
+  return hasPermission(user, "settings", "manage");
+}
+
+function settingsManagementSection(user) {
+  if (!canManageAppearanceSettings(user)) {
+    return "";
+  }
+
+  return AppearanceSettingsBox({
+    draftSettings: themeState.draft,
+    savedSettings: themeState.settings,
+    loading: themeState.loading,
+    saving: themeState.saving,
+    previewActive: Boolean(themeState.preview),
+    message: themeState.message,
+    error: themeState.error
+  });
 }
 
 function formatAbsenceDate(value) {
@@ -1775,7 +1873,7 @@ function absenceModulePage(moduleItem, user, isDashboard = false) {
   const tabs = absenceTabsForUser(user);
 
   return `
-    <main class="app-shell module-page absence-page">
+    <main class="app-shell module-page module-theme-scope absence-page" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -1837,10 +1935,11 @@ function modulePage(moduleItem, user, isDashboard = false) {
       `
     : "";
   const usersPanel = moduleItem.id === "users" && !isDashboard ? usersManagementSection() : "";
+  const settingsPanel = moduleItem.id === "settings" && !isDashboard ? settingsManagementSection(user) : "";
   const feedbackBox = moduleFeedbackBoxFor(moduleItem, user);
 
   return `
-    <main class="app-shell module-page">
+    <main class="app-shell module-page module-theme-scope" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -1864,6 +1963,7 @@ function modulePage(moduleItem, user, isDashboard = false) {
         </div>
       </section>
       ${usersPanel}
+      ${settingsPanel}
       ${feedbackBox}
     </main>
   `;
@@ -1966,7 +2066,7 @@ function feedbackPage(user) {
     .join("");
 
   return `
-    <main class="app-shell module-page">
+    <main class="app-shell module-page module-theme-scope" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -2053,7 +2153,7 @@ function feedbackPage(user) {
 
 function forbiddenPage(user) {
   return `
-    <main class="app-shell module-page">
+    <main class="app-shell module-page module-theme-scope" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -2076,7 +2176,7 @@ function forbiddenPage(user) {
 
 function notFoundPage(user) {
   return `
-    <main class="app-shell module-page">
+    <main class="app-shell module-page module-theme-scope" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -2125,6 +2225,125 @@ async function apiJson(path, options = {}) {
   }
 
   return payload;
+}
+
+async function loadThemeSettings(options = {}) {
+  if (!authState.user || themeState.loading) {
+    return;
+  }
+
+  themeState.loading = true;
+  themeState.error = "";
+
+  try {
+    const result = await apiJson("/api/theme-settings");
+    const settings = normalizeThemeSettings(result.settings);
+    themeState.settings = settings;
+    themeState.draft = settings;
+    themeState.preview = null;
+    themeState.loaded = true;
+    themeState.message = "";
+  } catch (error) {
+    console.error("smart_odpady_theme_load_failed", error);
+    themeState.settings = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
+    themeState.draft = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
+    themeState.preview = null;
+    themeState.error = "Nastavení vzhledu se teď nepodařilo načíst. Používá se výchozí vzhled.";
+  } finally {
+    themeState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+function updateAppearanceDraft(form, options = {}) {
+  themeState.draft = appearanceFormData(form);
+  themeState.error = "";
+
+  if (options.preview) {
+    themeState.preview = themeState.draft;
+    themeState.message = "Náhled změn je zapnutý pouze pro vnitřní modulové stránky.";
+  }
+}
+
+async function saveAppearanceSettings(settings = themeState.draft) {
+  if (!canManageAppearanceSettings()) {
+    themeState.error = "Nemáte oprávnění upravovat vzhled aplikace.";
+    render();
+    return false;
+  }
+
+  const payload = normalizeThemeSettings(settings);
+  themeState.saving = true;
+  themeState.message = "Ukládám vzhled...";
+  themeState.error = "";
+  themeState.preview = payload;
+  render();
+
+  try {
+    const result = await apiJson("/api/theme-settings", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    const savedSettings = normalizeThemeSettings(result.settings || payload);
+    themeState.settings = savedSettings;
+    themeState.draft = savedSettings;
+    themeState.preview = null;
+    themeState.loaded = true;
+    themeState.message = "Vzhled aplikace byl uložen.";
+    themeState.error = "";
+    return true;
+  } catch (error) {
+    console.error("smart_odpady_theme_save_failed", error);
+    themeState.preview = null;
+    themeState.error = "Vzhled se nepodařilo uložit. Zkuste to prosím znovu.";
+    themeState.message = "";
+    return false;
+  } finally {
+    themeState.saving = false;
+    render();
+  }
+}
+
+function previewAppearanceSettings(form) {
+  updateAppearanceDraft(form, { preview: true });
+  render();
+}
+
+async function resetAppearanceSettings() {
+  themeState.draft = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
+  themeState.preview = themeState.draft;
+  await saveAppearanceSettings(themeState.draft);
+}
+
+function exportAppearanceSettings() {
+  const json = JSON.stringify(normalizeThemeSettings(themeState.draft), null, 2);
+  downloadText(`smart-odpady-vzhled-${new Date().toISOString().slice(0, 10)}.json`, json, "application/json;charset=utf-8");
+}
+
+async function importAppearanceSettings(input) {
+  const file = input.files?.[0];
+
+  if (!file) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    themeState.draft = normalizeThemeSettings(JSON.parse(text));
+    themeState.preview = themeState.draft;
+    themeState.message = "Import je připravený v náhledu. Pro trvalé uložení klikněte na Uložit vzhled.";
+    themeState.error = "";
+  } catch (error) {
+    console.error("smart_odpady_theme_import_failed", error);
+    themeState.error = "Import vzhledu se nepodařil. Zkontrolujte JSON soubor.";
+    themeState.message = "";
+  } finally {
+    input.value = "";
+    render();
+  }
 }
 
 async function startLogin(form) {
@@ -2205,6 +2424,7 @@ async function verifyLogin(form) {
       error: "",
       mockCode: false
     };
+    await loadThemeSettings({ renderAfter: false });
   } catch {
     authState = {
       ...authState,
@@ -2229,6 +2449,14 @@ async function logout() {
   };
   adminUsersState.loaded = false;
   adminUsersState.users = [];
+  themeState.loaded = false;
+  themeState.loading = false;
+  themeState.saving = false;
+  themeState.settings = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
+  themeState.draft = normalizeThemeSettings(DEFAULT_THEME_SETTINGS);
+  themeState.preview = null;
+  themeState.message = "";
+  themeState.error = "";
   navigateToUrl(routeHref("/"));
 }
 
@@ -2352,6 +2580,7 @@ async function bootstrapAuth() {
       error: "",
       mockCode: false
     };
+    await loadThemeSettings({ renderAfter: false });
   } catch {
     authState = {
       status: "anonymous",
@@ -2367,14 +2596,14 @@ async function bootstrapAuth() {
   render();
 }
 
-function hasAccessUnsavedChanges() {
-  return normalizePath(window.location.pathname) === "/uzivatele" && Boolean(currentAccessDirtyTarget());
+function hasUnsavedChanges() {
+  return Boolean(currentDirtyTarget());
 }
 
 const accessUnsavedChangesGuard = useUnsavedChangesGuard({
-  isDirty: hasAccessUnsavedChanges,
-  saveChanges: saveAccessDirtyChanges,
-  discardChanges: discardAccessDirtyChanges,
+  isDirty: hasUnsavedChanges,
+  saveChanges: saveDirtyChanges,
+  discardChanges: discardDirtyChanges,
   render
 });
 
@@ -2482,8 +2711,8 @@ function setAbsenceNotice(message, error = "") {
   absenceUiState.error = error;
 }
 
-function downloadCsv(filename, csv) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+function downloadText(filename, text, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -2492,6 +2721,10 @@ function downloadCsv(filename, csv) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsv(filename, csv) {
+  downloadText(filename, csv, "text/csv;charset=utf-8");
 }
 
 function submitAbsenceRequest(form) {
@@ -2954,6 +3187,37 @@ async function saveAccessDirtyChanges() {
   return false;
 }
 
+async function saveDirtyChanges() {
+  const accessTarget = currentAccessDirtyTarget();
+
+  if (accessTarget) {
+    return saveAccessDirtyChanges();
+  }
+
+  const appearanceTarget = currentAppearanceDirtyTarget();
+
+  if (appearanceTarget?.isDirty) {
+    return saveAppearanceSettings(appearanceTarget.current);
+  }
+
+  return true;
+}
+
+function discardDirtyChanges() {
+  const accessTarget = currentAccessDirtyTarget();
+
+  if (accessTarget) {
+    discardAccessDirtyChanges();
+    return;
+  }
+
+  const appearanceTarget = currentAppearanceDirtyTarget();
+
+  if (appearanceTarget?.isDirty) {
+    discardAppearanceDirtyChanges();
+  }
+}
+
 function createAccessUser() {
   if (!canEditAccessUsers()) {
     setAccessError("Nemáte oprávnění přidávat uživatele.", "user");
@@ -3109,6 +3373,14 @@ function changeAccessUserRole(select) {
 }
 
 document.addEventListener("submit", (event) => {
+  const appearanceForm = event.target.closest("[data-appearance-form]");
+  if (appearanceForm) {
+    event.preventDefault();
+    updateAppearanceDraft(appearanceForm, { preview: true });
+    saveAppearanceSettings(themeState.draft);
+    return;
+  }
+
   const accessUserForm = event.target.closest("[data-access-user-form]");
   if (accessUserForm) {
     event.preventDefault();
@@ -3174,7 +3446,33 @@ document.addEventListener("submit", (event) => {
   startLogin(form);
 });
 
+document.addEventListener("input", (event) => {
+  const appearanceField = event.target.closest("[data-appearance-field]");
+  if (appearanceField) {
+    const form = appearanceField.closest("[data-appearance-form]");
+    if (form) {
+      updateAppearanceDraft(form);
+    }
+  }
+});
+
 document.addEventListener("change", (event) => {
+  const appearanceImport = event.target.closest("[data-appearance-import]");
+  if (appearanceImport) {
+    importAppearanceSettings(appearanceImport);
+    return;
+  }
+
+  const appearanceField = event.target.closest("[data-appearance-field]");
+  if (appearanceField) {
+    const form = appearanceField.closest("[data-appearance-form]");
+    if (form) {
+      updateAppearanceDraft(form);
+      render();
+    }
+    return;
+  }
+
   const accessManagerSelect = event.target.closest("[data-access-manager-select]");
   if (accessManagerSelect) {
     const userId = accessManagerSelect.dataset.accessManagerUser;
@@ -3242,6 +3540,27 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const appearancePreview = event.target.closest("[data-appearance-preview]");
+  if (appearancePreview) {
+    const form = appearancePreview.closest("[data-appearance-form]");
+    if (form) {
+      previewAppearanceSettings(form);
+    }
+    return;
+  }
+
+  const appearanceReset = event.target.closest("[data-appearance-reset]");
+  if (appearanceReset) {
+    await resetAppearanceSettings();
+    return;
+  }
+
+  const appearanceExport = event.target.closest("[data-appearance-export]");
+  if (appearanceExport) {
+    exportAppearanceSettings();
+    return;
+  }
+
   const unsavedAction = event.target.closest("[data-unsaved-action]");
   if (unsavedAction) {
     const action = unsavedAction.dataset.unsavedAction;
