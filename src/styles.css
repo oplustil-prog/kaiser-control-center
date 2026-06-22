@@ -924,6 +924,69 @@ h1 {
   font-weight: 800;
 }
 
+.permissions-panel {
+  border-color: rgba(117, 189, 37, 0.24);
+}
+
+.permissions-table {
+  min-width: 760px;
+}
+
+.permissions-table td {
+  vertical-align: top;
+  white-space: normal;
+}
+
+.permissions-table td:first-child {
+  width: 170px;
+  white-space: nowrap;
+}
+
+.permission-modules {
+  display: grid;
+  gap: 10px;
+}
+
+.permission-module {
+  display: grid;
+  gap: 7px;
+}
+
+.permission-module strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid rgba(117, 189, 37, 0.28);
+  border-radius: 999px;
+  background: rgba(117, 189, 37, 0.1);
+  color: #335f16;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.permission-chip--strong {
+  border-color: #75bd25;
+  background: #75bd25;
+  color: #ffffff;
+}
+
+.permissions-note {
+  padding-top: 4px;
+  font-size: 0.86rem;
+}
+
 .module-feedback {
   position: relative;
   display: grid;

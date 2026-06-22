@@ -52,6 +52,7 @@ import {
   visibleFeedbackForUser
 } from "./data/moduleFeedback.js";
 import {
+  ROLE_PERMISSIONS,
   canViewModule,
   filterModulesByUser,
   hasPermission,
@@ -253,6 +254,100 @@ function stackedCell(primary, secondary) {
   `;
 }
 
+const permissionActionLabels = {
+  view: "zobrazit",
+  create: "vytvořit",
+  edit: "upravit",
+  delete: "smazat",
+  approve: "schválit",
+  export: "export",
+  manage: "správa",
+  "*": "vše"
+};
+
+function moduleTitleByPermissionId(moduleId) {
+  if (moduleId === "*") {
+    return "Všechny moduly";
+  }
+
+  const moduleItem = [...orderedModules, feedbackMenuItem].find((item) => item.id === moduleId);
+  return moduleItem?.title || moduleId;
+}
+
+function rolePermissionSummary(role) {
+  const permissions = ROLE_PERMISSIONS[role] || [];
+
+  if (permissions.includes("*:*")) {
+    return `
+      <span class="permission-module">
+        <strong>Všechny moduly</strong>
+        <span class="permission-actions">
+          <span class="permission-chip permission-chip--strong">vše</span>
+        </span>
+      </span>
+    `;
+  }
+
+  const grouped = permissions.reduce((modulesMap, permission) => {
+    const [moduleId, action] = permission.split(":");
+    const actions = modulesMap.get(moduleId) || [];
+    actions.push(action);
+    modulesMap.set(moduleId, actions);
+    return modulesMap;
+  }, new Map());
+
+  return [...grouped.entries()]
+    .map(([moduleId, actions]) => `
+      <span class="permission-module">
+        <strong>${escapeHtml(moduleTitleByPermissionId(moduleId))}</strong>
+        <span class="permission-actions">
+          ${actions.map((action) => `
+            <span class="permission-chip">${escapeHtml(permissionActionLabels[action] || action)}</span>
+          `).join("")}
+        </span>
+      </span>
+    `)
+    .join("");
+}
+
+function permissionsOverviewSection() {
+  const roleRows = Object.keys(ROLE_PERMISSIONS)
+    .map((role) => `
+      <tr>
+        <td data-label="Role"><strong>${escapeHtml(roleLabel(role))}</strong></td>
+        <td data-label="Oprávnění">
+          <div class="permission-modules">${rolePermissionSummary(role)}</div>
+        </td>
+      </tr>
+    `)
+    .join("");
+
+  return `
+    <section class="users-panel permissions-panel" aria-labelledby="permissions-title">
+      <div class="users-panel__head">
+        <div>
+          <h2 id="permissions-title">Přístupová práva podle rolí</h2>
+          <p>Tady je vidět, co která role v aplikaci Smart odpady smí zobrazit nebo provést.</p>
+        </div>
+      </div>
+      <div class="users-table-wrap">
+        <table class="users-table permissions-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Oprávnění</th>
+            </tr>
+          </thead>
+          <tbody>${roleRows}</tbody>
+        </table>
+      </div>
+      <p class="permissions-note">
+        Ruční výjimky `deniedModules` mají přednost před rolí. `allowedModules` umí přidat mimořádný přístup k modulu.
+      </p>
+    </section>
+  `;
+}
+
 function loadingPage() {
   return `
     <main class="login-shell">
@@ -425,6 +520,7 @@ function usersManagementSection() {
         </table>
       </div>
     </section>
+    ${permissionsOverviewSection()}
   `;
 }
 
