@@ -913,6 +913,10 @@ h1 {
   font-weight: 700;
 }
 
+.users-table__row--selected td {
+  background: rgba(117, 189, 37, 0.08);
+}
+
 .users-contact {
   display: grid;
   gap: 3px;

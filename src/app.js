@@ -321,8 +321,8 @@ function findAccessUser(userId) {
 }
 
 function selectedAccessUser(users) {
-  const selectedId = accessState.selectedUserId;
-  return users.find((user) => user.id === selectedId) || users[0] || null;
+  const selectedId = String(accessState.selectedUserId || "").trim().toLowerCase();
+  return users.find((user) => String(user.id || "").trim().toLowerCase() === selectedId) || users[0] || null;
 }
 
 function selectedAccessRole() {
@@ -468,6 +468,17 @@ function upsertLocalAccessUser(user) {
   });
 }
 
+function focusAccessUserEditor() {
+  const editor = document.querySelector("#access-user-editor");
+
+  if (!editor) {
+    return;
+  }
+
+  editor.scrollIntoView({ block: "start", behavior: "smooth" });
+  editor.querySelector("input[name='name']")?.focus({ preventScroll: true });
+}
+
 function accessUserForm(user, canEditUsers) {
   if (!user) {
     return `
@@ -484,7 +495,7 @@ function accessUserForm(user, canEditUsers) {
   const roleIsAdmin = normalizeRole(user.role) === "admin";
 
   return `
-    <section class="users-panel access-editor" aria-labelledby="access-user-title">
+    <section class="users-panel access-editor" id="access-user-editor" aria-labelledby="access-user-title">
       <div class="users-panel__head">
         <div>
           <h2 id="access-user-title">Detail / editace uživatele</h2>
@@ -750,7 +761,7 @@ function usersManagementSection() {
   const rows = users
     .map(
       (user) => `
-        <tr>
+        <tr class="${String(user.id) === String(selectedUser?.id) ? "users-table__row--selected" : ""}">
           <td data-label="Jméno"><strong>${escapeHtml(user.name || "Bez jména")}</strong></td>
           <td data-label="Kontakt">${stackedCell(user.email, user.phone)}</td>
           <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
@@ -758,8 +769,13 @@ function usersManagementSection() {
           <td data-label="Poslední přihlášení">${formatDateTime(user.lastLoginAt)}</td>
           <td data-label="Akce">
             <div class="users-actions">
-              <button class="secondary-link secondary-link--compact" type="button" data-access-edit-user="${escapeHtml(user.id)}">
-                Upravit
+              <button
+                class="secondary-link secondary-link--compact"
+                type="button"
+                data-access-edit-user="${escapeHtml(user.id)}"
+                ${String(user.id) === String(selectedUser?.id) ? 'aria-current="true"' : ""}
+              >
+                ${String(user.id) === String(selectedUser?.id) ? "Vybráno" : "Upravit"}
               </button>
               ${canEditUsers ? (
                 user.active === false
@@ -2430,16 +2446,26 @@ function createAccessUser() {
     lastLoginAt: null
   });
   render();
+  focusAccessUserEditor();
 }
 
 function selectAccessUser(userId) {
+  const user = findAccessUser(userId);
+
+  if (!user) {
+    setAccessError("Uživatel nebyl nalezen.");
+    render();
+    return;
+  }
+
   setAccessState({
     ...accessState,
-    selectedUserId: userId,
+    selectedUserId: user.id,
     message: "",
     error: ""
   });
   render();
+  focusAccessUserEditor();
 }
 
 function selectAccessRole(roleId) {
