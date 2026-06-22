@@ -1,6 +1,6 @@
-# Kaiser Control Center
+# Smart odpady
 
-Čistý lokální základ pro Kaiser Control Center podle zadání z PDF.
+Interní provozní systém pro správu odpadových služeb, vozového parku, servisních hlášení, tras, zákazníků, nákladů a reportů.
 
 ## Rozsah první verze
 
@@ -9,7 +9,10 @@
 - Připravené skeleton routy pro budoucí modulové dashboardy.
 - Statická konfigurace modulů v `src/data/modules.js`.
 - Lokální SVG komponenty ikon v `src/components/icons/`.
-- Bez API, backendu, databáze, autentizace a Cloudflare deploye.
+- Passwordless přihlášení přes jednorázový kód.
+- Cloudflare Pages Functions pro auth API.
+- Filtrování menu podle role.
+- Lokální mock režim bez Twilio účtu.
 
 ## Pneumatiky
 
@@ -29,6 +32,14 @@ Bez správce balíčků lze spustit přímo:
 node scripts/serve.mjs
 ```
 
+Lokální server obsahuje vývojový mock login nad kontakty z veřejné stránky Kaiser servis:
+
+- `oplustil@kaiserservis.cz` / role admin
+- ostatní osobní kontakty z https://www.kaiserservis.cz/kontakty/ podle přiřazené role
+- ověřovací kód `123456`
+
+Mock login je určený jen pro lokální vývoj.
+
 ## Build
 
 ```bash
@@ -42,6 +53,43 @@ node scripts/build.mjs
 ```
 
 Výstup vznikne ve složce `dist/`.
+
+## Cloudflare Pages auth
+
+Frontend nevolá Twilio přímo. API vrstva je připravená ve složce `functions/`:
+
+- `POST /api/auth/start`
+- `POST /api/auth/verify`
+- `POST /api/auth/logout`
+- `GET /api/me`
+- `GET /api/users`
+- `POST /api/users`
+- `PATCH /api/users/:id`
+- `PATCH /api/users/:id/disable`
+
+Produkční hodnoty patří do Cloudflare Variables / Secrets, ne do GitHubu:
+
+```bash
+APP_ENV=production
+AUTH_MODE=twilio
+AUTH_SESSION_SECRET=...
+AUTH_COOKIE_NAME=__Host-smart_odpady_session
+APP_BASE_URL=https://smart-odpady.pages.dev
+ALLOWED_EMAIL_DOMAIN=kaiserservis.cz
+AUTH_USERS_JSON=[{"id":"u1","name":"...","email":"...","phone":"","role":"admin","status":"active","department":"...","position":"...","createdAt":"...","lastLoginAt":null}]
+VITE_APP_VERSION=v0.1.0
+VITE_APP_BRANCH=main
+VITE_APP_COMMIT=abcdef1
+VITE_BACKUP_DATE="2026-06-21 22:20"
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_VERIFY_SERVICE_SID=...
+SENDGRID_API_KEY=...
+```
+
+V produkci se mock OTP nepovolí na větvi `main`; testovací kód `123456` je pouze pro lokální vývoj nebo neprodukční prostředí s `AUTH_MODE=mock`.
+
+Trvalé vytváření a úpravy uživatelů v admin modulu vyžadují další krok s databází, například Cloudflare D1. Aktuální první verze umí povolené uživatele bezpečně číst ze serverové konfigurace; bez vlastní `AUTH_USERS_JSON` použije výchozí veřejné kontakty Kaiser servis.
 
 ## Ověření buildu
 

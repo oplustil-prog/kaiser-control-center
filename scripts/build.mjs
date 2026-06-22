@@ -1,6 +1,7 @@
 import { access, mkdir, readdir, rm, stat, copyFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildMetaModuleSource, resolveBuildMeta } from "./build-meta.mjs";
 import { modules } from "../src/data/modules.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -44,6 +45,10 @@ const routes = new Set([
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await copyDir(src, path.join(dist, "src"));
+await writeFile(
+  path.join(dist, "src/data/buildMeta.js"),
+  buildMetaModuleSource(await resolveBuildMeta(root))
+);
 if (await fileExists(publicDir)) {
   await copyDir(publicDir, dist);
 }

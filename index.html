@@ -5,13 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Kaiser Control Center - centralni system pro provoz, servis a trasy."
+      content="Smart odpady - provozní systém pro odpady, vozidla a trasy."
     />
-    <title>Kaiser Control Center</title>
+    <title>Smart odpady</title>
     <script>
-      document.write(
-        `<base href="${location.hostname.endsWith("github.io") ? "/kaiser-control-center/" : "/"}">`
-      );
+      const pathParts = location.pathname.split("/").filter(Boolean);
+      const basePath = location.hostname.endsWith("github.io") && pathParts.length > 0
+        ? `/${pathParts[0]}/`
+        : "/";
+      document.write(`<base href="${basePath}">`);
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
