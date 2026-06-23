@@ -156,6 +156,10 @@ const accessManagerState = {
   pendingManagerId: ""
 };
 
+const accessUsersSearchState = {
+  query: ""
+};
+
 let accessState = loadAccessState();
 
 const themeState = {
@@ -1058,6 +1062,59 @@ function managerCell(user, users, editable) {
   `;
 }
 
+function normalizeAccessSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function accessUserSearchText(user, users) {
+  return normalizeAccessSearchText([
+    user?.name,
+    user?.email,
+    user?.phone,
+    user?.department,
+    roleLabel(user?.role),
+    activeStatusLabel(user),
+    managerLabel(user, users)
+  ].join(" "));
+}
+
+function userMatchesAccessSearch(user, users, normalizedQuery) {
+  return !normalizedQuery || accessUserSearchText(user, users).includes(normalizedQuery);
+}
+
+function updateAccessUsersSearch(input) {
+  accessUsersSearchState.query = input?.value || "";
+  const panel = input?.closest("[data-access-users-panel]");
+  const rows = [...(panel?.querySelectorAll("[data-access-user-row]") || [])];
+  const noResultsRow = panel?.querySelector("[data-access-users-empty-search]");
+  const countNode = panel?.querySelector("[data-access-users-search-count]");
+  const normalizedQuery = normalizeAccessSearchText(accessUsersSearchState.query);
+  let visibleCount = 0;
+
+  rows.forEach((row) => {
+    const matches = !normalizedQuery || String(row.dataset.userSearch || "").includes(normalizedQuery);
+    row.hidden = !matches;
+
+    if (matches) {
+      visibleCount += 1;
+    }
+  });
+
+  if (noResultsRow) {
+    noResultsRow.hidden = !normalizedQuery || visibleCount > 0;
+  }
+
+  if (countNode) {
+    countNode.textContent = normalizedQuery
+      ? `Zobrazeno ${visibleCount} z ${rows.length}`
+      : `Celkem ${rows.length}`;
+  }
+}
+
 function accessFeedbackMessage(extraClass = "", target = "") {
   const message = accessState.error || accessState.message;
 
@@ -1461,11 +1518,21 @@ function usersManagementSection() {
   const canEditUsers = hasPermission(user, "users", "edit") || hasPermission(user, "users", "manage");
   const canManageRoles = hasPermission(user, "users", "manage");
   const canEditManagerColumn = canEditManagers();
+  const searchQuery = accessUsersSearchState.query;
+  const normalizedSearchQuery = normalizeAccessSearchText(searchQuery);
+  const visibleUsersCount = users.filter((userItem) => userMatchesAccessSearch(userItem, users, normalizedSearchQuery)).length;
 
   const rows = users
     .map(
-      (user) => `
-        <tr class="${String(user.id) === String(selectedUser?.id) ? "users-table__row--selected" : ""}">
+      (user) => {
+        const matchesSearch = userMatchesAccessSearch(user, users, normalizedSearchQuery);
+        return `
+        <tr
+          class="${String(user.id) === String(selectedUser?.id) ? "users-table__row--selected" : ""}"
+          data-access-user-row
+          data-user-search="${escapeHtml(accessUserSearchText(user, users))}"
+          ${matchesSearch ? "" : "hidden"}
+        >
           <td data-label="Jméno"><strong>${escapeHtml(user.name || "Bez jména")}</strong></td>
           <td data-label="Kontakt">${stackedCell(user.email, user.phone)}</td>
           <td data-label="Role">${escapeHtml(roleLabel(user.role))}</td>
@@ -1490,25 +1557,44 @@ function usersManagementSection() {
             </div>
           </td>
         </tr>
-      `
+      `;
+      }
     )
     .join("") || `
       <tr>
         <td colspan="7">Zatím tu není žádný uživatel.</td>
       </tr>
     `;
+  const emptySearchRow = users.length ? `
+    <tr data-access-users-empty-search ${normalizedSearchQuery && visibleUsersCount === 0 ? "" : "hidden"}>
+      <td colspan="7">Žádný uživatel neodpovídá hledání.</td>
+    </tr>
+  ` : "";
 
   return `
     ${accessNotice()}
     ${accessToast()}
     ${adminUsersState.error ? `<section class="users-panel"><p class="login-error">${escapeHtml(adminUsersState.error)}</p></section>` : ""}
-    <section class="users-panel" aria-labelledby="users-title">
+    <section class="users-panel" aria-labelledby="users-title" data-access-users-panel>
       <div class="users-panel__head">
         <div>
           <h2 id="users-title">Přehled uživatelů</h2>
           <p>Vidíte role, stav účtu a možnost upravit konkrétní oprávnění. Změny se ukládají do centrální správy uživatelů.</p>
         </div>
         ${canEditUsers ? '<button class="primary-action" type="button" data-access-new-user>Přidat uživatele</button>' : ""}
+      </div>
+      <div class="users-search">
+        <label>
+          <span>Vyhledat uživatele</span>
+          <input
+            type="search"
+            value="${escapeHtml(searchQuery)}"
+            placeholder="Jméno, e-mail, telefon nebo role"
+            autocomplete="off"
+            data-access-users-search
+          />
+        </label>
+        <span data-access-users-search-count>${normalizedSearchQuery ? `Zobrazeno ${visibleUsersCount} z ${users.length}` : `Celkem ${users.length}`}</span>
       </div>
       <div class="users-table-wrap">
         <table class="users-table">
@@ -1523,7 +1609,7 @@ function usersManagementSection() {
               <th>Akce</th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody>${rows}${emptySearchRow}</tbody>
         </table>
       </div>
     </section>
@@ -3781,6 +3867,7 @@ async function logout() {
   };
   adminUsersState.loaded = false;
   adminUsersState.users = [];
+  accessUsersSearchState.query = "";
   themeState.loaded = false;
   themeState.loading = false;
   themeState.saving = false;
@@ -5012,6 +5099,12 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const accessUsersSearch = event.target.closest("[data-access-users-search]");
+  if (accessUsersSearch) {
+    updateAccessUsersSearch(accessUsersSearch);
+    return;
+  }
+
   const quickNote = event.target.closest("[data-quick-note]");
   if (quickNote) {
     quickAbsenceState.note = quickNote.value;
