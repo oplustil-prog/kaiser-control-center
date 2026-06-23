@@ -28,6 +28,19 @@ function absenceSettingsDatabase(env, required = false) {
   return db;
 }
 
+async function ensureAbsenceSettingsTable(db) {
+  await db
+    .prepare(`
+      CREATE TABLE IF NOT EXISTS absence_settings (
+        id TEXT PRIMARY KEY NOT NULL,
+        settings_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by_user_id TEXT
+      )
+    `)
+    .run();
+}
+
 export function absenceSettingsApiStatus(env) {
   return absenceSettingsDatabase(env) ? "ready" : "waiting";
 }
@@ -40,6 +53,8 @@ export async function readAbsenceSettings(env) {
   }
 
   try {
+    await ensureAbsenceSettingsTable(db);
+
     const row = await db
       .prepare(`
         SELECT settings_json, updated_at, updated_by_user_id
@@ -72,6 +87,8 @@ export async function saveAbsenceSettings(env, input, userId = "") {
     updatedAt: now,
     updatedByUserId: userId
   });
+
+  await ensureAbsenceSettingsTable(db);
 
   await db
     .prepare(`

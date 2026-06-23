@@ -2,6 +2,15 @@ import { normalizeIdentifier } from "./auth.js";
 import { markAbsenceReminderSent } from "./absence-requests-store.js";
 
 const NOTIFICATION_DB_BINDING = "SMART_ODPADY_DB";
+const DETAILED_NOTIFICATION_COLUMNS = [
+  "module_id",
+  "subject",
+  "message_preview",
+  "provider",
+  "provider_message_id",
+  "attempts",
+  "updated_at"
+];
 
 const TYPE_LABELS = {
   vacation: "Dovolená",
@@ -13,6 +22,20 @@ const TYPE_LABELS = {
 
 function notificationDatabase(env) {
   return env?.[NOTIFICATION_DB_BINDING] || null;
+}
+
+async function notificationLogColumns(db) {
+  try {
+    const result = await db.prepare("PRAGMA table_info(notification_logs)").all();
+    return new Set((result.results || []).map((row) => cleanString(row.name)));
+  } catch (error) {
+    console.error("notification.schema_read_failed", { message: error.message });
+    return new Set();
+  }
+}
+
+function canWriteDetailedNotification(columns) {
+  return DETAILED_NOTIFICATION_COLUMNS.every((columnName) => columns.has(columnName));
 }
 
 function cleanString(value) {
@@ -153,11 +176,58 @@ export async function logNotification(env, entry) {
   const now = new Date().toISOString();
 
   try {
+    const columns = await notificationLogColumns(db);
+
+    if (canWriteDetailedNotification(columns)) {
+      await db
+        .prepare(`
+          INSERT INTO notification_logs (
+            id,
+            module_id,
+            type,
+            channel,
+            recipient,
+            related_entity_type,
+            related_entity_id,
+            status,
+            error_message,
+            subject,
+            message_preview,
+            provider,
+            provider_message_id,
+            attempts,
+            sent_at,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .bind(
+          randomId("notification-log"),
+          cleanString(entry.moduleId || "dovolena-nemoc"),
+          cleanString(entry.type),
+          cleanString(entry.channel),
+          nullableString(entry.recipient),
+          cleanString(entry.relatedEntityType || "absence_request"),
+          nullableString(entry.relatedEntityId),
+          cleanString(entry.status || "skipped"),
+          nullableString(entry.errorMessage),
+          nullableString(entry.subject),
+          nullableString(entry.messagePreview || entry.errorMessage || entry.subject),
+          nullableString(entry.provider),
+          nullableString(entry.providerMessageId),
+          Number(entry.attempts || 1),
+          entry.status === "sent" ? now : null,
+          now,
+          now
+        )
+        .run();
+      return null;
+    }
+
     await db
       .prepare(`
         INSERT INTO notification_logs (
           id,
-          module_id,
           type,
           channel,
           recipient,
@@ -165,33 +235,20 @@ export async function logNotification(env, entry) {
           related_entity_id,
           status,
           error_message,
-          subject,
-          message_preview,
-          provider,
-          provider_message_id,
-          attempts,
           sent_at,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         randomId("notification-log"),
-        cleanString(entry.moduleId || "dovolena-nemoc"),
         cleanString(entry.type),
         cleanString(entry.channel),
         nullableString(entry.recipient),
         cleanString(entry.relatedEntityType || "absence_request"),
         nullableString(entry.relatedEntityId),
         cleanString(entry.status || "skipped"),
-        nullableString(entry.errorMessage),
-        nullableString(entry.subject),
-        nullableString(entry.messagePreview || entry.errorMessage || entry.subject),
-        nullableString(entry.provider),
-        nullableString(entry.providerMessageId),
-        Number(entry.attempts || 1),
+        nullableString(entry.errorMessage || entry.messagePreview || entry.subject),
         entry.status === "sent" ? now : null,
-        now,
         now
       )
       .run();
