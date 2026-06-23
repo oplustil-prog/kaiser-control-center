@@ -1,9 +1,13 @@
 import { moduleDashboards, modules } from "./data/modules.js";
+import { AiAssistantChat } from "./components/AiAssistantChat.js";
+import { AiAssistantLauncher } from "./components/AiAssistantLauncher.js";
+import { AiWelcomeModal } from "./components/AiWelcomeModal.js";
 import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
 import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
 import { AppearanceSettingsBox } from "./components/AppearanceSettingsBox.js";
 import { QuickAbsenceIcon, ReportsIcon } from "./components/icons/index.js";
+import { useSpeechRecognition } from "./useSpeechRecognition.js";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard.js";
 import {
   ABSENCE_REPORT_DAY,
@@ -113,6 +117,11 @@ const quickAbsenceMenuItem = {
   disabled: false,
   order: 0
 };
+const AI_INITIAL_MESSAGE =
+  "Dobrý den, jsem Smart pomocník. Můžete psát nebo mluvit. Řekněte například: chci dovolenou, nahlásit nemoc, otevřít pneumatiky nebo správa uživatelů.";
+const AI_STATUS_READY = "Připraven";
+const AI_STATUS_DONE = "Hotovo";
+const AI_UNSUPPORTED_NOTICE = "Hlasové ovládání není v tomto prohlížeči podporované. Použijte textový dotaz.";
 const EMPLOYMENT_STATUS_OPTIONS = [
   { value: "active", label: "Aktivní" },
   { value: "inactive", label: "Neaktivní" }
@@ -229,6 +238,36 @@ const quickAbsenceState = {
   apiStatus: "waiting",
   missingEndpoint: "POST /api/absence-requests"
 };
+
+let aiAssistantMessageId = 0;
+const aiAssistantState = {
+  welcomeVisible: true,
+  chatOpen: false,
+  launcherVisible: false,
+  mode: "text",
+  input: "",
+  voiceStatus: AI_STATUS_READY,
+  voiceNotice: "",
+  isListening: false,
+  messages: [createAiAssistantMessage("bot", AI_INITIAL_MESSAGE)]
+};
+
+const speechRecognition = useSpeechRecognition({
+  onResult: (transcript) => submitAiAssistantQuestion(transcript, { fromVoice: true }),
+  onStatusChange: (status) => {
+    aiAssistantState.voiceStatus = status || AI_STATUS_READY;
+    render();
+  },
+  onListeningChange: (isListening) => {
+    aiAssistantState.isListening = isListening;
+    render();
+  },
+  onError: (error) => {
+    aiAssistantState.voiceStatus = error?.status || aiAssistantState.voiceStatus;
+    aiAssistantState.voiceNotice = error?.message || "";
+    render();
+  }
+});
 
 const employeeCardState = {
   employees: [],
@@ -374,6 +413,200 @@ function moduleFeedbackBoxFor(moduleItem, user, options = {}) {
     error: feedbackState.error || "",
     placeholder: options.placeholder
   });
+}
+
+function createAiAssistantMessage(sender, text, actions = []) {
+  aiAssistantMessageId += 1;
+  return {
+    id: `ai-message-${aiAssistantMessageId}`,
+    sender,
+    text,
+    actions
+  };
+}
+
+function resetAiAssistantSession() {
+  speechRecognition.stop({ status: false });
+  aiAssistantState.welcomeVisible = true;
+  aiAssistantState.chatOpen = false;
+  aiAssistantState.launcherVisible = false;
+  aiAssistantState.mode = "text";
+  aiAssistantState.input = "";
+  aiAssistantState.voiceStatus = AI_STATUS_READY;
+  aiAssistantState.voiceNotice = "";
+  aiAssistantState.isListening = false;
+  aiAssistantState.messages = [createAiAssistantMessage("bot", AI_INITIAL_MESSAGE)];
+}
+
+function normalizeAiPrompt(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function aiPromptIncludes(normalizedPrompt, keywords) {
+  return keywords.some((keyword) => normalizedPrompt.includes(keyword));
+}
+
+function aiAssistantResponse(question) {
+  const prompt = normalizeAiPrompt(question);
+
+  if (aiPromptIncludes(prompt, ["nemoc", "jsem nemocny", "nahlasit nemoc"])) {
+    return {
+      text: "Pro nahlášení nemoci použijte Rychlé zadání. Otevřu vám ho.",
+      actions: [{ label: "Nahlásit nemoc", route: ABSENCE_QUICK_ROUTE }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["dovolena", "chci dovolenou", "zadost o dovolenou"])) {
+    return {
+      text: "Pro zadání dovolené použijte Rychlé zadání. Otevřu vám ho.",
+      actions: [{ label: "Otevřít Rychlé zadání", route: ABSENCE_QUICK_ROUTE }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["lekar", "doktor", "jdu k lekari"])) {
+    return {
+      text: "Lékaře zadáte v rychlém zadání dovolené a nemoci.",
+      actions: [{ label: "Otevřít Rychlé zadání", route: ABSENCE_QUICK_ROUTE }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["pneumatiky", "pneu"])) {
+    return {
+      text: "Otevřu modul Pneumatiky.",
+      actions: [{ label: "Otevřít Pneumatiky", route: "/pneumatiky" }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["zavada", "hlaseni", "nahlasit zavadu", "porucha"])) {
+    return {
+      text: "Pro nahlášení závady otevřete modul Hlášení řidičů.",
+      actions: [{ label: "Otevřít Hlášení řidičů", route: "/hlaseni-ridicu" }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["uzivatel", "uzivatele", "prava", "role"])) {
+    return {
+      text: "Uživatelé a práva se spravují v modulu Uživatelé a role.",
+      actions: [{ label: "Otevřít Uživatelé a role", route: "/uzivatele" }]
+    };
+  }
+
+  if (aiPromptIncludes(prompt, ["nastaveni", "vzhled", "barvy", "logo"])) {
+    return {
+      text: "Nastavení aplikace otevřete v modulu Nastavení.",
+      actions: [{ label: "Otevřít Nastavení", route: "/nastaveni" }]
+    };
+  }
+
+  return {
+    text: "Zatím jsem jen testovací pomocník. Umím poradit se základní orientací v aplikaci.",
+    actions: []
+  };
+}
+
+function openAiAssistant(mode = "text") {
+  aiAssistantState.welcomeVisible = false;
+  aiAssistantState.chatOpen = true;
+  aiAssistantState.launcherVisible = false;
+  aiAssistantState.mode = mode === "voice" ? "voice" : "text";
+  aiAssistantState.voiceStatus = AI_STATUS_READY;
+  aiAssistantState.voiceNotice = "";
+  render();
+}
+
+function dismissAiAssistantWelcome() {
+  aiAssistantState.welcomeVisible = false;
+  aiAssistantState.launcherVisible = true;
+  render();
+}
+
+function closeAiAssistant() {
+  speechRecognition.stop({ status: false });
+  aiAssistantState.chatOpen = false;
+  aiAssistantState.welcomeVisible = false;
+  aiAssistantState.launcherVisible = true;
+  aiAssistantState.isListening = false;
+  aiAssistantState.voiceStatus = AI_STATUS_DONE;
+  render();
+}
+
+function submitAiAssistantQuestion(question, options = {}) {
+  const text = String(question || "").trim();
+
+  if (!text) {
+    return;
+  }
+
+  const response = aiAssistantResponse(text);
+  aiAssistantState.messages = [
+    ...aiAssistantState.messages,
+    createAiAssistantMessage("user", text),
+    createAiAssistantMessage("bot", response.text, response.actions)
+  ];
+  aiAssistantState.input = "";
+  aiAssistantState.voiceNotice = "";
+
+  if (options.fromVoice) {
+    aiAssistantState.voiceStatus = AI_STATUS_DONE;
+  }
+
+  render();
+}
+
+function startAiVoiceRecognition() {
+  aiAssistantState.voiceNotice = "";
+
+  if (!speechRecognition.supported) {
+    aiAssistantState.voiceStatus = "Hlasové ovládání není podporované";
+    aiAssistantState.voiceNotice = AI_UNSUPPORTED_NOTICE;
+    render();
+    return;
+  }
+
+  speechRecognition.start();
+}
+
+function stopAiVoiceRecognition() {
+  speechRecognition.stop();
+  aiAssistantState.isListening = false;
+  aiAssistantState.voiceStatus = AI_STATUS_DONE;
+  render();
+}
+
+function navigateFromAiAssistant(route) {
+  speechRecognition.stop({ status: false });
+  aiAssistantState.chatOpen = false;
+  aiAssistantState.welcomeVisible = false;
+  aiAssistantState.launcherVisible = true;
+  aiAssistantState.isListening = false;
+  guardedAccessAction(() => navigateToUrl(routeHref(route)));
+}
+
+function renderAiAssistantLayer() {
+  const user = authState.user ? currentUser() : null;
+
+  if (!user || !isUserActive(user)) {
+    return "";
+  }
+
+  return [
+    AiWelcomeModal({ visible: aiAssistantState.welcomeVisible }),
+    AiAssistantChat({
+      open: aiAssistantState.chatOpen,
+      mode: aiAssistantState.mode,
+      messages: aiAssistantState.messages,
+      input: aiAssistantState.input,
+      voiceStatus: aiAssistantState.voiceStatus,
+      voiceNotice: aiAssistantState.voiceNotice,
+      isListening: aiAssistantState.isListening
+    }),
+    AiAssistantLauncher({
+      visible: aiAssistantState.launcherVisible && !aiAssistantState.chatOpen && !aiAssistantState.welcomeVisible
+    })
+  ].join("");
 }
 
 function formatDateTime(value) {
@@ -3966,6 +4199,7 @@ async function verifyLogin(form) {
 
 async function logout() {
   await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+  resetAiAssistantSession();
   authState = {
     status: "anonymous",
     user: null,
@@ -4134,6 +4368,7 @@ function render() {
   try {
     accessUnsavedChangesGuard.unmountModal();
     renderApp();
+    app.insertAdjacentHTML("beforeend", renderAiAssistantLayer());
     app.insertAdjacentHTML("beforeend", accessUnsavedChangesGuard.renderModal());
   } catch (error) {
     console.error("smart_odpady_render_failed", error);
@@ -5195,6 +5430,13 @@ function changeAccessUserRole(select) {
 }
 
 document.addEventListener("submit", (event) => {
+  const aiForm = event.target.closest("[data-ai-form]");
+  if (aiForm) {
+    event.preventDefault();
+    submitAiAssistantQuestion(aiForm.elements.question?.value || aiAssistantState.input);
+    return;
+  }
+
   const appearanceForm = event.target.closest("[data-appearance-form]");
   if (appearanceForm) {
     event.preventDefault();
@@ -5297,6 +5539,12 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const aiInput = event.target.closest("[data-ai-input]");
+  if (aiInput) {
+    aiAssistantState.input = aiInput.value;
+    return;
+  }
+
   const accessUsersSearch = event.target.closest("[data-access-users-search]");
   if (accessUsersSearch) {
     updateAccessUsersSearch(accessUsersSearch);
@@ -5400,6 +5648,49 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const aiWelcomeAction = event.target.closest("[data-ai-welcome-action]");
+  if (aiWelcomeAction) {
+    const action = aiWelcomeAction.dataset.aiWelcomeAction;
+
+    if (action === "dismiss") {
+      dismissAiAssistantWelcome();
+      return;
+    }
+
+    openAiAssistant(action === "voice" ? "voice" : "text");
+    return;
+  }
+
+  const aiLauncher = event.target.closest("[data-ai-launcher]");
+  if (aiLauncher) {
+    openAiAssistant("text");
+    return;
+  }
+
+  const aiClose = event.target.closest("[data-ai-close]");
+  if (aiClose) {
+    closeAiAssistant();
+    return;
+  }
+
+  const aiStartVoice = event.target.closest("[data-ai-start-voice]");
+  if (aiStartVoice) {
+    startAiVoiceRecognition();
+    return;
+  }
+
+  const aiStopVoice = event.target.closest("[data-ai-stop-voice]");
+  if (aiStopVoice) {
+    stopAiVoiceRecognition();
+    return;
+  }
+
+  const aiRoute = event.target.closest("[data-ai-route]");
+  if (aiRoute) {
+    navigateFromAiAssistant(aiRoute.dataset.aiRoute || "/");
+    return;
+  }
+
   const appearancePreview = event.target.closest("[data-appearance-preview]");
   if (appearancePreview) {
     const form = appearancePreview.closest("[data-appearance-form]");
