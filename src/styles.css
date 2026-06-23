@@ -4214,7 +4214,8 @@ body:has(.ai-welcome-modal) {
 
 .notification-table td {
   color: #1f2921;
-  font-weight: 750;
+  font-weight: 500;
+  line-height: 1.34;
 }
 
 .notification-status {
