@@ -9,6 +9,28 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const VOICE_UI_STATES = [
+  "idle",
+  "connecting",
+  "ready",
+  "listening",
+  "userSpeaking",
+  "processing",
+  "assistantSpeaking",
+  "muted",
+  "disconnected",
+  "error"
+];
+
+const STOPPABLE_VOICE_STATES = [
+  "connecting",
+  "ready",
+  "listening",
+  "userSpeaking",
+  "processing",
+  "assistantSpeaking"
+];
+
 export function AiVoiceAssistantPanel({
   open = false,
   mode = "voice",
@@ -34,10 +56,10 @@ export function AiVoiceAssistantPanel({
   const assistantName = assistant?.name || "Smart pomocník";
   const speakerClass = demoSpeaker ? `ai-voice-assistant-panel--speaker-${escapeHtml(demoSpeaker)}` : "";
   const normalizedVoiceStatus = String(voiceStatus || "").trim();
-  const normalizedVoiceUiState = ["idle", "listening", "processing", "speaking", "error"].includes(voiceUiState)
+  const normalizedVoiceUiState = VOICE_UI_STATES.includes(voiceUiState)
     ? voiceUiState
     : "idle";
-  const fallbackStatus = listening ? "Poslouchám…" : "Klepni a mluv";
+  const fallbackStatus = listening ? "Poslouchám…" : "Klepni a začni";
   const statusText = demoStatus || (normalizedVoiceStatus && normalizedVoiceStatus !== "Připraven"
     ? normalizedVoiceStatus
     : fallbackStatus);
@@ -47,7 +69,12 @@ export function AiVoiceAssistantPanel({
   const answerText = String(voiceAnswer || "").trim();
   const noticeText = String(voiceNotice || "").trim();
   const showMicrophoneHelp = noticeText.includes("Mikrofon není povolený");
-  const canStopVoice = demoPlaying || listening || ["listening", "processing", "speaking"].includes(normalizedVoiceUiState);
+  const canStopVoice = demoPlaying || listening || STOPPABLE_VOICE_STATES.includes(normalizedVoiceUiState);
+  const micLabel = normalizedVoiceUiState === "disconnected"
+    ? "Obnovit spojení se Šarlotou"
+    : normalizedVoiceUiState === "error"
+      ? "Zkusit znovu spustit hlasového pomocníka"
+      : "Spustit hlasového pomocníka";
   const tags = Array.isArray(voiceTags) && voiceTags.length
     ? voiceTags
     : ["Připraven", "Bez odeslání", "Čeká na hlas"];
@@ -80,8 +107,9 @@ export function AiVoiceAssistantPanel({
             class="ai-voice-assistant-panel__mic"
             type="button"
             data-ai-start-voice
-            aria-label="Spustit hlasového pomocníka"
+            aria-label="${escapeHtml(micLabel)}"
             aria-pressed="${listening ? "true" : "false"}"
+            title="${escapeHtml(micLabel)}"
           >
             <span class="ai-voice-assistant-panel__mic-loader" aria-hidden="true"></span>
             <img src="${escapeHtml(microphonePath)}" alt="" aria-hidden="true" />
@@ -110,7 +138,7 @@ export function AiVoiceAssistantPanel({
         ` : ""}
         ${canStopVoice ? `
           <button class="ai-voice-assistant-panel__stop" type="button" data-ai-stop-voice>
-            ${demoPlaying ? "Zastavit ukázku" : "Zastavit hlas"}
+            ${demoPlaying ? "Zastavit ukázku" : "Ukončit hovor"}
           </button>
         ` : ""}
         ${demoLine ? `

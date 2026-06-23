@@ -6492,6 +6492,7 @@ body:has(.ai-welcome-modal) {
 }
 
 .ai-voice-assistant-panel__mic {
+  position: relative;
   display: grid;
   width: 252px;
   min-width: 252px;
@@ -6509,10 +6510,19 @@ body:has(.ai-welcome-modal) {
 }
 
 .ai-voice-assistant-panel__mic::before {
-  content: none;
+  content: "";
+  position: absolute;
+  inset: 18px;
+  z-index: 1;
+  border: 2px solid rgba(159, 213, 31, 0.24);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .ai-voice-assistant-panel__mic img {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -6559,43 +6569,75 @@ body:has(.ai-welcome-modal) {
   height: 12px;
 }
 
-.ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__mic::before {
+.ai-voice-assistant-panel--state-ready .ai-voice-assistant-panel__mic::before {
+  opacity: 0.24;
+}
+
+.ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__mic::before,
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic::before {
   animation: ai-voice-app-pulse 1.5s ease-in-out infinite;
 }
 
 .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave,
-.ai-voice-assistant-panel--state-speaking .ai-voice-assistant-panel__wave {
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave,
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave {
   opacity: 1;
 }
 
 .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span,
-.ai-voice-assistant-panel--state-speaking .ai-voice-assistant-panel__wave span {
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span,
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span {
   animation: ai-voice-wave 860ms ease-in-out infinite;
 }
 
 .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span:nth-child(2),
-.ai-voice-assistant-panel--state-speaking .ai-voice-assistant-panel__wave span:nth-child(2) {
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span:nth-child(2),
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span:nth-child(2) {
   animation-delay: 100ms;
 }
 
 .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span:nth-child(3),
-.ai-voice-assistant-panel--state-speaking .ai-voice-assistant-panel__wave span:nth-child(3) {
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span:nth-child(3),
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span:nth-child(3) {
   animation-delay: 180ms;
 }
 
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic::before {
+  border-color: rgba(159, 213, 31, 0.58);
+  animation-duration: 720ms;
+}
+
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span {
+  background: #62a8f4;
+}
+
+.ai-voice-assistant-panel--state-connecting .ai-voice-assistant-panel__mic-loader,
 .ai-voice-assistant-panel--state-processing .ai-voice-assistant-panel__mic-loader {
   display: block;
   animation: ai-voice-loader 900ms linear infinite;
 }
 
+.ai-voice-assistant-panel--state-connecting .ai-voice-assistant-panel__mic img,
 .ai-voice-assistant-panel--state-processing .ai-voice-assistant-panel__mic img {
   opacity: 0.28;
 }
 
+.ai-voice-assistant-panel--state-muted .ai-voice-assistant-panel__mic img {
+  opacity: 0.58;
+  filter: grayscale(0.45);
+}
+
+.ai-voice-assistant-panel--state-disconnected .ai-voice-assistant-panel__mic,
 .ai-voice-assistant-panel--state-error .ai-voice-assistant-panel__mic {
   box-shadow:
     0 20px 54px rgba(160, 54, 54, 0.18),
     0 0 0 1px rgba(160, 54, 54, 0.16);
+}
+
+.ai-voice-assistant-panel--state-disconnected .ai-voice-assistant-panel__mic::before,
+.ai-voice-assistant-panel--state-error .ai-voice-assistant-panel__mic::before {
+  border-color: rgba(160, 54, 54, 0.28);
+  opacity: 1;
 }
 
 .ai-voice-assistant-panel__status {
@@ -6847,7 +6889,7 @@ body:has(.ai-welcome-modal) {
   }
 
   .ai-voice-assistant-panel__mic::before {
-    content: none;
+    inset: 14px;
   }
 }
 
@@ -6878,8 +6920,11 @@ body:has(.ai-welcome-modal) {
 
 @media (prefers-reduced-motion: reduce) {
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__mic::before,
+  .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic::before,
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span,
-  .ai-voice-assistant-panel--state-speaking .ai-voice-assistant-panel__wave span,
+  .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span,
+  .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span,
+  .ai-voice-assistant-panel--state-connecting .ai-voice-assistant-panel__mic-loader,
   .ai-voice-assistant-panel--state-processing .ai-voice-assistant-panel__mic-loader {
     animation: none;
   }

@@ -8,8 +8,10 @@ const VOICE_RESPONSE_TIMEOUT_MS = 45000;
 const VOICE_FINISH_GRACE_MS = 1400;
 const DEFAULT_AGENT_AUDIO_FORMAT = "pcm_16000";
 const DEFAULT_USER_AUDIO_FORMAT = "pcm_16000";
-const VOICE_OUTPUT_GAIN = 3;
-const VOICE_OUTPUT_LIMIT = 0.98;
+const VOICE_OUTPUT_GAIN = 5;
+const VOICE_OUTPUT_LIMIT = 0.995;
+const VOICE_INPUT_LEVEL_INTERVAL_MS = 250;
+const VOICE_INPUT_SPEAKING_LEVEL = 0.035;
 
 function cleanApiBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -95,6 +97,12 @@ function createVoiceStoppedError() {
   return error;
 }
 
+function createVoiceDisconnectedError() {
+  const error = new Error("Spojení se přerušilo. Klepni pro obnovení.");
+  error.code = "voice_disconnected";
+  return error;
+}
+
 function bytesFromBase64(value) {
   const binary = window.atob(String(value || ""));
   const bytes = new Uint8Array(binary.length);
@@ -108,7 +116,20 @@ function bytesFromBase64(value) {
 
 function amplifyOutputSample(value) {
   const amplified = Number(value || 0) * VOICE_OUTPUT_GAIN;
-  return Math.max(-VOICE_OUTPUT_LIMIT, Math.min(VOICE_OUTPUT_LIMIT, amplified));
+  return Math.tanh(amplified) * VOICE_OUTPUT_LIMIT;
+}
+
+function audioInputLevel(inputBuffer) {
+  if (!inputBuffer?.length) {
+    return 0;
+  }
+
+  let total = 0;
+  for (let index = 0; index < inputBuffer.length; index += 1) {
+    total += inputBuffer[index] * inputBuffer[index];
+  }
+
+  return Math.sqrt(total / inputBuffer.length);
 }
 
 function createVoiceAudioPlayer() {
@@ -598,6 +619,7 @@ export function useElevenLabsAssistant({
       let audioPlaybackFailed = false;
       let audioInputStarted = false;
       let audioInputStopped = false;
+      let audioInputPaused = false;
       let sourceNode = null;
       let processorNode = null;
       let silentGainNode = null;
@@ -605,6 +627,7 @@ export function useElevenLabsAssistant({
       let responseTimer = 0;
       let metadataFallbackTimer = 0;
       let finishTimer = 0;
+      let lastInputLevelAt = 0;
 
       function clearTimers() {
         window.clearTimeout(connectionTimer);
@@ -701,14 +724,18 @@ export function useElevenLabsAssistant({
         };
       }
 
-      function scheduleFinish(delay = VOICE_FINISH_GRACE_MS) {
-        if (!String(finalAgentText || streamedAgentText).trim()) {
+      function scheduleReady(delay = VOICE_FINISH_GRACE_MS) {
+        if (!String(finalAgentText || streamedAgentText).trim() && audioChunkCount === 0) {
           return;
         }
 
         window.clearTimeout(finishTimer);
         finishTimer = window.setTimeout(() => {
-          settle(resolve, resultPayload(), "voice-complete");
+          audioInputPaused = false;
+          callbacks.onReady?.({
+            ...resultPayload(),
+            state: "listening"
+          });
         }, delay);
       }
 
@@ -749,6 +776,21 @@ export function useElevenLabsAssistant({
               outputBuffer.fill(0);
             }
 
+            const now = Date.now();
+            if (now - lastInputLevelAt >= VOICE_INPUT_LEVEL_INTERVAL_MS) {
+              lastInputLevelAt = now;
+              const inputLevel = audioInputLevel(inputBuffer);
+              callbacks.onInputLevel?.({
+                inputLevel,
+                speaking: inputLevel >= VOICE_INPUT_SPEAKING_LEVEL,
+                conversationId
+              });
+            }
+
+            if (audioInputPaused) {
+              return;
+            }
+
             const audioChunk = float32ToPcm16Base64(inputBuffer, inputSampleRate, outputSampleRate);
             if (audioChunk) {
               sendJson({ user_audio_chunk: audioChunk });
@@ -777,11 +819,12 @@ export function useElevenLabsAssistant({
         }
 
         finalAgentText = cleanedText;
+        audioInputPaused = true;
         callbacks.onAgentResponse?.({
           text: cleanedText,
           conversationId
         });
-        scheduleFinish();
+        scheduleReady();
       }
 
       try {
@@ -852,7 +895,12 @@ export function useElevenLabsAssistant({
         if (payload.type === "user_transcript") {
           userTranscript = String(payload.user_transcription_event?.user_transcript || userTranscript).trim();
           if (userTranscript) {
-            stopAudioInput();
+            audioInputPaused = true;
+            streamedAgentText = "";
+            finalAgentText = "";
+            audioChunkCount = 0;
+            audioPlaybackStarted = false;
+            audioPlaybackFailed = false;
             callbacks.onUserTranscript?.({
               text: userTranscript,
               conversationId
@@ -865,6 +913,7 @@ export function useElevenLabsAssistant({
         if (payload.type === "audio") {
           const audioBase64 = payload.audio_event?.audio_base_64;
           if (audioBase64) {
+            audioInputPaused = true;
             audioChunkCount += 1;
             window.clearTimeout(finishTimer);
             voiceAudioPlayer.playPcmChunk(audioBase64, agentAudioFormat)
@@ -876,7 +925,7 @@ export function useElevenLabsAssistant({
                   audioPlaybackStarted,
                   audioPlaybackFailed
                 });
-                scheduleFinish();
+                scheduleReady();
               })
               .catch(() => {
                 audioPlaybackFailed = true;
@@ -885,7 +934,7 @@ export function useElevenLabsAssistant({
                   audioPlaybackStarted,
                   audioPlaybackFailed
                 });
-                scheduleFinish();
+                scheduleReady();
               });
           }
           return;
@@ -903,6 +952,7 @@ export function useElevenLabsAssistant({
 
           if (partType === "start") {
             streamedAgentText = "";
+            audioInputPaused = true;
           }
 
           if (part.text && partType !== "start") {
@@ -924,7 +974,18 @@ export function useElevenLabsAssistant({
           if (streamedAgentText && !finalAgentText) {
             finalAgentText = streamedAgentText;
           }
-          scheduleFinish(700);
+          scheduleReady(900);
+          return;
+        }
+
+        if (payload.type === "vad_score") {
+          const score = Number(payload.vad_score_event?.vad_score || 0);
+          callbacks.onInputLevel?.({
+            inputLevel: score,
+            speaking: score >= 0.55,
+            conversationId,
+            source: "vad_score"
+          });
           return;
         }
 
@@ -943,12 +1004,7 @@ export function useElevenLabsAssistant({
           return;
         }
 
-        if (String(finalAgentText || streamedAgentText).trim()) {
-          settle(resolve, resultPayload(), "voice-socket-close");
-          return;
-        }
-
-        settle(reject, new Error("Hlasová session Šarloty se ukončila bez odpovědi."), "voice-socket-close");
+        settle(reject, createVoiceDisconnectedError(), "voice-socket-close");
       });
     });
   }
