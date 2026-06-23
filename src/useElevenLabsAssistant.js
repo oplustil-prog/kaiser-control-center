@@ -8,6 +8,8 @@ const VOICE_RESPONSE_TIMEOUT_MS = 45000;
 const VOICE_FINISH_GRACE_MS = 1400;
 const DEFAULT_AGENT_AUDIO_FORMAT = "pcm_16000";
 const DEFAULT_USER_AUDIO_FORMAT = "pcm_16000";
+const VOICE_OUTPUT_GAIN = 3;
+const VOICE_OUTPUT_LIMIT = 0.98;
 
 function cleanApiBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -104,6 +106,11 @@ function bytesFromBase64(value) {
   return bytes;
 }
 
+function amplifyOutputSample(value) {
+  const amplified = Number(value || 0) * VOICE_OUTPUT_GAIN;
+  return Math.max(-VOICE_OUTPUT_LIMIT, Math.min(VOICE_OUTPUT_LIMIT, amplified));
+}
+
 function createVoiceAudioPlayer() {
   let audioContext = null;
   let nextStartTime = 0;
@@ -185,7 +192,7 @@ function createVoiceAudioPlayer() {
       if (sample & 0x8000) {
         sample -= 0x10000;
       }
-      channel[index] = Math.max(-1, Math.min(1, sample / 32768));
+      channel[index] = amplifyOutputSample(sample / 32768);
     }
 
     const source = audioContext.createBufferSource();
