@@ -62,6 +62,47 @@ function htmlEscape(value) {
     .replaceAll('"', "&quot;");
 }
 
+function recipientLabel(name, fallback = "příjemce") {
+  const cleaned = cleanString(name);
+  return cleaned ? `${fallback} ${cleaned}` : fallback;
+}
+
+function missingEmailSettingsMessage({ provider, from, apiKey, recipientName }) {
+  const missing = [];
+
+  if (provider !== "sendgrid") {
+    missing.push("EMAIL_PROVIDER=sendgrid");
+  }
+
+  if (!from) {
+    missing.push("EMAIL_FROM");
+  }
+
+  if (!apiKey) {
+    missing.push("SENDGRID_API_KEY");
+  }
+
+  return `E-mail pro ${recipientLabel(recipientName)} je vyplněný, ale chybí produkční nastavení odesílání: ${missing.join(", ")}.`;
+}
+
+function missingSmsSettingsMessage({ accountSid, authToken, messagingServiceSid, recipientName }) {
+  const missing = [];
+
+  if (!accountSid) {
+    missing.push("TWILIO_ACCOUNT_SID");
+  }
+
+  if (!authToken) {
+    missing.push("TWILIO_AUTH_TOKEN");
+  }
+
+  if (!messagingServiceSid) {
+    missing.push("TWILIO_MESSAGING_SERVICE_SID");
+  }
+
+  return `Telefon pro ${recipientLabel(recipientName)} je vyplněný, ale chybí produkční nastavení SMS: ${missing.join(", ")}.`;
+}
+
 function renderApprovalEmail({ title, headline, intro, request, ctaUrl }) {
   const note = request.note || "bez poznámky";
   return `<!doctype html>
@@ -148,10 +189,10 @@ export async function logNotification(env, entry) {
 }
 
 async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipientName = "" }) {
-  const provider = cleanString(env.EMAIL_PROVIDER).toLowerCase();
-  const from = cleanString(env.EMAIL_FROM);
   const replyTo = cleanString(env.EMAIL_REPLY_TO);
   const apiKey = cleanString(env.SENDGRID_API_KEY || env.EMAIL_API_KEY);
+  const provider = cleanString(env.EMAIL_PROVIDER || (apiKey ? "sendgrid" : "")).toLowerCase();
+  const from = cleanString(env.EMAIL_FROM || env.ABSENCE_REPORT_EMAIL);
   const cleanRecipientName = cleanString(recipientName);
 
   if (!to || provider !== "sendgrid" || !from || !apiKey) {
@@ -159,7 +200,7 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipi
       ? cleanRecipientName
         ? `Chybí e-mail příjemce: ${cleanRecipientName}.`
         : "Chybí příjemce e-mailu."
-      : "Chybí EMAIL_PROVIDER=sendgrid, EMAIL_FROM nebo SENDGRID_API_KEY.";
+      : missingEmailSettingsMessage({ provider, from, apiKey, recipientName: cleanRecipientName });
     await logNotification(env, {
       type,
       channel: "email",
@@ -224,7 +265,7 @@ async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "
       ? cleanRecipientName
         ? `Chybí telefon příjemce: ${cleanRecipientName}.`
         : "Chybí telefon příjemce."
-      : "Chybí TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN nebo TWILIO_MESSAGING_SERVICE_SID.";
+      : missingSmsSettingsMessage({ accountSid, authToken, messagingServiceSid, recipientName: cleanRecipientName });
     await logNotification(env, {
       type,
       channel: "sms",

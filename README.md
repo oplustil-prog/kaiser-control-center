@@ -123,6 +123,8 @@ EMAIL_REPLY_TO=...
 ABSENCE_APPROVAL_REMINDER_HOURS=24
 ```
 
+`EMAIL_PROVIDER=sendgrid` je doporučené nastavení. Pokud není vyplněné, backend použije SendGrid automaticky, jakmile existuje `SENDGRID_API_KEY`. `EMAIL_FROM` může být vyplněné samostatně; pokud chybí, použije se `ABSENCE_REPORT_EMAIL`.
+
 V produkci se mock OTP nepovolí na větvi `main`; testovací kód `123456` je pouze pro lokální vývoj nebo neprodukční prostředí s `AUTH_MODE=mock`.
 
 ## Cloudflare D1 pro uživatele
