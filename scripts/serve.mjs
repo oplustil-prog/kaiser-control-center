@@ -1059,11 +1059,15 @@ async function handleApi(request, response) {
     if (request.method === "POST" && action === "approve") {
       try {
         const item = changeMockAbsenceStatus(user, id, "approved", "Schváleno v modulu Dovolená / Nemoc.");
+        const notificationError = item.employeePhone
+          ? "Lokální vývojový server neposílá skutečné SMS."
+          : `Chybí telefon příjemce: ${item.employeeName}.`;
         sendJson(response, 200, {
           request: item,
           notification: {
             status: "skipped",
-            errorMessage: "Lokální vývojový server neposílá skutečné SMS."
+            errorMessage: notificationError,
+            recipientName: item.employeeName || ""
           },
           apiStatus: "ready"
         });
@@ -1077,11 +1081,15 @@ async function handleApi(request, response) {
       try {
         const payload = await readJsonBody(request);
         const item = changeMockAbsenceStatus(user, id, "rejected", String(payload?.reason || "").trim());
+        const notificationError = item.employeePhone
+          ? "Lokální vývojový server neposílá skutečné SMS."
+          : `Chybí telefon příjemce: ${item.employeeName}.`;
         sendJson(response, 200, {
           request: item,
           notification: {
             status: "skipped",
-            errorMessage: "Lokální vývojový server neposílá skutečné SMS."
+            errorMessage: notificationError,
+            recipientName: item.employeeName || ""
           },
           apiStatus: "ready"
         });

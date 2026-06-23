@@ -5093,8 +5093,12 @@ function absenceNotificationWarning(notification, channelLabel, user = currentUs
     return "";
   }
 
-  const reason = notification.errorMessage ? ` ${notification.errorMessage}` : "";
-  return `Workflow je uložený, ale ${channelLabel} se nepodařilo odeslat.${reason}`;
+  const errorMessage = String(notification.errorMessage || "").trim();
+  const recipientName = String(notification.recipientName || "").trim();
+  const showRecipientInChannel = recipientName && !errorMessage.includes(recipientName);
+  const channelWithRecipient = showRecipientInChannel ? `${channelLabel} (${recipientName})` : channelLabel;
+  const reason = errorMessage ? ` ${errorMessage}` : "";
+  return `Workflow je uložený, ale ${channelWithRecipient} se nepodařilo odeslat.${reason}`;
 }
 
 function downloadText(filename, text, type = "text/plain;charset=utf-8") {

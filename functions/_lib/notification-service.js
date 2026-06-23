@@ -147,15 +147,18 @@ export async function logNotification(env, entry) {
   return null;
 }
 
-async function sendEmail(env, { type, to, subject, html, relatedEntityId }) {
+async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipientName = "" }) {
   const provider = cleanString(env.EMAIL_PROVIDER).toLowerCase();
   const from = cleanString(env.EMAIL_FROM);
   const replyTo = cleanString(env.EMAIL_REPLY_TO);
   const apiKey = cleanString(env.SENDGRID_API_KEY || env.EMAIL_API_KEY);
+  const cleanRecipientName = cleanString(recipientName);
 
   if (!to || provider !== "sendgrid" || !from || !apiKey) {
     const missing = !to
-      ? "Chybí příjemce e-mailu."
+      ? cleanRecipientName
+        ? `Chybí e-mail příjemce: ${cleanRecipientName}.`
+        : "Chybí příjemce e-mailu."
       : "Chybí EMAIL_PROVIDER=sendgrid, EMAIL_FROM nebo SENDGRID_API_KEY.";
     await logNotification(env, {
       type,
@@ -165,7 +168,7 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId }) {
       status: "skipped",
       errorMessage: missing
     });
-    return { status: "skipped", errorMessage: missing };
+    return { status: "skipped", errorMessage: missing, recipientName: cleanRecipientName };
   }
 
   try {
@@ -195,7 +198,7 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId }) {
       relatedEntityId,
       status: "sent"
     });
-    return { status: "sent" };
+    return { status: "sent", recipientName: cleanRecipientName };
   } catch (error) {
     await logNotification(env, {
       type,
@@ -205,19 +208,22 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId }) {
       status: "failed",
       errorMessage: error.message
     });
-    return { status: "failed", errorMessage: error.message };
+    return { status: "failed", errorMessage: error.message, recipientName: cleanRecipientName };
   }
 }
 
-async function sendSms(env, { type, to, body, relatedEntityId }) {
+async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "" }) {
   const accountSid = cleanString(env.TWILIO_ACCOUNT_SID);
   const authToken = cleanString(env.TWILIO_AUTH_TOKEN);
   const messagingServiceSid = cleanString(env.TWILIO_MESSAGING_SERVICE_SID);
   const normalizedTo = normalizeIdentifier(to);
+  const cleanRecipientName = cleanString(recipientName);
 
   if (!normalizedTo || !accountSid || !authToken || !messagingServiceSid) {
     const missing = !normalizedTo
-      ? "Chybí telefon příjemce."
+      ? cleanRecipientName
+        ? `Chybí telefon příjemce: ${cleanRecipientName}.`
+        : "Chybí telefon příjemce."
       : "Chybí TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN nebo TWILIO_MESSAGING_SERVICE_SID.";
     await logNotification(env, {
       type,
@@ -227,7 +233,7 @@ async function sendSms(env, { type, to, body, relatedEntityId }) {
       status: "skipped",
       errorMessage: missing
     });
-    return { status: "skipped", errorMessage: missing };
+    return { status: "skipped", errorMessage: missing, recipientName: cleanRecipientName };
   }
 
   try {
@@ -255,7 +261,7 @@ async function sendSms(env, { type, to, body, relatedEntityId }) {
       relatedEntityId,
       status: "sent"
     });
-    return { status: "sent" };
+    return { status: "sent", recipientName: cleanRecipientName };
   } catch (error) {
     await logNotification(env, {
       type,
@@ -265,7 +271,7 @@ async function sendSms(env, { type, to, body, relatedEntityId }) {
       status: "failed",
       errorMessage: error.message
     });
-    return { status: "failed", errorMessage: error.message };
+    return { status: "failed", errorMessage: error.message, recipientName: cleanRecipientName };
   }
 }
 
@@ -285,7 +291,8 @@ export async function sendAbsenceApprovalRequestNotification(env, request) {
       request,
       ctaUrl: approvalUrl(env)
     }),
-    relatedEntityId: request.id
+    relatedEntityId: request.id,
+    recipientName: request.managerName
   });
 }
 
@@ -301,7 +308,8 @@ export async function sendAbsenceApprovalReminderNotification(env, request) {
       request,
       ctaUrl: approvalUrl(env)
     }),
-    relatedEntityId: request.id
+    relatedEntityId: request.id,
+    recipientName: request.managerName
   });
 }
 
@@ -318,7 +326,8 @@ export async function sendAbsenceDecisionSms(env, request, decision) {
     type: approved ? "absence_approved_sms" : "absence_rejected_sms",
     to: request.employeePhone,
     body,
-    relatedEntityId: request.id
+    relatedEntityId: request.id,
+    recipientName: request.employeeName
   });
 }
 
