@@ -3,6 +3,11 @@ import { assistantById, DEFAULT_AI_ASSISTANT_ID } from "./data/aiAssistants.js";
 const TEXT_CONNECTION_TIMEOUT_MS = 15000;
 const TEXT_RESPONSE_TIMEOUT_MS = 45000;
 const TEXT_METADATA_FALLBACK_MS = 1200;
+const VOICE_CONNECTION_TIMEOUT_MS = 15000;
+const VOICE_RESPONSE_TIMEOUT_MS = 45000;
+const VOICE_FINISH_GRACE_MS = 1400;
+const DEFAULT_AGENT_AUDIO_FORMAT = "pcm_16000";
+const DEFAULT_USER_AUDIO_FORMAT = "pcm_16000";
 
 function cleanApiBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -14,12 +19,203 @@ function signedUrlEndpoint(apiBaseUrl, assistantId) {
   return `${base}/api/ai/elevenlabs/signed-url?${query.toString()}`;
 }
 
+function browserAudioContextConstructor() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.AudioContext || window.webkitAudioContext || null;
+}
+
+function sampleRateFromAudioFormat(format = DEFAULT_AGENT_AUDIO_FORMAT) {
+  const match = /pcm_(\d+)/i.exec(String(format || ""));
+  const parsed = Number(match?.[1] || 16000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 16000;
+}
+
+function base64FromBytes(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return window.btoa(binary);
+}
+
+function float32ToPcm16Base64(input, inputSampleRate, outputSampleRate = 16000) {
+  const sampleRateRatio = Math.max(1, inputSampleRate / outputSampleRate);
+  const outputLength = Math.max(1, Math.floor(input.length / sampleRateRatio));
+  const bytes = new Uint8Array(outputLength * 2);
+  const view = new DataView(bytes.buffer);
+
+  for (let outputIndex = 0; outputIndex < outputLength; outputIndex += 1) {
+    const start = Math.floor(outputIndex * sampleRateRatio);
+    const end = Math.min(input.length, Math.floor((outputIndex + 1) * sampleRateRatio));
+    let total = 0;
+    let count = 0;
+
+    for (let inputIndex = start; inputIndex < end; inputIndex += 1) {
+      total += input[inputIndex];
+      count += 1;
+    }
+
+    const normalized = Math.max(-1, Math.min(1, total / Math.max(1, count)));
+    const sample = normalized < 0 ? normalized * 0x8000 : normalized * 0x7fff;
+    view.setInt16(outputIndex * 2, sample, true);
+  }
+
+  return base64FromBytes(bytes);
+}
+
+function microphoneErrorMessage(error) {
+  const errorName = String(error?.name || "").trim();
+
+  if (errorName === "NotAllowedError" || errorName === "SecurityError" || errorName === "PermissionDeniedError") {
+    return "Mikrofon není povolený. Povolte mikrofon pro tento web a zkuste to znovu.";
+  }
+
+  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+    return "Mikrofon není v tomto zařízení dostupný.";
+  }
+
+  if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+    return "Mikrofon se nepodařilo spustit. Může ho používat jiná aplikace.";
+  }
+
+  return "Mikrofon se nepodařilo spustit. Zkontrolujte oprávnění prohlížeče a zkuste to znovu.";
+}
+
+function createVoiceStoppedError() {
+  const error = new Error("Hlasový režim byl zastaven.");
+  error.code = "voice_stopped";
+  return error;
+}
+
+function bytesFromBase64(value) {
+  const binary = window.atob(String(value || ""));
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function createVoiceAudioPlayer() {
+  let audioContext = null;
+  let nextStartTime = 0;
+  let outputPrimed = false;
+  const activeSources = new Set();
+
+  function primeOutput() {
+    if (!audioContext || outputPrimed) {
+      return;
+    }
+
+    try {
+      const buffer = audioContext.createBuffer(1, 1, Math.max(8000, audioContext.sampleRate || 16000));
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.start(0);
+      outputPrimed = true;
+    } catch {
+      outputPrimed = false;
+    }
+  }
+
+  async function unlock() {
+    const AudioContextConstructor = browserAudioContextConstructor();
+
+    if (!AudioContextConstructor) {
+      return false;
+    }
+
+    if (!audioContext || audioContext.state === "closed") {
+      audioContext = new AudioContextConstructor();
+    }
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    primeOutput();
+    nextStartTime = Math.max(nextStartTime, audioContext.currentTime);
+    return audioContext.state !== "closed";
+  }
+
+  function stop() {
+    for (const source of activeSources) {
+      try {
+        source.stop();
+      } catch {
+        // The source may already have ended.
+      }
+    }
+
+    activeSources.clear();
+
+    if (audioContext) {
+      nextStartTime = audioContext.currentTime;
+    }
+  }
+
+  async function playPcmChunk(base64Audio, format = DEFAULT_AGENT_AUDIO_FORMAT) {
+    if (!base64Audio || !(await unlock())) {
+      return false;
+    }
+
+    const sampleRate = sampleRateFromAudioFormat(format);
+    const bytes = bytesFromBase64(base64Audio);
+    const frameCount = Math.floor(bytes.length / 2);
+
+    if (!frameCount || !audioContext) {
+      return false;
+    }
+
+    const audioBuffer = audioContext.createBuffer(1, frameCount, sampleRate);
+    const channel = audioBuffer.getChannelData(0);
+
+    for (let index = 0; index < frameCount; index += 1) {
+      const offset = index * 2;
+      let sample = bytes[offset] | (bytes[offset + 1] << 8);
+      if (sample & 0x8000) {
+        sample -= 0x10000;
+      }
+      channel[index] = Math.max(-1, Math.min(1, sample / 32768));
+    }
+
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    source.onended = () => activeSources.delete(source);
+    activeSources.add(source);
+
+    const startAt = Math.max(audioContext.currentTime + 0.02, nextStartTime);
+    source.start(startAt);
+    nextStartTime = startAt + audioBuffer.duration;
+    return true;
+  }
+
+  return {
+    getContext: () => audioContext,
+    playPcmChunk,
+    stop,
+    unlock
+  };
+}
+
 export function useElevenLabsAssistant({
   apiBaseUrl = "",
   clientTools = {},
   fetchJson = null
 } = {}) {
   let activeTextSession = null;
+  let activeVoiceSession = null;
+  const voiceAudioPlayer = createVoiceAudioPlayer();
 
   async function defaultFetchJson(path) {
     const response = await fetch(path, {
@@ -57,6 +253,37 @@ export function useElevenLabsAssistant({
         // Closing a stale browser WebSocket can fail silently.
       }
     }
+  }
+
+  function closeVoiceSession(reason = "reset") {
+    const session = activeVoiceSession;
+    activeVoiceSession = null;
+
+    if (session?.close) {
+      session.close(reason);
+      return;
+    }
+
+    if (session?.socket && session.socket.readyState <= WebSocket.OPEN) {
+      try {
+        session.socket.close(1000, reason);
+      } catch {
+        // Closing a stale browser WebSocket can fail silently.
+      }
+    }
+  }
+
+  async function unlockVoiceAudio() {
+    try {
+      return await voiceAudioPlayer.unlock();
+    } catch {
+      return false;
+    }
+  }
+
+  function stopVoiceAudio() {
+    closeVoiceSession("stop-audio");
+    voiceAudioPlayer.stop();
   }
 
   async function sendClientToolResult(socket, toolCall = {}) {
@@ -303,10 +530,665 @@ export function useElevenLabsAssistant({
     });
   }
 
+  async function startVoiceConversation(assistantId = DEFAULT_AI_ASSISTANT_ID, callbacks = {}) {
+    const assistant = assistantById(assistantId);
+
+    if (typeof WebSocket === "undefined") {
+      throw new Error("Hlasový režim Šarloty není v tomto prohlížeči dostupný.");
+    }
+
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Mikrofon není v tomto prohlížeči dostupný.");
+    }
+
+    closeTextSession("new-voice-stream-session");
+    closeVoiceSession("new-voice-stream-session");
+    voiceAudioPlayer.stop();
+
+    const audioReady = await unlockVoiceAudio();
+    if (!audioReady) {
+      callbacks.onAudioWarning?.("Zvuk v mobilním prohlížeči se nepodařilo připravit. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč.");
+    }
+
+    let mediaStream = null;
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+    } catch (error) {
+      throw new Error(microphoneErrorMessage(error));
+    }
+
+    let signedUrlSession = null;
+    try {
+      signedUrlSession = await prepareSignedUrl(assistant.id);
+    } catch (error) {
+      mediaStream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
+
+    const signedUrl = String(signedUrlSession?.signedUrl || "").trim();
+    if (!signedUrl) {
+      mediaStream.getTracks().forEach((track) => track.stop());
+      throw new Error("ElevenLabs hlasovou session se nepodařilo připravit.");
+    }
+
+    return new Promise((resolve, reject) => {
+      let socket = null;
+      let settled = false;
+      let conversationId = String(signedUrlSession.conversationId || "");
+      let agentAudioFormat = DEFAULT_AGENT_AUDIO_FORMAT;
+      let userAudioFormat = DEFAULT_USER_AUDIO_FORMAT;
+      let userTranscript = "";
+      let streamedAgentText = "";
+      let finalAgentText = "";
+      let audioChunkCount = 0;
+      let audioPlaybackStarted = false;
+      let audioPlaybackFailed = false;
+      let audioInputStarted = false;
+      let audioInputStopped = false;
+      let sourceNode = null;
+      let processorNode = null;
+      let silentGainNode = null;
+      let connectionTimer = 0;
+      let responseTimer = 0;
+      let metadataFallbackTimer = 0;
+      let finishTimer = 0;
+
+      function clearTimers() {
+        window.clearTimeout(connectionTimer);
+        window.clearTimeout(responseTimer);
+        window.clearTimeout(metadataFallbackTimer);
+        window.clearTimeout(finishTimer);
+      }
+
+      function stopAudioInput() {
+        audioInputStopped = true;
+
+        if (processorNode) {
+          processorNode.onaudioprocess = null;
+          try {
+            processorNode.disconnect();
+          } catch {
+            // The node may already be disconnected.
+          }
+          processorNode = null;
+        }
+
+        if (silentGainNode) {
+          try {
+            silentGainNode.disconnect();
+          } catch {
+            // The node may already be disconnected.
+          }
+          silentGainNode = null;
+        }
+
+        if (sourceNode) {
+          try {
+            sourceNode.disconnect();
+          } catch {
+            // The node may already be disconnected.
+          }
+          sourceNode = null;
+        }
+
+        mediaStream.getTracks().forEach((track) => track.stop());
+      }
+
+      function cleanup(reason = "done") {
+        clearTimers();
+        stopAudioInput();
+
+        if (socket && socket.readyState <= WebSocket.OPEN) {
+          try {
+            socket.close(1000, reason);
+          } catch {
+            // The browser may already be closing the socket.
+          }
+        }
+      }
+
+      function settle(done, value, reason = "done") {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+
+        if (activeVoiceSession?.socket === socket) {
+          activeVoiceSession = null;
+        }
+
+        cleanup(reason);
+        done(value);
+      }
+
+      function sendJson(payload) {
+        if (socket?.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(JSON.stringify(payload));
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      }
+
+      function resultPayload() {
+        return {
+          text: finalAgentText || streamedAgentText,
+          transcript: userTranscript,
+          assistantId: signedUrlSession.assistantId || assistant.id,
+          assistantName: signedUrlSession.assistantName || assistant.name,
+          conversationId,
+          configured: Boolean(signedUrlSession.configured),
+          audioChunkCount,
+          audioPlaybackFailed,
+          audioPlaybackStarted
+        };
+      }
+
+      function scheduleFinish(delay = VOICE_FINISH_GRACE_MS) {
+        if (!String(finalAgentText || streamedAgentText).trim()) {
+          return;
+        }
+
+        window.clearTimeout(finishTimer);
+        finishTimer = window.setTimeout(() => {
+          settle(resolve, resultPayload(), "voice-complete");
+        }, delay);
+      }
+
+      function startResponseTimer() {
+        window.clearTimeout(responseTimer);
+        responseTimer = window.setTimeout(() => {
+          settle(reject, new Error("Šarlota v hlasovém režimu neodpověděla včas."), "voice-timeout");
+        }, VOICE_RESPONSE_TIMEOUT_MS);
+      }
+
+      function startAudioInput() {
+        if (audioInputStarted || audioInputStopped || settled) {
+          return;
+        }
+
+        const audioContext = voiceAudioPlayer.getContext();
+        if (!audioContext || audioContext.state === "closed") {
+          settle(reject, new Error("Hlasový režim se nepodařilo připravit pro tento prohlížeč."), "audio-context-missing");
+          return;
+        }
+
+        const inputSampleRate = audioContext.sampleRate || sampleRateFromAudioFormat(userAudioFormat);
+        const outputSampleRate = sampleRateFromAudioFormat(userAudioFormat);
+
+        try {
+          sourceNode = audioContext.createMediaStreamSource(mediaStream);
+          processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+          silentGainNode = audioContext.createGain();
+          silentGainNode.gain.value = 0;
+          processorNode.onaudioprocess = (event) => {
+            if (settled || audioInputStopped || socket?.readyState !== WebSocket.OPEN) {
+              return;
+            }
+
+            const inputBuffer = event.inputBuffer.getChannelData(0);
+            const outputBuffer = event.outputBuffer?.getChannelData?.(0);
+            if (outputBuffer) {
+              outputBuffer.fill(0);
+            }
+
+            const audioChunk = float32ToPcm16Base64(inputBuffer, inputSampleRate, outputSampleRate);
+            if (audioChunk) {
+              sendJson({ user_audio_chunk: audioChunk });
+            }
+          };
+
+          sourceNode.connect(processorNode);
+          processorNode.connect(silentGainNode);
+          silentGainNode.connect(audioContext.destination);
+          audioInputStarted = true;
+          callbacks.onListening?.({
+            assistantId: signedUrlSession.assistantId || assistant.id,
+            assistantName: signedUrlSession.assistantName || assistant.name,
+            conversationId
+          });
+        } catch {
+          settle(reject, new Error("Mikrofon se nepodařilo připojit k hlasové session."), "audio-input-failed");
+        }
+      }
+
+      function rememberAgentText(responseText) {
+        const cleanedText = String(responseText || "").trim();
+
+        if (!cleanedText) {
+          return;
+        }
+
+        finalAgentText = cleanedText;
+        callbacks.onAgentResponse?.({
+          text: cleanedText,
+          conversationId
+        });
+        scheduleFinish();
+      }
+
+      try {
+        socket = new WebSocket(signedUrl);
+        activeVoiceSession = {
+          socket,
+          close: (reason = "voice-stopped") => {
+            settle(reject, createVoiceStoppedError(), reason);
+          }
+        };
+      } catch {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo spustit."), "voice-start-failed");
+        return;
+      }
+
+      connectionTimer = window.setTimeout(() => {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo připojit."), "voice-connection-timeout");
+      }, VOICE_CONNECTION_TIMEOUT_MS);
+
+      socket.addEventListener("open", () => {
+        window.clearTimeout(connectionTimer);
+        sendJson({
+          type: "conversation_initiation_client_data",
+          dynamic_variables: {
+            interface_mode: "voice",
+            app_name: "Smart odpady"
+          }
+        });
+        callbacks.onConnected?.({
+          assistantId: signedUrlSession.assistantId || assistant.id,
+          assistantName: signedUrlSession.assistantName || assistant.name,
+          conversationId
+        });
+        metadataFallbackTimer = window.setTimeout(startAudioInput, TEXT_METADATA_FALLBACK_MS);
+      });
+
+      socket.addEventListener("message", (event) => {
+        let payload = {};
+        try {
+          payload = JSON.parse(event.data || "{}");
+        } catch {
+          payload = {};
+        }
+
+        if (payload.type === "conversation_initiation_metadata") {
+          const metadata = payload.conversation_initiation_metadata_event || {};
+          conversationId = String(metadata.conversation_id || conversationId);
+          agentAudioFormat = String(metadata.agent_output_audio_format || agentAudioFormat);
+          userAudioFormat = String(metadata.user_input_audio_format || userAudioFormat);
+          window.clearTimeout(metadataFallbackTimer);
+          startAudioInput();
+          return;
+        }
+
+        if (payload.type === "ping") {
+          sendJson({
+            type: "pong",
+            event_id: payload.ping_event?.event_id
+          });
+          return;
+        }
+
+        if (payload.type === "client_tool_call") {
+          sendClientToolResult(socket, payload.client_tool_call);
+          return;
+        }
+
+        if (payload.type === "user_transcript") {
+          userTranscript = String(payload.user_transcription_event?.user_transcript || userTranscript).trim();
+          if (userTranscript) {
+            stopAudioInput();
+            callbacks.onUserTranscript?.({
+              text: userTranscript,
+              conversationId
+            });
+            startResponseTimer();
+          }
+          return;
+        }
+
+        if (payload.type === "audio") {
+          const audioBase64 = payload.audio_event?.audio_base_64;
+          if (audioBase64) {
+            audioChunkCount += 1;
+            window.clearTimeout(finishTimer);
+            voiceAudioPlayer.playPcmChunk(audioBase64, agentAudioFormat)
+              .then((played) => {
+                audioPlaybackStarted = audioPlaybackStarted || Boolean(played);
+                audioPlaybackFailed = audioPlaybackFailed || !played;
+                callbacks.onAudio?.({
+                  audioChunkCount,
+                  audioPlaybackStarted,
+                  audioPlaybackFailed
+                });
+                scheduleFinish();
+              })
+              .catch(() => {
+                audioPlaybackFailed = true;
+                callbacks.onAudio?.({
+                  audioChunkCount,
+                  audioPlaybackStarted,
+                  audioPlaybackFailed
+                });
+                scheduleFinish();
+              });
+          }
+          return;
+        }
+
+        if (payload.type === "agent_response") {
+          window.clearTimeout(responseTimer);
+          rememberAgentText(payload.agent_response_event?.agent_response);
+          return;
+        }
+
+        if (payload.type === "agent_chat_response_part") {
+          const part = payload.text_response_part || {};
+          const partType = String(part.type || "").trim();
+
+          if (partType === "start") {
+            streamedAgentText = "";
+          }
+
+          if (part.text && partType !== "start") {
+            streamedAgentText += String(part.text);
+            callbacks.onAgentResponse?.({
+              text: streamedAgentText,
+              conversationId
+            });
+          }
+
+          if (partType === "stop") {
+            rememberAgentText(streamedAgentText || part.text);
+          }
+          return;
+        }
+
+        if (payload.type === "agent_response_complete") {
+          window.clearTimeout(responseTimer);
+          if (streamedAgentText && !finalAgentText) {
+            finalAgentText = streamedAgentText;
+          }
+          scheduleFinish(700);
+          return;
+        }
+
+        if (payload.type === "error") {
+          const messageText = payload.error_event?.message || payload.message || "ElevenLabs hlasový režim vrátil chybu.";
+          settle(reject, new Error(messageText), "voice-error");
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo připojit."), "voice-socket-error");
+      });
+
+      socket.addEventListener("close", () => {
+        if (settled) {
+          return;
+        }
+
+        if (String(finalAgentText || streamedAgentText).trim()) {
+          settle(resolve, resultPayload(), "voice-socket-close");
+          return;
+        }
+
+        settle(reject, new Error("Hlasová session Šarloty se ukončila bez odpovědi."), "voice-socket-close");
+      });
+    });
+  }
+
+  async function sendVoiceMessage(assistantId = DEFAULT_AI_ASSISTANT_ID, message = "") {
+    const assistant = assistantById(assistantId);
+    const text = String(message || "").trim();
+
+    if (!text) {
+      throw new Error("Napište nebo nadiktujte dotaz pro Šarlotu.");
+    }
+
+    if (typeof WebSocket === "undefined") {
+      throw new Error("Hlasový režim Šarloty není v tomto prohlížeči dostupný.");
+    }
+
+    closeTextSession("new-voice-session");
+    closeVoiceSession("new-voice-session");
+    voiceAudioPlayer.stop();
+    await unlockVoiceAudio();
+
+    const signedUrlSession = await prepareSignedUrl(assistant.id);
+    const signedUrl = String(signedUrlSession?.signedUrl || "").trim();
+
+    if (!signedUrl) {
+      throw new Error("ElevenLabs hlasovou session se nepodařilo připravit.");
+    }
+
+    return new Promise((resolve, reject) => {
+      let socket = null;
+      let settled = false;
+      let userMessageSent = false;
+      let conversationId = String(signedUrlSession.conversationId || "");
+      let responseTimer = 0;
+      let metadataFallbackTimer = 0;
+      let streamedAgentText = "";
+      let agentAudioFormat = DEFAULT_AGENT_AUDIO_FORMAT;
+      let audioChunkCount = 0;
+      let audioPlaybackStarted = false;
+      let audioPlaybackFailed = false;
+
+      const connectionTimer = window.setTimeout(() => {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo připojit."));
+      }, VOICE_CONNECTION_TIMEOUT_MS);
+
+      function clearTimers() {
+        window.clearTimeout(connectionTimer);
+        window.clearTimeout(responseTimer);
+        window.clearTimeout(metadataFallbackTimer);
+      }
+
+      function settle(done, value) {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimers();
+
+        if (activeVoiceSession?.socket === socket) {
+          activeVoiceSession = null;
+        }
+
+        if (socket && socket.readyState <= WebSocket.OPEN) {
+          try {
+            socket.close(1000, "done");
+          } catch {
+            // The browser may already be closing the socket.
+          }
+        }
+
+        done(value);
+      }
+
+      function sendJson(payload) {
+        if (socket?.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(JSON.stringify(payload));
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        return false;
+      }
+
+      function startResponseTimer() {
+        window.clearTimeout(responseTimer);
+        responseTimer = window.setTimeout(() => {
+          settle(reject, new Error("Šarlota v hlasovém režimu neodpověděla včas."));
+        }, VOICE_RESPONSE_TIMEOUT_MS);
+      }
+
+      function sendUserMessage() {
+        if (userMessageSent || settled) {
+          return;
+        }
+
+        userMessageSent = true;
+        if (!sendJson({ type: "user_message", text })) {
+          settle(reject, new Error("Hlasový režim Šarloty se nepodařilo odeslat."));
+          return;
+        }
+
+        startResponseTimer();
+      }
+
+      function resolveAgentText(responseText) {
+        const cleanedText = String(responseText || "").trim();
+
+        if (!cleanedText) {
+          return;
+        }
+
+        settle(resolve, {
+          text: cleanedText,
+          assistantId: signedUrlSession.assistantId || assistant.id,
+          assistantName: signedUrlSession.assistantName || assistant.name,
+          conversationId,
+          configured: Boolean(signedUrlSession.configured),
+          audioChunkCount,
+          audioPlaybackFailed,
+          audioPlaybackStarted
+        });
+      }
+
+      try {
+        socket = new WebSocket(signedUrl);
+        activeVoiceSession = { socket };
+      } catch {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo spustit."));
+        return;
+      }
+
+      socket.addEventListener("open", () => {
+        window.clearTimeout(connectionTimer);
+        sendJson({
+          type: "conversation_initiation_client_data",
+          dynamic_variables: {
+            interface_mode: "voice",
+            app_name: "Smart odpady"
+          }
+        });
+        metadataFallbackTimer = window.setTimeout(sendUserMessage, TEXT_METADATA_FALLBACK_MS);
+      });
+
+      socket.addEventListener("message", (event) => {
+        let payload = {};
+        try {
+          payload = JSON.parse(event.data || "{}");
+        } catch {
+          payload = {};
+        }
+
+        if (payload.type === "conversation_initiation_metadata") {
+          const metadata = payload.conversation_initiation_metadata_event || {};
+          conversationId = String(metadata.conversation_id || conversationId);
+          agentAudioFormat = String(metadata.agent_output_audio_format || agentAudioFormat);
+          window.clearTimeout(metadataFallbackTimer);
+          sendUserMessage();
+          return;
+        }
+
+        if (payload.type === "ping") {
+          sendJson({
+            type: "pong",
+            event_id: payload.ping_event?.event_id
+          });
+          return;
+        }
+
+        if (payload.type === "client_tool_call") {
+          sendClientToolResult(socket, payload.client_tool_call);
+          return;
+        }
+
+        if (payload.type === "audio") {
+          const audioBase64 = payload.audio_event?.audio_base_64;
+          if (audioBase64) {
+            audioChunkCount += 1;
+            voiceAudioPlayer.playPcmChunk(audioBase64, agentAudioFormat)
+              .then((played) => {
+                audioPlaybackStarted = audioPlaybackStarted || Boolean(played);
+                audioPlaybackFailed = audioPlaybackFailed || !played;
+              })
+              .catch(() => {
+                audioPlaybackFailed = true;
+              });
+          }
+          return;
+        }
+
+        if (payload.type === "agent_response") {
+          resolveAgentText(payload.agent_response_event?.agent_response);
+          return;
+        }
+
+        if (payload.type === "agent_chat_response_part") {
+          const part = payload.text_response_part || {};
+          const partType = String(part.type || "").trim();
+
+          if (partType === "start") {
+            streamedAgentText = "";
+          }
+
+          if (part.text && partType !== "start") {
+            streamedAgentText += String(part.text);
+          }
+
+          if (partType === "stop") {
+            resolveAgentText(streamedAgentText || part.text);
+          }
+          return;
+        }
+
+        if (payload.type === "agent_response_complete") {
+          resolveAgentText(streamedAgentText);
+          return;
+        }
+
+        if (payload.type === "error") {
+          const messageText = payload.error_event?.message || payload.message || "ElevenLabs hlasový režim vrátil chybu.";
+          settle(reject, new Error(messageText));
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        settle(reject, new Error("Hlasový režim Šarloty se nepodařilo připojit."));
+      });
+
+      socket.addEventListener("close", () => {
+        if (!settled) {
+          settle(reject, new Error("Hlasová session Šarloty se ukončila bez odpovědi."));
+        }
+      });
+    });
+  }
+
   return {
     clientTools,
+    closeVoiceSession,
     closeTextSession,
     prepareSignedUrl,
-    sendTextMessage
+    sendTextMessage,
+    startVoiceConversation,
+    sendVoiceMessage,
+    stopVoiceAudio,
+    unlockVoiceAudio
   };
 }

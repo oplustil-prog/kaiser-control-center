@@ -17,8 +17,13 @@ export function ElevenLabsAssistantProvider({
     defaultAssistantId: DEFAULT_AI_ASSISTANT_ID,
     assistantById,
     clientTools,
+    closeVoiceSession: assistant.closeVoiceSession,
     closeTextSession: assistant.closeTextSession,
     prepareSignedUrl: assistant.prepareSignedUrl,
-    sendTextMessage: assistant.sendTextMessage
+    sendTextMessage: assistant.sendTextMessage,
+    startVoiceConversation: assistant.startVoiceConversation,
+    sendVoiceMessage: assistant.sendVoiceMessage,
+    stopVoiceAudio: assistant.stopVoiceAudio,
+    unlockVoiceAudio: assistant.unlockVoiceAudio
   };
 }

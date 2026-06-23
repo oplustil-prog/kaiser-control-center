@@ -47,6 +47,7 @@ export function AiVoiceAssistantPanel({
   const answerText = String(voiceAnswer || "").trim();
   const noticeText = String(voiceNotice || "").trim();
   const showMicrophoneHelp = noticeText.includes("Mikrofon není povolený");
+  const canStopVoice = demoPlaying || listening || ["listening", "processing", "speaking"].includes(normalizedVoiceUiState);
   const tags = Array.isArray(voiceTags) && voiceTags.length
     ? voiceTags
     : ["Připraven", "Bez odeslání", "Čeká na hlas"];
@@ -107,9 +108,9 @@ export function AiVoiceAssistantPanel({
             ` : ""}
           </div>
         ` : ""}
-        ${demoPlaying ? `
+        ${canStopVoice ? `
           <button class="ai-voice-assistant-panel__stop" type="button" data-ai-stop-voice>
-            Zastavit ukázku
+            ${demoPlaying ? "Zastavit ukázku" : "Zastavit hlas"}
           </button>
         ` : ""}
         ${demoLine ? `

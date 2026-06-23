@@ -949,6 +949,7 @@ function resolveAiConfirmation(confirmed) {
 
 function resetAiAssistantSession() {
   speechRecognition.stop({ status: false });
+  elevenLabsAssistant.stopVoiceAudio?.();
   clearAiVoiceStateTimer();
   aiAssistantState.welcomeVisible = true;
   aiAssistantState.welcomeAnimate = true;
@@ -973,11 +974,13 @@ function resetAiAssistantSession() {
   aiTextRequestId += 1;
 }
 
-async function aiAssistantResponse(question) {
+async function aiAssistantResponse(question, options = {}) {
   const assistant = selectedAiAssistant();
 
   try {
-    const result = await elevenLabsAssistant.sendTextMessage(assistant.id, question);
+    const result = options.fromVoice
+      ? await elevenLabsAssistant.sendVoiceMessage(assistant.id, question)
+      : await elevenLabsAssistant.sendTextMessage(assistant.id, question);
     aiAssistantState.elevenLabsConfigured = true;
     aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = true;
     aiAssistantState.elevenLabsStatus = `ElevenLabs agent ${result.assistantName || assistant.name} je připravený.`;
@@ -985,6 +988,9 @@ async function aiAssistantResponse(question) {
     return {
       text: result.text || `${assistant.name} nevrátila textovou odpověď.`,
       actions: [],
+      audioChunkCount: result.audioChunkCount || 0,
+      audioPlaybackFailed: Boolean(result.audioPlaybackFailed),
+      audioPlaybackStarted: Boolean(result.audioPlaybackStarted),
       failed: false
     };
   } catch (error) {
@@ -1013,6 +1019,10 @@ function openAiAssistant(mode = "text") {
     cancelAiTextRequest();
   }
 
+  if (nextMode !== "voice") {
+    elevenLabsAssistant.stopVoiceAudio?.();
+  }
+
   aiAssistantState.welcomeVisible = false;
   aiAssistantState.welcomeAnimate = false;
   aiAssistantState.chatOpen = true;
@@ -1038,6 +1048,7 @@ function dismissAiAssistantWelcome() {
 
 function closeAiAssistant() {
   stopAiVoiceDemo({ renderAfter: false });
+  elevenLabsAssistant.stopVoiceAudio?.();
   clearAiVoiceStateTimer();
   cancelAiTextRequest();
   if ("speechSynthesis" in window) {
@@ -1081,7 +1092,7 @@ async function submitAiAssistantQuestion(question, options = {}) {
   aiAssistantState.textStatus = AI_TEXT_SENDING_LABEL;
   renderAiAssistantLayerOnly();
 
-  const response = await aiAssistantResponse(text);
+  const response = await aiAssistantResponse(text, { fromVoice: Boolean(options.fromVoice) });
 
   if (requestId !== aiTextRequestId) {
     return;
@@ -1099,12 +1110,15 @@ async function submitAiAssistantQuestion(question, options = {}) {
     if (response.failed) {
       setAiVoiceUiState("error", AI_TEXT_ERROR_LABEL, ["Chyba AI", "Textový režim", "Bez odeslání"]);
     } else {
+      aiAssistantState.voiceNotice = response.audioPlaybackFailed
+        ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč."
+        : "";
       setAiVoiceUiState("speaking", AI_VOICE_SPEAKING_LABEL, [
-        "Odpověď připravena",
+        response.audioPlaybackStarted ? "Zvuk přehrávám" : "Zvuk připravuji",
         response.actions?.length ? "Čeká na potvrzení" : "Bez akce",
-        /sms/i.test(response.text || "") ? "SMS připravena" : "Bez odeslání"
+        response.audioChunkCount ? "ElevenLabs audio" : "Čekám na audio"
       ]);
-      scheduleAiVoiceIdle(5200);
+      scheduleAiVoiceIdle(7200);
     }
   }
 
@@ -1238,23 +1252,136 @@ async function prepareElevenLabsVoiceSession() {
 async function startAiVoiceRecognition() {
   stopAiVoiceDemo({ renderAfter: false });
   speechRecognition.stop({ status: false });
+  elevenLabsAssistant.stopVoiceAudio?.();
 
+  const requestId = ++aiTextRequestId;
+  const assistant = selectedAiAssistant();
   aiAssistantState.demoStatus = "";
   aiAssistantState.voiceNotice = "";
+  aiAssistantState.voiceTranscript = "";
+  aiAssistantState.voiceAnswer = "";
+  aiAssistantState.isListening = false;
   setAiVoiceUiState("processing", "Připravuji hlasový režim…", ["Připravuji", "Mikrofon", "Bez odeslání"]);
   renderAiAssistantLayerOnly();
 
-  await prepareElevenLabsVoiceSession();
+  try {
+    const result = await elevenLabsAssistant.startVoiceConversation(assistant.id, {
+      onAudioWarning: (message) => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        aiAssistantState.voiceNotice = message;
+        renderAiAssistantLayerOnly();
+      },
+      onConnected: (session) => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        aiAssistantState.elevenLabsConfigured = true;
+        aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = true;
+        aiAssistantState.elevenLabsStatus = `ElevenLabs agent ${session.assistantName || assistant.name} je připojený.`;
+        setAiVoiceUiState("processing", "Připravuji mikrofon…", ["Připojeno", "Mikrofon", "ElevenLabs"]);
+        renderAiAssistantLayerOnly();
+      },
+      onListening: () => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        aiAssistantState.isListening = true;
+        aiAssistantState.voiceNotice = "";
+        setAiVoiceUiState("listening", "Poslouchám…", ["Poslouchám", "Mikrofon aktivní", "ElevenLabs"]);
+        renderAiAssistantLayerOnly();
+      },
+      onUserTranscript: (event) => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        aiAssistantState.isListening = false;
+        aiAssistantState.voiceTranscript = event.text || "";
+        setAiVoiceUiState("processing", AI_VOICE_PROCESSING_LABEL, ["Zpracovávám", "Čeká na odpověď", "ElevenLabs"]);
+        renderAiAssistantLayerOnly();
+      },
+      onAgentResponse: (event) => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        aiAssistantState.isListening = false;
+        aiAssistantState.voiceAnswer = event.text || "";
+        setAiVoiceUiState("speaking", AI_VOICE_SPEAKING_LABEL, ["Odpovídám", "Čekám na audio", "ElevenLabs"]);
+        renderAiAssistantLayerOnly();
+      },
+      onAudio: (event) => {
+        if (requestId !== aiTextRequestId) {
+          return;
+        }
+        if (event.audioPlaybackFailed) {
+          aiAssistantState.voiceNotice = "Odpověď přišla, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč.";
+        }
+        setAiVoiceUiState("speaking", AI_VOICE_SPEAKING_LABEL, [
+          event.audioPlaybackStarted ? "Zvuk přehrávám" : "Zvuk připravuji",
+          "Bez akce",
+          "ElevenLabs audio"
+        ]);
+        renderAiAssistantLayerOnly();
+      }
+    });
 
-  const started = await speechRecognition.start();
-  if (!started) {
+    if (requestId !== aiTextRequestId) {
+      return;
+    }
+
+    aiAssistantState.elevenLabsConfigured = true;
+    aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = true;
+    aiAssistantState.elevenLabsStatus = `ElevenLabs agent ${result.assistantName || assistant.name} je připravený.`;
+    aiAssistantState.isListening = false;
+    aiAssistantState.voiceTranscript = result.transcript || aiAssistantState.voiceTranscript;
+    aiAssistantState.voiceAnswer = result.text || aiAssistantState.voiceAnswer || `${assistant.name} nevrátila textovou odpověď.`;
+    aiAssistantState.voiceNotice = result.audioPlaybackFailed
+      ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč."
+      : aiAssistantState.voiceNotice;
+    setAiVoiceUiState("speaking", AI_VOICE_SPEAKING_LABEL, [
+      result.audioPlaybackStarted ? "Zvuk přehrávám" : "Odpověď přijata",
+      "Bez akce",
+      result.audioChunkCount ? "ElevenLabs audio" : "Čekám na audio"
+    ]);
+
+    if (result.transcript) {
+      aiAssistantState.messages = [
+        ...aiAssistantState.messages,
+        createAiAssistantMessage("user", result.transcript),
+        createAiAssistantMessage("bot", aiAssistantState.voiceAnswer, [], result.assistantName || assistant.name)
+      ];
+    }
+
+    scheduleAiVoiceIdle(7200);
+    renderAiAssistantLayerOnly();
+  } catch (error) {
+    if (requestId !== aiTextRequestId) {
+      return;
+    }
+
+    aiAssistantState.isListening = false;
+    if (error?.code === "voice_stopped") {
+      aiAssistantState.voiceStatus = AI_STATUS_DONE;
+      aiAssistantState.voiceUiState = "idle";
+      aiAssistantState.voiceTags = ["Zastaveno", "Bez odeslání", "Připraven"];
+      renderAiAssistantLayerOnly();
+      return;
+    }
+
+    aiAssistantState.elevenLabsStatus = error?.payload?.error || aiAssistantState.elevenLabsStatus || AI_STATUS_ELEVENLABS_WAITING;
+    aiAssistantState.voiceStatus = error?.payload?.error || error?.message || AI_VOICE_ERROR_LABEL;
     aiAssistantState.voiceUiState = "error";
+    aiAssistantState.voiceNotice = error?.payload?.error || error?.message || "Hlasový režim Šarloty se nepodařilo spustit.";
+    aiAssistantState.voiceTags = ["Chyba hlasu", "Zkusit znovu", "Bez odeslání"];
     renderAiAssistantLayerOnly();
   }
 }
 
 function stopAiVoiceRecognition() {
   stopAiVoiceDemo({ renderAfter: false });
+  aiTextRequestId += 1;
+  elevenLabsAssistant.stopVoiceAudio?.();
   clearAiVoiceStateTimer();
   speechRecognition.stop();
   aiAssistantState.isListening = false;
@@ -1277,6 +1404,7 @@ function navigateFromAiAssistant(route) {
 
   stopAiVoiceDemo({ renderAfter: false });
   speechRecognition.stop({ status: false });
+  elevenLabsAssistant.stopVoiceAudio?.();
   cancelAiTextRequest();
   aiAssistantState.chatOpen = false;
   aiAssistantState.welcomeVisible = false;

@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.38"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.39"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Mobilní zvuk Šarloty",
+    text: "Hlasový režim Šarloty odemyká mobilní audio a přehrává ElevenLabs zvukovou odpověď z WebSocket audio streamu."
+  },
   {
     title: "Nové ElevenLabs spojení pro Šarlotu",
     text: "Textový režim Šarloty nově zavírá starou session a používá čisté ElevenLabs Chat Mode spojení se čtením běžných i streamovaných odpovědí."
