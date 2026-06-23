@@ -6460,26 +6460,16 @@ body:has(.ai-welcome-modal) {
   aspect-ratio: 1;
   place-items: center;
   padding: 0;
-  border: 1px solid rgba(183, 236, 47, 0.34);
-  border-radius: 56px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  box-shadow:
-    0 26px 72px rgba(31, 41, 33, 0.14),
-    0 18px 60px rgba(177, 226, 35, 0.22),
-    0 0 0 9px rgba(183, 236, 47, 0.09),
-    0 0 0 1px rgba(255, 255, 255, 0.82);
+  box-shadow: none;
   touch-action: manipulation;
 }
 
 .ai-voice-assistant-panel__mic::before {
-  content: "";
-  position: absolute;
-  inset: -12px;
-  border-radius: 68px;
-  border: 1px solid rgba(183, 236, 47, 0.44);
-  box-shadow: 0 0 34px rgba(183, 236, 47, 0.18);
-  opacity: 0.58;
-  pointer-events: none;
+  content: none;
 }
 
 .ai-voice-assistant-panel__mic img {
@@ -6487,6 +6477,7 @@ body:has(.ai-welcome-modal) {
   height: 100%;
   object-fit: contain;
   filter: none;
+  transform: scale(1.82);
 }
 
 .ai-voice-assistant-panel__mic-loader {
@@ -6732,11 +6723,11 @@ body:has(.ai-welcome-modal) {
     min-width: 207px;
     height: 207px;
     min-height: 207px;
-    border-radius: 46px;
+    border-radius: 999px;
   }
 
   .ai-voice-assistant-panel__mic::before {
-    border-radius: 56px;
+    content: none;
   }
 
   .ai-voice-assistant-panel__conversation {
@@ -6784,11 +6775,11 @@ body:has(.ai-welcome-modal) {
     min-width: 237px;
     height: 237px;
     min-height: 237px;
-    border-radius: 52px;
+    border-radius: 999px;
   }
 
   .ai-voice-assistant-panel__mic::before {
-    border-radius: 62px;
+    content: none;
   }
 }
 
@@ -6803,11 +6794,11 @@ body:has(.ai-welcome-modal) {
     min-width: 267px;
     height: 267px;
     min-height: 267px;
-    border-radius: 58px;
+    border-radius: 999px;
   }
 
   .ai-voice-assistant-panel__mic::before {
-    border-radius: 70px;
+    content: none;
   }
 }
 
