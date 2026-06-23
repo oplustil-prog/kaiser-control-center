@@ -120,7 +120,7 @@ const quickAbsenceMenuItem = {
   order: 0
 };
 const AI_INITIAL_MESSAGE =
-  "Dobrý den, jsem Smart pomocník. Můžete psát nebo mluvit. Řekněte například: chci dovolenou, nahlásit nemoc, otevřít pneumatiky nebo správa uživatelů.";
+  "Dobrý den, jsem Smart pomocník. Můžete se zeptat na dovolenou, nemoc, pneumatiky, závady, uživatele nebo nastavení.";
 const AI_STATUS_READY = "Připraven";
 const AI_STATUS_DONE = "Hotovo";
 const AI_UNSUPPORTED_NOTICE = "Hlasové ovládání není v tomto prohlížeči podporované. Použijte textový dotaz.";

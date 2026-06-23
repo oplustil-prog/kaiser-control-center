@@ -1,4 +1,4 @@
-import { VoiceAssistantButton } from "./VoiceAssistantButton.js";
+import { AiVoicePanel } from "./AiVoicePanel.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -62,6 +62,11 @@ export function AiAssistantChat({
     return "";
   }
 
+  const isVoiceMode = mode === "voice";
+  const headerText = isVoiceMode
+    ? "Stačí promluvit nebo napsat dotaz."
+    : "Napište, s čím potřebujete poradit.";
+
   return `
     <section
       class="ai-assistant-chat ai-assistant-chat--${escapeHtml(mode)}"
@@ -73,23 +78,25 @@ export function AiAssistantChat({
         <div>
           <span class="ai-assistant-chat__eyebrow">Smart odpady</span>
           <h2 id="ai-assistant-title">Smart pomocník</h2>
-          <p>Poradím vám s orientací v aplikaci.</p>
+          <p>${escapeHtml(headerText)}</p>
         </div>
         <button class="ai-assistant-chat__close" type="button" data-ai-close aria-label="Zavřít Smart pomocníka">
           Zavřít
         </button>
       </header>
 
+      ${
+        isVoiceMode
+          ? AiVoicePanel({
+              listening: isListening,
+              status: voiceStatus,
+              notice: voiceNotice
+            })
+          : ""
+      }
+
       <div class="ai-assistant-chat__messages" aria-live="polite">
         ${renderMessages(messages)}
-      </div>
-
-      <div class="ai-assistant-chat__voice">
-        ${VoiceAssistantButton({ listening: isListening, status: voiceStatus })}
-        ${voiceNotice ? `<p class="ai-assistant-chat__voice-notice">${escapeHtml(voiceNotice)}</p>` : ""}
-        <p class="ai-assistant-chat__privacy">
-          Hlas se zpracovává pouze pro aktuální pokyn. Konverzace se v této testovací verzi neukládá.
-        </p>
       </div>
 
       <form class="ai-assistant-chat__composer" data-ai-form>
