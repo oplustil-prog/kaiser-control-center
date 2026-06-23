@@ -2207,7 +2207,7 @@ function absenceDashboard(user) {
       </div>
 
       <div class="absence-panels">
-        <section class="absence-panel">
+        <section class="absence-panel absence-panel--approval-dashboard">
           <div class="absence-panel__head">
             <h2>Žádosti čekající na schválení</h2>
           </div>
