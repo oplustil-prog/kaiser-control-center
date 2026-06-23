@@ -1,3 +1,5 @@
+import { AssistantAvatarSelector } from "./AssistantAvatarSelector.js";
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -9,6 +11,11 @@ function escapeHtml(value) {
 
 export function AiVoiceAssistantPanel({
   open = false,
+  assistant = null,
+  assistants = [],
+  selectedAssistantId = "",
+  avatarAssetStatus = {},
+  elevenLabsStatus = "",
   listening = false,
   demoPlaying = false,
   demoSpeaker = "",
@@ -20,8 +27,9 @@ export function AiVoiceAssistantPanel({
     return "";
   }
 
+  const assistantName = assistant?.name || "Smart pomocník";
   const speakerClass = demoSpeaker ? `ai-voice-assistant-panel--speaker-${escapeHtml(demoSpeaker)}` : "";
-  const statusText = demoStatus || (listening ? "Poslouchám…" : "Klepnutím spustíš ukázkovou komunikaci.");
+  const statusText = demoStatus || (listening ? "Poslouchám…" : "Klepnutím spustíš hlasový pokyn.");
 
   return `
     <section
@@ -36,9 +44,11 @@ export function AiVoiceAssistantPanel({
             Zavřít
           </button>
         </div>
-        <h2 id="ai-voice-assistant-title">Hlasový pomocník</h2>
-        <p>Zažij hlasovou interakci</p>
+        <h2 id="ai-voice-assistant-title">${escapeHtml(assistantName)}</h2>
+        <p>${escapeHtml(assistant?.intro || "Hlasový pomocník pro Smart odpady.")}</p>
       </header>
+
+      ${AssistantAvatarSelector({ assistants, selectedAssistantId, avatarAssetStatus })}
 
       <div class="ai-voice-assistant-panel__body">
         <button
@@ -53,6 +63,9 @@ export function AiVoiceAssistantPanel({
         <p class="ai-voice-assistant-panel__status" aria-live="polite">
           ${escapeHtml(statusText)}
         </p>
+        ${elevenLabsStatus ? `
+          <p class="ai-voice-assistant-panel__elevenlabs-status">${escapeHtml(elevenLabsStatus)}</p>
+        ` : ""}
         ${demoPlaying ? `
           <button class="ai-voice-assistant-panel__stop" type="button" data-ai-stop-voice>
             Zastavit ukázku

@@ -1,7 +1,9 @@
 import { moduleDashboards, modules } from "./data/modules.js";
 import { AiAssistantChat } from "./components/AiAssistantChat.js";
 import { AiAssistantLauncher } from "./components/AiAssistantLauncher.js";
+import { AiConfirmationModal } from "./components/AiConfirmationModal.js";
 import { AiWelcomeModal } from "./components/AiWelcomeModal.js";
+import { ElevenLabsAssistantProvider } from "./ElevenLabsAssistantProvider.js";
 import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
 import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
@@ -9,6 +11,8 @@ import { AppearanceSettingsBox } from "./components/AppearanceSettingsBox.js";
 import { QuickAbsenceIcon, ReportsIcon } from "./components/icons/index.js";
 import { useSpeechRecognition } from "./useSpeechRecognition.js";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard.js";
+import { AI_ASSISTANTS, DEFAULT_AI_ASSISTANT_ID, assistantById } from "./data/aiAssistants.js";
+import { normalizeAiRoute, routeForAiModule } from "./elevenLabsClientTools.js";
 import {
   ABSENCE_REPORT_DAY,
   ABSENCE_REPORT_EMAIL,
@@ -164,10 +168,11 @@ const NOTIFICATION_STATUS_OPTIONS = [
 const NOTIFICATION_TYPE_OPTIONS = Object.entries(NOTIFICATION_TYPE_LABELS)
   .map(([value, label]) => ({ value, label }));
 const AI_INITIAL_MESSAGE =
-  "Ahoj, jsem Smart pomocník. Zeptej se mě na dovolenou, nemoc, pneumatiky, závady, uživatele nebo nastavení.";
+  `${assistantById(DEFAULT_AI_ASSISTANT_ID).intro} Zeptej se mě na dovolenou, nemoc, pneumatiky, připomínky, uživatele nebo nastavení.`;
 const AI_STATUS_READY = "Připraven";
 const AI_STATUS_DONE = "Hotovo";
 const AI_STATUS_DEMO = "Přehrávám ukázku…";
+const AI_STATUS_ELEVENLABS_WAITING = "ElevenLabs čeká na Agent ID a API klíč. Hlasová navigace v prohlížeči je připravená.";
 const AI_VOICE_DEMO_SCRIPT = [
   {
     speaker: "user",
@@ -385,6 +390,11 @@ const aiAssistantState = {
   chatOpen: false,
   launcherVisible: false,
   mode: "text",
+  selectedAssistantId: DEFAULT_AI_ASSISTANT_ID,
+  avatarAssetStatus: Object.fromEntries(AI_ASSISTANTS.map((assistant) => [assistant.id, "unknown"])),
+  elevenLabsStatus: AI_STATUS_ELEVENLABS_WAITING,
+  elevenLabsConfigured: false,
+  elevenLabsConfiguredByAssistant: Object.fromEntries(AI_ASSISTANTS.map((assistant) => [assistant.id, false])),
   input: "",
   voiceStatus: AI_STATUS_READY,
   voiceNotice: "",
@@ -394,9 +404,14 @@ const aiAssistantState = {
   demoSpeakerLabel: "",
   demoLine: "",
   demoStatus: "",
+  confirmation: null,
+  toast: null,
+  highlightMessage: "",
   messages: [createAiAssistantMessage("bot", AI_INITIAL_MESSAGE)]
 };
 let aiVoiceDemoTimer = 0;
+let aiToastTimer = 0;
+let aiConfirmationResolver = null;
 
 const speechRecognition = useSpeechRecognition({
   onResult: (transcript) => submitAiAssistantQuestion(transcript, { fromVoice: true }),
@@ -412,6 +427,16 @@ const speechRecognition = useSpeechRecognition({
     aiAssistantState.voiceStatus = error?.status || aiAssistantState.voiceStatus;
     aiAssistantState.voiceNotice = error?.message || "";
     render();
+  }
+});
+
+const elevenLabsAssistant = ElevenLabsAssistantProvider({
+  tools: {
+    navigate: (route) => navigateFromAiAssistant(route),
+    canUseRoute: (route) => canUseAiRoute(route),
+    confirm: (payload) => requestAiConfirmation(payload),
+    toast: (payload) => showAiToast(payload),
+    highlight: (payload) => showAiHighlight(payload)
   }
 });
 
@@ -598,14 +623,180 @@ function moduleFeedbackBoxFor(moduleItem, user, options = {}) {
   });
 }
 
-function createAiAssistantMessage(sender, text, actions = []) {
+function createAiAssistantMessage(sender, text, actions = [], assistantName = "") {
   aiAssistantMessageId += 1;
   return {
     id: `ai-message-${aiAssistantMessageId}`,
     sender,
     text,
-    actions
+    actions,
+    assistantName: sender === "bot"
+      ? (assistantName || assistantById(DEFAULT_AI_ASSISTANT_ID).name)
+      : ""
   };
+}
+
+function selectedAiAssistant() {
+  return assistantById(aiAssistantState.selectedAssistantId);
+}
+
+function aiAssistantIntroMessage(assistant = selectedAiAssistant()) {
+  return `${assistant.intro} Zeptej se mě na dovolenou, nemoc, pneumatiky, připomínky, uživatele nebo nastavení.`;
+}
+
+function setAiAssistant(assistantId) {
+  const assistant = assistantById(assistantId);
+  aiAssistantState.selectedAssistantId = assistant.id;
+  aiAssistantState.elevenLabsStatus = aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id]
+    ? `ElevenLabs agent ${assistant.name} je nakonfigurovaný.`
+    : AI_STATUS_ELEVENLABS_WAITING;
+  aiAssistantState.messages = [
+    ...aiAssistantState.messages,
+    createAiAssistantMessage("bot", assistant.intro, [], assistant.name)
+  ];
+  render();
+}
+
+async function probeAiAssistantAvatarAssets() {
+  await Promise.all(AI_ASSISTANTS.map(async (assistant) => {
+    try {
+      const response = await fetch(assistant.avatarPath, {
+        method: "HEAD",
+        cache: "no-store"
+      });
+      const contentType = response.headers.get("content-type") || "";
+      aiAssistantState.avatarAssetStatus[assistant.id] = response.ok && contentType.startsWith("image/")
+        ? "available"
+        : "missing";
+    } catch {
+      aiAssistantState.avatarAssetStatus[assistant.id] = "missing";
+    }
+  }));
+
+  render();
+}
+
+function moduleIdForAiRoute(route) {
+  const normalizedRoute = normalizeAiRoute(route);
+
+  if (normalizedRoute === "/" || normalizedRoute === "/dashboard") {
+    return "dashboard";
+  }
+
+  if (normalizedRoute.startsWith("/dovolena-nemoc")) {
+    return "absence";
+  }
+
+  if (normalizedRoute === "/pripominky") {
+    return "feedback";
+  }
+
+  const primaryModule = primaryRoutes.get(normalizedRoute);
+  if (primaryModule) {
+    return primaryModule.id;
+  }
+
+  const dashboardModule = dashboardRoutes.get(normalizedRoute);
+  if (dashboardModule) {
+    return dashboardModule.id;
+  }
+
+  return "";
+}
+
+function canUseAiRoute(route) {
+  const normalizedRoute = normalizeAiRoute(route);
+
+  if (!normalizedRoute) {
+    return false;
+  }
+
+  const user = currentUser();
+  const moduleId = moduleIdForAiRoute(normalizedRoute);
+  return Boolean(moduleId && canViewModule(user, moduleId));
+}
+
+function renderAiToast() {
+  const toast = aiAssistantState.toast;
+
+  if (!toast) {
+    return "";
+  }
+
+  return `
+    <div class="ai-assistant-toast ai-assistant-toast--${escapeHtml(toast.type || "info")}" role="status">
+      ${escapeHtml(toast.message)}
+    </div>
+  `;
+}
+
+function renderAiHighlightMessage() {
+  if (!aiAssistantState.highlightMessage) {
+    return "";
+  }
+
+  return `
+    <div class="ai-assistant-highlight-message" role="status">
+      ${escapeHtml(aiAssistantState.highlightMessage)}
+    </div>
+  `;
+}
+
+function showAiToast({ type = "info", message = "" } = {}) {
+  if (aiToastTimer) {
+    window.clearTimeout(aiToastTimer);
+  }
+
+  aiAssistantState.toast = {
+    type,
+    message
+  };
+  render();
+
+  aiToastTimer = window.setTimeout(() => {
+    aiAssistantState.toast = null;
+    render();
+  }, 3600);
+}
+
+function showAiHighlight({ message = "" } = {}) {
+  aiAssistantState.highlightMessage = String(message || "Zvýrazněno.").trim();
+  render();
+
+  window.setTimeout(() => {
+    aiAssistantState.highlightMessage = "";
+    render();
+  }, 2800);
+}
+
+function requestAiConfirmation({ title, message, confirmLabel, cancelLabel } = {}) {
+  if (aiConfirmationResolver) {
+    aiConfirmationResolver(false);
+  }
+
+  aiAssistantState.confirmation = {
+    title,
+    message,
+    confirmLabel,
+    cancelLabel
+  };
+
+  render();
+
+  return new Promise((resolve) => {
+    aiConfirmationResolver = resolve;
+  });
+}
+
+function resolveAiConfirmation(confirmed) {
+  const resolver = aiConfirmationResolver;
+  aiConfirmationResolver = null;
+  aiAssistantState.confirmation = null;
+  render();
+
+  if (resolver) {
+    resolver(Boolean(confirmed));
+  }
 }
 
 function resetAiAssistantSession() {
@@ -615,11 +806,15 @@ function resetAiAssistantSession() {
   aiAssistantState.chatOpen = false;
   aiAssistantState.launcherVisible = false;
   aiAssistantState.mode = "text";
+  aiAssistantState.selectedAssistantId = DEFAULT_AI_ASSISTANT_ID;
   aiAssistantState.input = "";
   aiAssistantState.voiceStatus = AI_STATUS_READY;
   aiAssistantState.voiceNotice = "";
   aiAssistantState.isListening = false;
-  aiAssistantState.messages = [createAiAssistantMessage("bot", AI_INITIAL_MESSAGE)];
+  aiAssistantState.confirmation = null;
+  aiAssistantState.toast = null;
+  aiAssistantState.highlightMessage = "";
+  aiAssistantState.messages = [createAiAssistantMessage("bot", aiAssistantIntroMessage(), [], assistantById(DEFAULT_AI_ASSISTANT_ID).name)];
 }
 
 function normalizeAiPrompt(value) {
@@ -633,60 +828,102 @@ function aiPromptIncludes(normalizedPrompt, keywords) {
   return keywords.some((keyword) => normalizedPrompt.includes(keyword));
 }
 
-function aiAssistantResponse(question) {
-  const prompt = normalizeAiPrompt(question);
+function aiModuleResponse(prompt) {
+  const modulePrompts = [
+    { keywords: ["rychle zadani", "chci dovolenou", "nahlasit nemoc", "jdu k lekari"], moduleId: "rychle-zadani", label: "Otevřít Rychlé zadání" },
+    { keywords: ["moje zadosti", "moje dovolena"], moduleId: "moje-zadosti", label: "Otevřít Moje žádosti" },
+    { keywords: ["ke schvaleni", "cekaji na schvaleni", "schvaleni"], moduleId: "ke-schvaleni", label: "Otevřít Ke schválení" },
+    { keywords: ["kalendar"], moduleId: "kalendar", label: "Otevřít Kalendář" },
+    { keywords: ["pneumatiky", "pneu"], moduleId: "pneumatiky", label: "Otevřít Pneumatiky" },
+    { keywords: ["hlaseni ridicu", "zavada", "zavady", "porucha"], moduleId: "hlaseni-ridicu", label: "Otevřít Hlášení řidičů" },
+    { keywords: ["vozovy park", "auta", "vozidla"], moduleId: "vozovy-park", label: "Otevřít Vozový park" },
+    { keywords: ["servis", "udrzba"], moduleId: "servis-udrzba", label: "Otevřít Servis a údržbu" },
+    { keywords: ["trasy svozu", "svoz"], moduleId: "trasy-svozu", label: "Otevřít Trasy svozu" },
+    { keywords: ["trasy vzorku", "vzorky"], moduleId: "trasy-vzorku", label: "Otevřít Trasy vzorků" },
+    { keywords: ["vistos", "zakaznici"], moduleId: "vistos", label: "Otevřít Zákazníky / Vistos" },
+    { keywords: ["naklady"], moduleId: "naklady", label: "Otevřít Náklady" },
+    { keywords: ["reporty", "notifikace"], moduleId: "reporty", label: "Otevřít Reporty" },
+    { keywords: ["uzivatel", "uzivatele", "prava", "role"], moduleId: "uzivatele", label: "Otevřít Uživatelé a role" },
+    { keywords: ["nastaveni", "vzhled", "barvy", "logo"], moduleId: "nastaveni", label: "Otevřít Nastavení" },
+    { keywords: ["pripominky", "feedback"], moduleId: "pripominky", label: "Otevřít Připomínky" },
+    { keywords: ["dashboard", "prehled"], moduleId: "dashboard", label: "Otevřít Dashboard" }
+  ];
 
-  if (aiPromptIncludes(prompt, ["nemoc", "jsem nemocny", "nahlasit nemoc"])) {
-    return {
-      text: "Pro nahlášení nemoci použij Rychlé zadání. Otevřu ti ho.",
-      actions: [{ label: "Nahlásit nemoc", route: ABSENCE_QUICK_ROUTE }]
-    };
+  const match = modulePrompts.find((item) => aiPromptIncludes(prompt, item.keywords));
+  if (!match) {
+    return null;
   }
 
-  if (aiPromptIncludes(prompt, ["dovolena", "chci dovolenou", "zadost o dovolenou"])) {
-    return {
-      text: "Pro zadání dovolené použij Rychlé zadání. Otevřu ti ho.",
-      actions: [{ label: "Otevřít Rychlé zadání", route: ABSENCE_QUICK_ROUTE }]
-    };
-  }
-
-  if (aiPromptIncludes(prompt, ["lekar", "doktor", "jdu k lekari"])) {
-    return {
-      text: "Lékaře zadáte v rychlém zadání dovolené a nemoci.",
-      actions: [{ label: "Otevřít Rychlé zadání", route: ABSENCE_QUICK_ROUTE }]
-    };
-  }
-
-  if (aiPromptIncludes(prompt, ["pneumatiky", "pneu"])) {
-    return {
-      text: "Otevřu modul Pneumatiky.",
-      actions: [{ label: "Otevřít Pneumatiky", route: "/pneumatiky" }]
-    };
-  }
-
-  if (aiPromptIncludes(prompt, ["zavada", "hlaseni", "nahlasit zavadu", "porucha"])) {
-    return {
-      text: "Pro nahlášení závady otevři modul Hlášení řidičů.",
-      actions: [{ label: "Otevřít Hlášení řidičů", route: "/hlaseni-ridicu" }]
-    };
-  }
-
-  if (aiPromptIncludes(prompt, ["uzivatel", "uzivatele", "prava", "role"])) {
-    return {
-      text: "Uživatelé a práva se spravují v modulu Uživatelé a role.",
-      actions: [{ label: "Otevřít Uživatelé a role", route: "/uzivatele" }]
-    };
-  }
-
-  if (aiPromptIncludes(prompt, ["nastaveni", "vzhled", "barvy", "logo"])) {
-    return {
-      text: "Nastavení aplikace najdeš v modulu Nastavení.",
-      actions: [{ label: "Otevřít Nastavení", route: "/nastaveni" }]
-    };
+  const route = routeForAiModule(match.moduleId);
+  if (!route) {
+    return null;
   }
 
   return {
-    text: "Zatím jsem jen testovací pomocník. Umím poradit se základní orientací v aplikaci.",
+    text: `${match.label.replace("Otevřít", "Otevírám").replace("Otevřít", "Otevírám")}.`,
+    actions: [{ label: match.label, route }]
+  };
+}
+
+function formatPendingAbsenceForAi(requests = []) {
+  if (!requests.length) {
+    return "Žádná žádost ke schválení teď není v dostupném přehledu.";
+  }
+
+  const lines = requests.slice(0, 5).map((request) => (
+    `${request.employeeName || "Zaměstnanec"}: ${request.typeLabel || request.type}, ${request.dateFrom || ""}${request.dateTo && request.dateTo !== request.dateFrom ? ` až ${request.dateTo}` : ""}`
+  ));
+
+  return `Ke schválení vidím ${requests.length} žádost(i): ${lines.join("; ")}.`;
+}
+
+async function aiAssistantResponse(question) {
+  const prompt = normalizeAiPrompt(question);
+  const assistant = selectedAiAssistant();
+
+  if (aiPromptIncludes(prompt, ["kdo ceka", "cekaji na schvaleni", "zadosti ke schvaleni", "najdi zadosti"])) {
+    try {
+      const result = await apiJson(`/api/ai/absence/pending?limit=5&assistant=${encodeURIComponent(assistant.id)}&assistantName=${encodeURIComponent(assistant.name)}`);
+      return {
+        text: formatPendingAbsenceForAi(result.requests || []),
+        actions: [{ label: "Otevřít Ke schválení", route: "/dovolena-nemoc/ke-schvaleni" }]
+      };
+    } catch (error) {
+      return {
+        text: error.message || "Žádosti ke schválení se teď nepodařilo načíst přes API.",
+        actions: [{ label: "Otevřít Ke schválení", route: "/dovolena-nemoc/ke-schvaleni" }]
+      };
+    }
+  }
+
+  const moduleResponse = aiModuleResponse(prompt);
+  if (moduleResponse) {
+    return moduleResponse;
+  }
+
+  if (aiPromptIncludes(prompt, ["najdi", "ukaz", "kde je", "hledej"])) {
+    try {
+      const result = await apiJson(`/api/ai/search?q=${encodeURIComponent(question)}&assistant=${encodeURIComponent(assistant.id)}&assistantName=${encodeURIComponent(assistant.name)}`);
+      const firstModule = result.modules?.[0];
+      const firstPage = result.pages?.[0];
+      const actionTarget = firstModule || firstPage;
+
+      return {
+        text: actionTarget
+          ? `Našel jsem: ${actionTarget.title}.`
+          : "Nic přesného jsem nenašel. Zkus kratší dotaz nebo název modulu.",
+        actions: actionTarget ? [{ label: `Otevřít ${actionTarget.title}`, route: actionTarget.route }] : []
+      };
+    } catch (error) {
+      return {
+        text: error.message || "Vyhledávání přes API teď není dostupné.",
+        actions: []
+      };
+    }
+  }
+
+  return {
+    text: `${assistant.name} zatím bezpečně pomáhá s orientací, vyhledáním a přípravou potvrzených akcí přes API.`,
     actions: []
   };
 }
@@ -722,18 +959,18 @@ function closeAiAssistant() {
   render();
 }
 
-function submitAiAssistantQuestion(question, options = {}) {
+async function submitAiAssistantQuestion(question, options = {}) {
   const text = String(question || "").trim();
 
   if (!text) {
     return;
   }
 
-  const response = aiAssistantResponse(text);
+  const response = await aiAssistantResponse(text);
   aiAssistantState.messages = [
     ...aiAssistantState.messages,
     createAiAssistantMessage("user", text),
-    createAiAssistantMessage("bot", response.text, response.actions)
+    createAiAssistantMessage("bot", response.text, response.actions, selectedAiAssistant().name)
   ];
   aiAssistantState.input = "";
   aiAssistantState.voiceNotice = "";
@@ -743,6 +980,14 @@ function submitAiAssistantQuestion(question, options = {}) {
   }
 
   render();
+
+  if (options.fromVoice && response.actions?.length === 1) {
+    const route = normalizeAiRoute(response.actions[0].route);
+
+    if (route && canUseAiRoute(route)) {
+      window.setTimeout(() => navigateFromAiAssistant(route), 420);
+    }
+  }
 }
 
 function aiVoiceDemoDelay(line) {
@@ -844,8 +1089,37 @@ function startAiVoiceDemo() {
   playAiVoiceDemoLine(0);
 }
 
-function startAiVoiceRecognition() {
-  startAiVoiceDemo();
+async function prepareElevenLabsVoiceSession() {
+  const assistant = selectedAiAssistant();
+
+  try {
+    const result = await elevenLabsAssistant.prepareSignedUrl(assistant.id);
+    aiAssistantState.elevenLabsConfigured = Boolean(result.configured);
+    aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = Boolean(result.configured);
+    aiAssistantState.elevenLabsStatus = result.configured
+      ? `ElevenLabs agent ${result.assistantName || assistant.name} je připravený.`
+      : AI_STATUS_ELEVENLABS_WAITING;
+  } catch (error) {
+    aiAssistantState.elevenLabsConfigured = false;
+    aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = false;
+    aiAssistantState.elevenLabsStatus = error?.payload?.error || AI_STATUS_ELEVENLABS_WAITING;
+  }
+}
+
+async function startAiVoiceRecognition() {
+  stopAiVoiceDemo({ renderAfter: false });
+  speechRecognition.stop({ status: false });
+  aiAssistantState.demoStatus = "";
+  aiAssistantState.voiceNotice = "";
+  aiAssistantState.voiceStatus = "Připravuji hlasový režim…";
+  render();
+
+  await prepareElevenLabsVoiceSession();
+
+  const started = speechRecognition.start();
+  if (!started) {
+    render();
+  }
 }
 
 function stopAiVoiceRecognition() {
@@ -857,6 +1131,16 @@ function stopAiVoiceRecognition() {
 }
 
 function navigateFromAiAssistant(route) {
+  const normalizedRoute = normalizeAiRoute(route);
+
+  if (!normalizedRoute || !canUseAiRoute(normalizedRoute)) {
+    showAiToast({
+      type: "warning",
+      message: "Tuhle část aplikace nemůže AI pomocník otevřít."
+    });
+    return;
+  }
+
   stopAiVoiceDemo({ renderAfter: false });
   speechRecognition.stop({ status: false });
   aiAssistantState.chatOpen = false;
@@ -864,7 +1148,7 @@ function navigateFromAiAssistant(route) {
   aiAssistantState.welcomeAnimate = false;
   aiAssistantState.launcherVisible = true;
   aiAssistantState.isListening = false;
-  guardedAccessAction(() => navigateToUrl(routeHref(route)));
+  guardedAccessAction(() => navigateToUrl(routeHref(normalizedRoute)));
 }
 
 function renderAiAssistantLayer() {
@@ -873,6 +1157,8 @@ function renderAiAssistantLayer() {
   if (!user || !isUserActive(user)) {
     return "";
   }
+
+  const assistant = selectedAiAssistant();
 
   return [
     AiWelcomeModal({
@@ -884,6 +1170,11 @@ function renderAiAssistantLayer() {
       mode: aiAssistantState.mode,
       messages: aiAssistantState.messages,
       input: aiAssistantState.input,
+      assistant,
+      assistants: elevenLabsAssistant.assistants,
+      selectedAssistantId: aiAssistantState.selectedAssistantId,
+      avatarAssetStatus: aiAssistantState.avatarAssetStatus,
+      elevenLabsStatus: aiAssistantState.elevenLabsStatus,
       isListening: aiAssistantState.isListening,
       demoPlaying: aiAssistantState.demoPlaying,
       demoSpeaker: aiAssistantState.demoSpeaker,
@@ -893,7 +1184,10 @@ function renderAiAssistantLayer() {
     }),
     AiAssistantLauncher({
       visible: aiAssistantState.launcherVisible && !aiAssistantState.chatOpen && !aiAssistantState.welcomeVisible
-    })
+    }),
+    AiConfirmationModal({ confirmation: aiAssistantState.confirmation }),
+    renderAiToast(),
+    renderAiHighlightMessage()
   ].join("");
 }
 
@@ -6792,7 +7086,7 @@ document.addEventListener("submit", async (event) => {
   const aiForm = event.target.closest("[data-ai-form]");
   if (aiForm) {
     event.preventDefault();
-    submitAiAssistantQuestion(aiForm.elements.question?.value || aiAssistantState.input);
+    await submitAiAssistantQuestion(aiForm.elements.question?.value || aiAssistantState.input);
     return;
   }
 
@@ -7056,7 +7350,7 @@ document.addEventListener("click", async (event) => {
 
   const aiStartVoice = event.target.closest("[data-ai-start-voice]");
   if (aiStartVoice) {
-    startAiVoiceRecognition();
+    await startAiVoiceRecognition();
     return;
   }
 
@@ -7069,6 +7363,18 @@ document.addEventListener("click", async (event) => {
   const aiRoute = event.target.closest("[data-ai-route]");
   if (aiRoute) {
     navigateFromAiAssistant(aiRoute.dataset.aiRoute || "/");
+    return;
+  }
+
+  const aiAssistantSelect = event.target.closest("[data-ai-assistant-select]");
+  if (aiAssistantSelect) {
+    setAiAssistant(aiAssistantSelect.dataset.aiAssistantSelect);
+    return;
+  }
+
+  const aiConfirmationAction = event.target.closest("[data-ai-confirmation-action]");
+  if (aiConfirmationAction) {
+    resolveAiConfirmation(aiConfirmationAction.dataset.aiConfirmationAction === "confirm");
     return;
   }
 
@@ -7376,4 +7682,5 @@ document.addEventListener("click", async (event) => {
 window.addEventListener("beforeunload", (event) => accessUnsavedChangesGuard.beforeUnload(event));
 window.addEventListener("popstate", handlePopStateNavigation);
 render();
+probeAiAssistantAvatarAssets();
 bootstrapAuth();

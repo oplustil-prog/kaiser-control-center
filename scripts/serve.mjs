@@ -11,6 +11,7 @@ import { normalizeUserInput } from "../functions/_lib/users-store.js";
 import { normalizeFeedback, normalizeFeedbackPriority, normalizeFeedbackStatus } from "../src/data/moduleFeedback.js";
 import { normalizeAbsenceSettings } from "../src/data/absence.js";
 import { DEFAULT_THEME_SETTINGS, normalizeThemeSettings } from "../src/data/themeSettings.js";
+import { modules } from "../src/data/modules.js";
 import { hasPermission, isFullAccessRole, normalizeRole } from "../src/permissions.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -977,6 +978,162 @@ async function handleApi(request, response) {
       return true;
     }
     sendJson(response, 200, { user: publicUser(user) });
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/user/me" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      user: publicUser(user),
+      permissions: [...modules, { id: "feedback" }].map((moduleItem) => ({
+        moduleId: moduleItem.id,
+        actions: ["view", "create", "edit", "delete", "approve", "export", "manage"]
+          .filter((action) => hasPermission(user, moduleItem.id, action))
+      })),
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/search" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    const query = String(url.searchParams.get("q") || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+    const match = (item) => !query || [
+      item.id,
+      item.title,
+      item.description,
+      item.route
+    ].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(query);
+    const visibleModules = modules
+      .filter((moduleItem) => hasPermission(user, moduleItem.id, "view"))
+      .filter(match)
+      .map((moduleItem) => ({
+        id: moduleItem.id,
+        title: moduleItem.title,
+        description: moduleItem.description,
+        route: moduleItem.route,
+        status: moduleItem.status
+      }));
+
+    sendJson(response, 200, {
+      query: url.searchParams.get("q") || "",
+      modules: visibleModules,
+      pages: [],
+      records: [],
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/absence/pending" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "absence", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") || 20), 100));
+    const requests = mockAbsenceRequests
+      .filter((item) => canApproveMockAbsence(user, item))
+      .slice(0, limit);
+    sendJson(response, 200, { requests, apiStatus: "ready" });
+    return true;
+  }
+
+  const aiAbsenceActionMatch = /^\/api\/ai\/absence\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
+  if (aiAbsenceActionMatch && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "absence", "approve")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const payload = await readJsonBody(request);
+    if (payload?.confirmed !== true || payload?.confirmationSource !== "ai_ui") {
+      sendJson(response, 409, { error: "AI akce vyžaduje potvrzení uživatele.", code: "ai_confirmation_required" });
+      return true;
+    }
+
+    try {
+      const id = decodeURIComponent(aiAbsenceActionMatch[1]);
+      const action = aiAbsenceActionMatch[2];
+      const status = action === "approve" ? "approved" : "rejected";
+      const item = changeMockAbsenceStatus(user, id, status, payload.reason || "Potvrzeno v AI pomocníkovi.");
+      sendJson(response, 200, {
+        request: item,
+        notification: { status: "skipped", errorMessage: "Lokální vývojový server neposílá skutečné SMS." },
+        apiStatus: "ready"
+      });
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "AI akci se nepodařilo dokončit.", apiStatus: "ready" });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/feedback" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "feedback", "create")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const payload = await readJsonBody(request);
+    if (payload?.confirmed !== true || payload?.confirmationSource !== "ai_ui") {
+      sendJson(response, 409, { error: "AI akce vyžaduje potvrzení uživatele.", code: "ai_confirmation_required" });
+      return true;
+    }
+
+    try {
+      const feedback = createMockModuleFeedback(user, payload);
+      mockModuleFeedback = [feedback, ...mockModuleFeedback].slice(0, 500);
+      sendJson(response, 201, { feedback, apiStatus: "ready" });
+    } catch (error) {
+      sendJson(response, error.status || 500, { error: error.message || "Připomínku se nepodařilo uložit.", apiStatus: "ready" });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/elevenlabs/signed-url" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    const assistant = url.searchParams.get("assistant") === "marek" ? "Marek" : "Šarlota";
+    sendJson(response, 503, {
+      error: "ElevenLabs není nastavený v lokálním vývojovém serveru.",
+      assistantId: assistant === "Marek" ? "marek" : "sarlota",
+      assistantName: assistant,
+      configured: false,
+      apiStatus: "waiting"
+    });
     return true;
   }
 
