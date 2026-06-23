@@ -157,6 +157,7 @@ export async function logNotification(env, entry) {
       .prepare(`
         INSERT INTO notification_logs (
           id,
+          module_id,
           type,
           channel,
           recipient,
@@ -164,12 +165,19 @@ export async function logNotification(env, entry) {
           related_entity_id,
           status,
           error_message,
+          subject,
+          message_preview,
+          provider,
+          provider_message_id,
+          attempts,
           sent_at,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         randomId("notification-log"),
+        cleanString(entry.moduleId || "dovolena-nemoc"),
         cleanString(entry.type),
         cleanString(entry.channel),
         nullableString(entry.recipient),
@@ -177,7 +185,13 @@ export async function logNotification(env, entry) {
         nullableString(entry.relatedEntityId),
         cleanString(entry.status || "skipped"),
         nullableString(entry.errorMessage),
+        nullableString(entry.subject),
+        nullableString(entry.messagePreview || entry.errorMessage || entry.subject),
+        nullableString(entry.provider),
+        nullableString(entry.providerMessageId),
+        Number(entry.attempts || 1),
         entry.status === "sent" ? now : null,
+        now,
         now
       )
       .run();
@@ -207,6 +221,8 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipi
       recipient: to,
       relatedEntityId,
       status: "skipped",
+      subject,
+      provider: "SendGrid",
       errorMessage: missing
     });
     return { status: "skipped", errorMessage: missing, recipientName: cleanRecipientName };
@@ -237,7 +253,10 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipi
       channel: "email",
       recipient: to,
       relatedEntityId,
-      status: "sent"
+      status: "sent",
+      subject,
+      provider: "SendGrid",
+      providerMessageId: response.headers.get("x-message-id") || ""
     });
     return { status: "sent", recipientName: cleanRecipientName };
   } catch (error) {
@@ -247,6 +266,8 @@ async function sendEmail(env, { type, to, subject, html, relatedEntityId, recipi
       recipient: to,
       relatedEntityId,
       status: "failed",
+      subject,
+      provider: "SendGrid",
       errorMessage: error.message
     });
     return { status: "failed", errorMessage: error.message, recipientName: cleanRecipientName };
@@ -272,6 +293,8 @@ async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "
       recipient: normalizedTo || to,
       relatedEntityId,
       status: "skipped",
+      provider: "Twilio",
+      messagePreview: body,
       errorMessage: missing
     });
     return { status: "skipped", errorMessage: missing, recipientName: cleanRecipientName };
@@ -291,6 +314,8 @@ async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "
       })
     });
 
+    const responsePayload = await response.json().catch(() => ({}));
+
     if (!response.ok) {
       throw new Error(`Twilio ${response.status}`);
     }
@@ -300,7 +325,10 @@ async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "
       channel: "sms",
       recipient: normalizedTo,
       relatedEntityId,
-      status: "sent"
+      status: "sent",
+      provider: "Twilio",
+      providerMessageId: cleanString(responsePayload.sid),
+      messagePreview: body
     });
     return { status: "sent", recipientName: cleanRecipientName };
   } catch (error) {
@@ -310,6 +338,8 @@ async function sendSms(env, { type, to, body, relatedEntityId, recipientName = "
       recipient: normalizedTo,
       relatedEntityId,
       status: "failed",
+      provider: "Twilio",
+      messagePreview: body,
       errorMessage: error.message
     });
     return { status: "failed", errorMessage: error.message, recipientName: cleanRecipientName };
