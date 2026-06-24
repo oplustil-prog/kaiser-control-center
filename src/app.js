@@ -5836,7 +5836,6 @@ async function loadAssistantPromo(options = {}) {
     applyAssistantPromoPayload(result);
 
     if (result.show) {
-      await recordAssistantPromoAction("shown");
       assistantPromoState.visible = true;
       assistantPromoState.videoFailed = false;
     } else {
