@@ -8,6 +8,24 @@ import { modules } from "../../src/data/modules.js";
 
 const MODULE_TITLE_BY_ID = new Map(modules.map((moduleItem) => [moduleItem.id, moduleItem.title]));
 const AI_DYNAMIC_VARIABLE_MAX_LENGTH = 1400;
+const CZECH_VOCATIVE_NAMES = new Map([
+  ["ales", "Aleši"],
+  ["eva", "Evo"],
+  ["jan", "Jane"],
+  ["jana", "Jano"],
+  ["jiri", "Jiří"],
+  ["karel", "Karle"],
+  ["lenka", "Lenko"],
+  ["lucie", "Lucie"],
+  ["marek", "Marku"],
+  ["martin", "Martine"],
+  ["pavel", "Pavle"],
+  ["petr", "Petře"],
+  ["radek", "Radku"],
+  ["radim", "Radime"],
+  ["roman", "Romane"],
+  ["tomas", "Tomáši"]
+]);
 
 export function cleanAiString(value) {
   return String(value ?? "").trim();
@@ -154,6 +172,65 @@ function permissionLine(moduleItem) {
   return `${moduleItem.moduleId}:${actions.join("/")}`;
 }
 
+function firstNameForAi(value) {
+  const cleanedName = cleanAiString(value).replace(/\s+/g, " ");
+  return cleanedName.split(" ").filter(Boolean)[0] || "uživateli";
+}
+
+function firstNameVocativeForAi(value) {
+  const firstName = firstNameForAi(value);
+  const mappedName = CZECH_VOCATIVE_NAMES.get(normalizeAiSearch(firstName));
+
+  if (mappedName) {
+    return mappedName;
+  }
+
+  if (/a$/i.test(firstName)) {
+    return `${firstName.slice(0, -1)}o`;
+  }
+
+  if (/[bcčdďfghjklmnňpqrřsštťvwxzž]$/i.test(firstName)) {
+    return `${firstName}e`;
+  }
+
+  return firstName;
+}
+
+function pragueHourForAi(date = new Date()) {
+  try {
+    const hourPart = new Intl.DateTimeFormat("cs-CZ", {
+      timeZone: "Europe/Prague",
+      hour: "2-digit",
+      hour12: false
+    })
+      .formatToParts(date)
+      .find((part) => part.type === "hour");
+    const parsedHour = Number(cleanAiString(hourPart?.value).replace(/\D/g, ""));
+
+    if (Number.isFinite(parsedHour)) {
+      return parsedHour % 24;
+    }
+  } catch (error) {
+    // Greeting is a personalization hint; fallback must not block session creation.
+  }
+
+  return date.getHours();
+}
+
+function timeOfDayGreetingForAi(date = new Date()) {
+  const hour = pragueHourForAi(date);
+
+  if (hour >= 4 && hour < 11) {
+    return "Dobré ráno";
+  }
+
+  if (hour >= 11 && hour < 18) {
+    return "Dobrý den";
+  }
+
+  return "Dobrý večer";
+}
+
 export function userDynamicVariablesForAi(user) {
   const access = permissionSummaryForAi(user);
   const availableModules = access.modules
@@ -164,9 +241,16 @@ export function userDynamicVariablesForAi(user) {
     .map(permissionLine)
     .filter(Boolean)
     .join("; ");
+  const userFirstName = firstNameForAi(user?.name);
+  const userFirstNameVocative = firstNameVocativeForAi(user?.name);
+  const timeOfDayGreeting = timeOfDayGreetingForAi();
 
   return {
     user_name: truncateAiDynamicVariable(user?.name || "Uživatel", 120),
+    user_first_name: truncateAiDynamicVariable(userFirstName, 80),
+    user_first_name_vocative: truncateAiDynamicVariable(userFirstNameVocative, 80),
+    time_of_day_greeting: truncateAiDynamicVariable(timeOfDayGreeting, 80),
+    user_greeting: truncateAiDynamicVariable(`${timeOfDayGreeting}, ${userFirstNameVocative}.`, 140),
     user_role: truncateAiDynamicVariable(access.roleLabel || access.role || "Uživatel", 120),
     user_permissions: truncateAiDynamicVariable(userPermissions || "bez oprávnění"),
     available_modules: truncateAiDynamicVariable(availableModules || "žádné moduly"),
