@@ -1305,7 +1305,7 @@ async function handleApi(request, response) {
     return true;
   }
 
-  if (url.pathname === "/api/ai/sarlota-promo" && request.method === "GET") {
+  if ((url.pathname === "/api/sarlota-promo" || url.pathname === "/api/ai/sarlota-promo") && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
       sendJson(response, 401, { error: "Nepřihlášeno." });
@@ -1331,7 +1331,7 @@ async function handleApi(request, response) {
     return true;
   }
 
-  if (url.pathname === "/api/ai/sarlota-promo" && request.method === "POST") {
+  if ((url.pathname === "/api/sarlota-promo" || url.pathname === "/api/ai/sarlota-promo") && request.method === "POST") {
     const user = currentDevUser(request);
     if (!user) {
       sendJson(response, 401, { error: "Nepřihlášeno." });

@@ -5815,7 +5815,7 @@ function applyAssistantPromoPayload(payload = {}) {
 }
 
 async function recordAssistantPromoAction(action) {
-  const result = await apiJson("/api/ai/sarlota-promo", {
+  const result = await apiJson("/api/sarlota-promo", {
     method: "POST",
     body: JSON.stringify({ action })
   });
@@ -5832,7 +5832,7 @@ async function loadAssistantPromo(options = {}) {
   assistantPromoState.error = "";
 
   try {
-    const result = await apiJson("/api/ai/sarlota-promo");
+    const result = await apiJson("/api/sarlota-promo");
     applyAssistantPromoPayload(result);
 
     if (result.show) {
