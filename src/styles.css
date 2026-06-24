@@ -7039,6 +7039,7 @@ body:has(.ai-welcome-modal) {
 @media (prefers-reduced-motion: reduce) {
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__mic::before,
   .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic::before,
+  .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__mic::before,
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span,
   .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span,
   .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span,
@@ -7210,18 +7211,22 @@ body:has(.ai-welcome-modal) {
   place-items: center;
   overflow: hidden;
   border: 0;
-  border-radius: 999px;
+  border-radius: 30%;
   background: transparent;
   box-shadow: none;
+  transition:
+    filter 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .ai-voice-assistant-panel__mic::before {
   content: "";
   position: absolute;
-  inset: 14px;
+  inset: 8%;
   z-index: 1;
   border: 2px solid rgba(159, 213, 31, 0.26);
-  border-radius: 999px;
+  border-radius: 30%;
   opacity: 0.18;
   pointer-events: none;
 }
@@ -7234,17 +7239,17 @@ body:has(.ai-welcome-modal) {
   height: 100%;
   object-fit: contain;
   filter: none;
-  transform: scale(1.7);
+  transform: scale(1.62);
 }
 
 .ai-voice-assistant-panel__mic-loader {
   position: absolute;
-  inset: 17px;
+  inset: 9%;
   z-index: 3;
   display: none;
   border: 3px solid rgba(117, 189, 37, 0.12);
   border-top-color: #75bd25;
-  border-radius: 999px;
+  border-radius: 30%;
 }
 
 .ai-voice-assistant-panel__wave {
@@ -7290,6 +7295,10 @@ body:has(.ai-welcome-modal) {
   animation-duration: 720ms;
 }
 
+.ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic {
+  transform: scale(1.025);
+}
+
 .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave,
 .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave,
 .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave {
@@ -7318,6 +7327,12 @@ body:has(.ai-welcome-modal) {
   background: #4f95de;
 }
 
+.ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__mic::before {
+  border-color: rgba(79, 149, 222, 0.42);
+  opacity: 0.72;
+  animation: ai-voice-app-pulse 1.25s ease-in-out infinite;
+}
+
 .ai-voice-assistant-panel--state-connecting .ai-voice-assistant-panel__mic-loader,
 .ai-voice-assistant-panel--state-processing .ai-voice-assistant-panel__mic-loader {
   display: block;
@@ -7339,6 +7354,12 @@ body:has(.ai-welcome-modal) {
   box-shadow:
     0 20px 54px rgba(160, 54, 54, 0.14),
     0 0 0 1px rgba(160, 54, 54, 0.18);
+}
+
+.ai-voice-assistant-panel--state-disconnected .ai-voice-assistant-panel__mic img,
+.ai-voice-assistant-panel--state-error .ai-voice-assistant-panel__mic img {
+  opacity: 0.72;
+  filter: grayscale(0.28);
 }
 
 .ai-voice-assistant-panel--state-disconnected .ai-voice-assistant-panel__mic::before,
@@ -7632,6 +7653,7 @@ body:has(.ai-welcome-modal) {
 @media (prefers-reduced-motion: reduce) {
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__mic::before,
   .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__mic::before,
+  .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__mic::before,
   .ai-voice-assistant-panel--state-listening .ai-voice-assistant-panel__wave span,
   .ai-voice-assistant-panel--state-userSpeaking .ai-voice-assistant-panel__wave span,
   .ai-voice-assistant-panel--state-assistantSpeaking .ai-voice-assistant-panel__wave span,

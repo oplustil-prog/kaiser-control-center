@@ -463,6 +463,11 @@ let aiToastTimer = 0;
 let aiConfirmationResolver = null;
 let aiTextRequestId = 0;
 let aiVoiceWeakInputReadings = 0;
+let aiVoiceHapticSession = {
+  connected: false,
+  listening: false,
+  problem: false
+};
 
 const speechRecognition = useSpeechRecognition({
   onResult: (transcript) => submitAiAssistantQuestion(transcript, { fromVoice: true }),
@@ -706,6 +711,46 @@ function clearAiVoiceStateTimer() {
     window.clearTimeout(aiVoiceStateTimer);
     aiVoiceStateTimer = 0;
   }
+}
+
+function triggerAiHaptic(pattern = 15) {
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") {
+    return;
+  }
+
+  try {
+    navigator.vibrate(pattern);
+  } catch {
+    // Haptika je pouze doplněk UX a nesmí ovlivnit hlasovou relaci.
+  }
+}
+
+function resetAiVoiceHapticSession() {
+  aiVoiceHapticSession = {
+    connected: false,
+    listening: false,
+    problem: false
+  };
+}
+
+function triggerAiVoiceSessionHaptic(type) {
+  if (!Object.prototype.hasOwnProperty.call(aiVoiceHapticSession, type) || aiVoiceHapticSession[type]) {
+    return;
+  }
+
+  aiVoiceHapticSession[type] = true;
+
+  if (type === "connected") {
+    triggerAiHaptic(20);
+    return;
+  }
+
+  if (type === "listening") {
+    triggerAiHaptic(10);
+    return;
+  }
+
+  triggerAiHaptic([20, 40, 20]);
 }
 
 function setAiVoiceUiState(state, status = "", tags = []) {
@@ -1349,6 +1394,7 @@ async function startAiVoiceRecognition() {
   speechRecognition.stop({ status: false });
   const requestId = ++aiTextRequestId;
   elevenLabsAssistant.stopVoiceAudio?.();
+  resetAiVoiceHapticSession();
   clearAiVoiceWeakInputNotice();
   const assistant = selectedAiAssistant();
   aiAssistantState.demoStatus = "";
@@ -1376,6 +1422,7 @@ async function startAiVoiceRecognition() {
         aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id] = true;
         aiAssistantState.elevenLabsStatus = `ElevenLabs agent ${session.assistantName || assistant.name} je připojený.`;
         setAiVoiceUiState("ready", AI_VOICE_READY_LABEL, ["Připojeno", "Mikrofon", "ElevenLabs"]);
+        triggerAiVoiceSessionHaptic("connected");
         renderAiAssistantLayerOnly();
       },
       onListening: () => {
@@ -1385,6 +1432,7 @@ async function startAiVoiceRecognition() {
         aiAssistantState.isListening = true;
         clearAiVoiceWeakInputNotice();
         setAiVoiceUiState("listening", AI_VOICE_LISTENING_LABEL, ["Poslouchám", "Mikrofon aktivní", "ElevenLabs"]);
+        triggerAiVoiceSessionHaptic("listening");
         renderAiAssistantLayerOnly();
       },
       onInputLevel: (event) => {
@@ -1417,6 +1465,7 @@ async function startAiVoiceRecognition() {
         aiAssistantState.isListening = true;
         clearAiVoiceWeakInputNotice();
         setAiVoiceUiState("listening", AI_VOICE_LISTENING_LABEL, ["Poslouchám", "Mluvte teď", "ElevenLabs"]);
+        triggerAiVoiceSessionHaptic("listening");
         renderAiAssistantLayerOnly();
       },
       onUserTranscript: (event) => {
@@ -1503,6 +1552,7 @@ async function startAiVoiceRecognition() {
       aiAssistantState.voiceUiState = "disconnected";
       aiAssistantState.voiceNotice = "Spojení se přerušilo. Klepni pro obnovení.";
       aiAssistantState.voiceTags = ["Odpojeno", "Obnovit spojení", "Mikrofon vypnutý"];
+      triggerAiVoiceSessionHaptic("problem");
       renderAiAssistantLayerOnly();
       return;
     }
@@ -1512,6 +1562,7 @@ async function startAiVoiceRecognition() {
     aiAssistantState.voiceUiState = "error";
     aiAssistantState.voiceNotice = error?.payload?.error || error?.message || "Hlasový režim Šarloty se nepodařilo spustit.";
     aiAssistantState.voiceTags = ["Chyba hlasu", "Zkusit znovu", "Bez odeslání"];
+    triggerAiVoiceSessionHaptic("problem");
     renderAiAssistantLayerOnly();
   }
 }
@@ -7795,6 +7846,7 @@ document.addEventListener("click", async (event) => {
 
   const aiStartVoice = event.target.closest("[data-ai-start-voice]");
   if (aiStartVoice) {
+    triggerAiHaptic(15);
     await startAiVoiceRecognition();
     return;
   }
