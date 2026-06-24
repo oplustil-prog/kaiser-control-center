@@ -159,7 +159,8 @@ const NOTIFICATION_TYPE_LABELS = {
   absence_approved_sms: "Schváleno SMS",
   absence_rejected_sms: "Zamítnuto SMS",
   absence_sickness_recorded_email: "Nemoc evidována",
-  module_feedback_resolved_email: "Připomínka vyřešena"
+  module_feedback_resolved_email: "Připomínka vyřešena",
+  version_news_email: "Co je nového"
 };
 const NOTIFICATION_CHANNEL_OPTIONS = [
   { value: "email", label: "E-mail" },
