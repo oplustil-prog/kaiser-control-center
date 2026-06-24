@@ -1,6 +1,7 @@
 import { moduleDashboards, modules } from "./data/modules.js";
 import { AiAssistantChat } from "./components/AiAssistantChat.js";
 import { AiAssistantLauncher } from "./components/AiAssistantLauncher.js";
+import { AiAssistantPromoModal } from "./components/AiAssistantPromoModal.js";
 import { AiConfirmationModal } from "./components/AiConfirmationModal.js";
 import { AiWelcomeModal } from "./components/AiWelcomeModal.js";
 import { ElevenLabsAssistantProvider } from "./ElevenLabsAssistantProvider.js";
@@ -427,6 +428,22 @@ const quickAbsenceState = {
   apiStatus: "waiting",
   missingEndpoint: "POST /api/absence-requests"
 };
+
+const assistantPromoDefaultState = {
+  loaded: false,
+  loading: false,
+  visible: false,
+  saving: false,
+  videoFailed: false,
+  promoKey: "",
+  promoDate: "",
+  validUntil: "",
+  action: "",
+  videoUrl: "/avatars/sarlota-intro.mp4",
+  fallbackImageUrl: "/avatars/sarlota-microphone.png",
+  error: ""
+};
+const assistantPromoState = { ...assistantPromoDefaultState };
 
 let aiAssistantMessageId = 0;
 const aiAssistantState = {
@@ -5475,6 +5492,112 @@ async function apiJson(path, options = {}) {
   return payload;
 }
 
+function resetAssistantPromoState() {
+  Object.assign(assistantPromoState, assistantPromoDefaultState);
+}
+
+function applyAssistantPromoPayload(payload = {}) {
+  assistantPromoState.promoKey = String(payload.promoKey || "");
+  assistantPromoState.promoDate = String(payload.promoDate || "");
+  assistantPromoState.validUntil = String(payload.validUntil || "");
+  assistantPromoState.action = String(payload.action || "");
+  assistantPromoState.videoUrl = String(payload.videoUrl || assistantPromoDefaultState.videoUrl);
+  assistantPromoState.fallbackImageUrl = String(payload.fallbackImageUrl || assistantPromoDefaultState.fallbackImageUrl);
+}
+
+async function recordAssistantPromoAction(action) {
+  const result = await apiJson("/api/ai/sarlota-promo", {
+    method: "POST",
+    body: JSON.stringify({ action })
+  });
+  applyAssistantPromoPayload(result);
+  return result;
+}
+
+async function loadAssistantPromo(options = {}) {
+  if (assistantPromoState.loaded || assistantPromoState.loading || authState.status !== "authenticated" || !authState.user) {
+    return;
+  }
+
+  assistantPromoState.loading = true;
+  assistantPromoState.error = "";
+
+  try {
+    const result = await apiJson("/api/ai/sarlota-promo");
+    applyAssistantPromoPayload(result);
+
+    if (result.show) {
+      await recordAssistantPromoAction("shown");
+      assistantPromoState.visible = true;
+      assistantPromoState.videoFailed = false;
+    } else {
+      assistantPromoState.visible = false;
+    }
+  } catch (error) {
+    assistantPromoState.error = error?.payload?.error || error?.message || "Promo Šarloty se teď nepodařilo ověřit.";
+    assistantPromoState.visible = false;
+  } finally {
+    assistantPromoState.loaded = true;
+    assistantPromoState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+function renderAssistantPromoLayer() {
+  return AiAssistantPromoModal({
+    visible: assistantPromoState.visible,
+    videoUrl: assistantPromoState.videoUrl,
+    fallbackImageUrl: assistantPromoState.fallbackImageUrl,
+    videoFailed: assistantPromoState.videoFailed,
+    saving: assistantPromoState.saving
+  });
+}
+
+async function declineAssistantPromo() {
+  if (assistantPromoState.saving) {
+    return;
+  }
+
+  assistantPromoState.saving = true;
+  render();
+
+  try {
+    await recordAssistantPromoAction("declined");
+  } catch (error) {
+    assistantPromoState.error = error?.payload?.error || error?.message || "Volbu se nepodařilo uložit.";
+  } finally {
+    assistantPromoState.visible = false;
+    assistantPromoState.saving = false;
+    render();
+  }
+}
+
+async function acceptAssistantPromo() {
+  if (assistantPromoState.saving) {
+    return;
+  }
+
+  assistantPromoState.saving = true;
+  assistantPromoState.visible = false;
+  render();
+  const savePromise = recordAssistantPromoAction("accepted").catch((error) => {
+    assistantPromoState.error = error?.payload?.error || error?.message || "Volbu se nepodařilo uložit.";
+  });
+
+  try {
+    openAiAssistant("voice");
+    triggerAiHaptic(15);
+    await startAiVoiceRecognition();
+  } finally {
+    await savePromise;
+    assistantPromoState.saving = false;
+    render();
+  }
+}
+
 async function loadModuleFeedback(options = {}) {
   const user = currentUser();
   if (feedbackState.loaded || feedbackState.loading || !hasPermission(user, "feedback", "view")) {
@@ -6295,6 +6418,7 @@ async function verifyLogin(form) {
     };
     await loadThemeSettings({ renderAfter: false });
     await loadAbsenceSettings({ renderAfter: false });
+    await loadAssistantPromo({ renderAfter: false });
   } catch {
     authState = {
       ...authState,
@@ -6309,6 +6433,7 @@ async function verifyLogin(form) {
 async function logout() {
   await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
   resetAiAssistantSession();
+  resetAssistantPromoState();
   authState = {
     status: "anonymous",
     user: null,
@@ -6513,6 +6638,7 @@ function render() {
     accessUnsavedChangesGuard.unmountModal();
     renderApp();
     app.insertAdjacentHTML("beforeend", renderAiAssistantLayer());
+    app.insertAdjacentHTML("beforeend", renderAssistantPromoLayer());
     if (aiAssistantState.welcomeVisible && aiAssistantState.welcomeAnimate) {
       aiAssistantState.welcomeAnimate = false;
     }
@@ -6540,6 +6666,7 @@ async function bootstrapAuth() {
     };
     await loadThemeSettings({ renderAfter: false });
     await loadAbsenceSettings({ renderAfter: false });
+    await loadAssistantPromo({ renderAfter: false });
   } catch {
     authState = {
       status: "anonymous",
@@ -7957,7 +8084,31 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+document.addEventListener("error", (event) => {
+  const promoVideo = event.target?.closest?.("[data-ai-promo-video]");
+
+  if (!promoVideo || assistantPromoState.videoFailed) {
+    return;
+  }
+
+  assistantPromoState.videoFailed = true;
+  render();
+}, true);
+
 document.addEventListener("click", async (event) => {
+  const aiPromoAction = event.target.closest("[data-ai-promo-action]");
+  if (aiPromoAction) {
+    const action = aiPromoAction.dataset.aiPromoAction;
+
+    if (action === "accepted") {
+      await acceptAssistantPromo();
+      return;
+    }
+
+    await declineAssistantPromo();
+    return;
+  }
+
   const aiWelcomeAction = event.target.closest("[data-ai-welcome-action]");
   if (aiWelcomeAction) {
     const action = aiWelcomeAction.dataset.aiWelcomeAction;

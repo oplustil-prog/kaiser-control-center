@@ -37,6 +37,7 @@ let mockEmployeeDocumentFiles = new Map();
 let mockAbsenceRequests = [];
 let mockModuleFeedback = [];
 let mockNotificationLogs = [];
+let mockAssistantDailyPromos = new Map();
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -44,6 +45,7 @@ const contentTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".ts", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
+  [".mp4", "video/mp4"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"]
 ]);
@@ -98,6 +100,15 @@ async function resolveFile(requestUrl) {
       }
     }
     return target;
+  }
+
+  if (requestedRoot !== "dist") {
+    const publicAssetRoot = path.join(root, "public");
+    const publicAssetTarget = path.join(publicAssetRoot, safePath);
+
+    if (publicAssetTarget.startsWith(publicAssetRoot) && await fileExists(publicAssetTarget)) {
+      return publicAssetTarget;
+    }
   }
 
   return path.join(publicRoot, "index.html");
@@ -1122,6 +1133,85 @@ async function handleApi(request, response) {
         actions: ["view", "create", "edit", "delete", "approve", "export", "manage"]
           .filter((action) => hasPermission(user, moduleItem.id, action))
       })),
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/sarlota-promo" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    const promoDate = new Date().toISOString().slice(0, 10);
+    const promoKey = "sarlota_intro_2026_06";
+    const stateKey = `${user.id}:${promoKey}:${promoDate}`;
+    const existing = mockAssistantDailyPromos.get(stateKey) || null;
+    const active = promoDate <= "2026-06-30";
+
+    sendJson(response, 200, {
+      promoKey,
+      promoDate,
+      validUntil: "2026-06-30",
+      show: active && !existing,
+      action: existing?.action || "",
+      videoUrl: "/avatars/sarlota-intro.mp4",
+      fallbackImageUrl: "/avatars/sarlota-microphone.png",
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/ai/sarlota-promo" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    const payload = await readJsonBody(request);
+    const action = String(payload.action || "").trim().toLowerCase();
+    const allowedActions = new Set(["shown", "accepted", "declined"]);
+    if (!allowedActions.has(action)) {
+      sendJson(response, 400, { error: "Neplatná akce promo videa.", apiStatus: "waiting" });
+      return true;
+    }
+
+    const promoDate = new Date().toISOString().slice(0, 10);
+    const promoKey = "sarlota_intro_2026_06";
+    const active = promoDate <= "2026-06-30";
+    if (!active) {
+      sendJson(response, 200, {
+        promoKey,
+        promoDate,
+        validUntil: "2026-06-30",
+        show: false,
+        action: "",
+        videoUrl: "/avatars/sarlota-intro.mp4",
+        fallbackImageUrl: "/avatars/sarlota-microphone.png",
+        apiStatus: "ready"
+      });
+      return true;
+    }
+
+    const stateKey = `${user.id}:${promoKey}:${promoDate}`;
+    mockAssistantDailyPromos.set(stateKey, {
+      userId: user.id,
+      promoKey,
+      promoDate,
+      action,
+      updatedAt: new Date().toISOString()
+    });
+    sendJson(response, 200, {
+      promoKey,
+      promoDate,
+      validUntil: "2026-06-30",
+      show: false,
+      action,
+      videoUrl: "/avatars/sarlota-intro.mp4",
+      fallbackImageUrl: "/avatars/sarlota-microphone.png",
       apiStatus: "ready"
     });
     return true;
