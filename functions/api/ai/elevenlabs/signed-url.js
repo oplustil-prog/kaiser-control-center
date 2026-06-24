@@ -1,5 +1,9 @@
 import { json, requireUserPermission } from "../../../_lib/auth.js";
 import { recordAiAction } from "../../../_lib/ai-action-log-store.js";
+import {
+  recordSarlotaIntroAnnouncement,
+  sarlotaIntroAnnouncementForAi
+} from "../../../_lib/ai-session-announcements.js";
 import { userDynamicVariablesForAi } from "../../../_lib/ai-people-summary.js";
 
 const ASSISTANTS = {
@@ -99,7 +103,11 @@ export async function onRequestGet({ request, env }) {
   const debug = isDebugRequest(request);
   const apiKey = cleanString(env.ELEVENLABS_API_KEY);
   const agentId = agentIdFor(env, assistant);
-  const dynamicVariables = userDynamicVariablesForAi(user);
+  const introAnnouncement = await sarlotaIntroAnnouncementForAi(env, user, assistant);
+  const dynamicVariables = {
+    ...userDynamicVariablesForAi(user),
+    ...introAnnouncement.variables
+  };
 
   if (!apiKey || !agentId) {
     return json({
@@ -172,6 +180,7 @@ export async function onRequestGet({ request, env }) {
       },
       status: "ok"
     });
+    await recordSarlotaIntroAnnouncement(env, user, assistant, introAnnouncement);
 
     return json({
       signedUrl: payload.signed_url,
