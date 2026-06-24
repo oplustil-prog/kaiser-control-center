@@ -101,6 +101,23 @@ import {
   sameThemeSettings,
   themeSettingsToCssProperties
 } from "./data/themeSettings.js";
+import {
+  FLEET_API_ENDPOINTS,
+  FLEET_API_MISSING_MESSAGE,
+  FLEET_API_WAITING_LABEL,
+  FLEET_DASHBOARD_METRICS,
+  FLEET_DEFECT_FIELDS,
+  FLEET_DOCUMENT_FIELDS,
+  FLEET_LIST_COLUMNS,
+  FLEET_REQUIRED_SECTIONS,
+  FLEET_SERVICE_FIELDS,
+  FLEET_STATUS_OPTIONS,
+  FLEET_TERM_DEFINITIONS,
+  FLEET_VEHICLE_FIELDS,
+  FLEET_VEHICLE_TYPES,
+  fleetStatusLabel,
+  fleetStatusTone
+} from "./data/fleet.js";
 
 const app = document.querySelector("#app");
 const orderedModules = [...modules].sort((a, b) => a.order - b.order);
@@ -123,6 +140,7 @@ const APP_NAME = "Smart odpady";
 const HOME_SUBTITLE = "Provozní systém pro odpady, vozidla a trasy";
 const LOGIN_SUBTITLE = "Přihlášení do interního provozního systému";
 const FEEDBACK_ROUTE = "/pripominky";
+const FLEET_ROUTE = "/vozovy-park";
 const ABSENCE_ROUTE = "/dovolena-nemoc";
 const EMPLOYEE_CARD_ROUTE_PREFIX = "/dovolena-nemoc/zamestnanci";
 const ABSENCE_QUICK_ROUTE = "/dovolena-nemoc/rychle-zadani";
@@ -655,6 +673,14 @@ function employeeCardRoute(employeeId) {
   return `${EMPLOYEE_CARD_ROUTE_PREFIX}/${encodeURIComponent(employeeId || employeeIdForUser(currentUser()))}`;
 }
 
+function routeFleetVehicleId(path) {
+  if (!path.startsWith(`${FLEET_ROUTE}/`) || path === `${FLEET_ROUTE}/dashboard`) {
+    return "";
+  }
+
+  return decodeURIComponent(path.slice(`${FLEET_ROUTE}/`.length).split("/")[0] || "").trim();
+}
+
 function routeEmployeeId(path) {
   if (!path.startsWith(`${EMPLOYEE_CARD_ROUTE_PREFIX}/`)) {
     return "";
@@ -1174,6 +1200,10 @@ function moduleIdForAiRoute(route) {
 
   if (normalizedRoute.startsWith("/dovolena-nemoc")) {
     return "absence";
+  }
+
+  if (normalizedRoute.startsWith(FLEET_ROUTE)) {
+    return "fleet";
   }
 
   if (normalizedRoute === "/pripominky") {
@@ -5465,9 +5495,391 @@ function fleetVistosImportSection(user) {
   `;
 }
 
+function fleetApiBadge() {
+  return `<span class="fleet-api-badge">${escapeHtml(FLEET_API_WAITING_LABEL)}</span>`;
+}
+
+function fleetSectionHeader(id, title, subtitle = "", options = {}) {
+  return `
+    <div class="fleet-section__head">
+      <div>
+        <p class="module-feedback__eyebrow">${escapeHtml(options.eyebrow || "Vozový park")}</p>
+        <h2 id="${escapeHtml(id)}">${escapeHtml(title)}</h2>
+        ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
+      </div>
+      ${options.badge === false ? "" : fleetApiBadge()}
+    </div>
+  `;
+}
+
+function fleetApiNotice(endpoint) {
+  return `
+    <p class="fleet-api-note">
+      ${escapeHtml(FLEET_API_MISSING_MESSAGE)}
+      ${endpoint ? `<span>Chybí: ${escapeHtml(endpoint)}</span>` : ""}
+    </p>
+  `;
+}
+
+function fleetTabs(activeId) {
+  return `
+    <nav class="fleet-tabs" aria-label="Menu modulu Vozový park">
+      ${FLEET_REQUIRED_SECTIONS.map((section) => `
+        <a class="fleet-tab ${section.id === activeId ? "fleet-tab--active" : ""}" href="#fleet-${escapeHtml(section.id)}">
+          ${escapeHtml(section.label)}
+        </a>
+      `).join("")}
+    </nav>
+  `;
+}
+
+function fleetActionButton(label) {
+  return `<button class="secondary-link fleet-disabled-action" type="button" disabled title="${escapeHtml(FLEET_API_WAITING_LABEL)}">${escapeHtml(label)}</button>`;
+}
+
+function fleetFieldChips(fields) {
+  return `
+    <div class="fleet-field-chips">
+      ${fields.map((field) => `<span>${escapeHtml(field)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function fleetDashboardSection() {
+  return `
+    <section class="fleet-section" id="fleet-dashboard" aria-labelledby="fleet-dashboard-title">
+      ${fleetSectionHeader(
+        "fleet-dashboard-title",
+        "Dashboard",
+        "Centrální přehled provozního stavu vozidel a blížících se termínů.",
+        { badge: true }
+      )}
+      <div class="fleet-kpi-grid" aria-label="Přehled vozového parku">
+        ${FLEET_DASHBOARD_METRICS.map((metric) => `
+          <article class="fleet-kpi">
+            <span>${escapeHtml(metric.label)}</span>
+            <strong>—</strong>
+            <small>${escapeHtml(FLEET_API_WAITING_LABEL)}</small>
+          </article>
+        `).join("")}
+      </div>
+      ${fleetApiNotice("GET /api/vehicles/summary")}
+    </section>
+  `;
+}
+
+function fleetFiltersSection() {
+  return `
+    <form class="fleet-filters" aria-label="Filtry vozidel">
+      <label>
+        <span>Stav</span>
+        <select disabled>
+          <option>Všechny stavy</option>
+          ${FLEET_STATUS_OPTIONS.map((status) => `<option>${escapeHtml(status.label)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        <span>Typ</span>
+        <select disabled>
+          <option>Všechny typy</option>
+          ${FLEET_VEHICLE_TYPES.map((type) => `<option>${escapeHtml(type)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        <span>Řidič</span>
+        <select disabled>
+          <option>${escapeHtml(FLEET_API_WAITING_LABEL)}</option>
+        </select>
+      </label>
+      <label>
+        <span>Termíny</span>
+        <select disabled>
+          <option>STK / revize / pojištění do 30 dnů</option>
+        </select>
+      </label>
+      <label>
+        <span>Závady</span>
+        <select disabled>
+          <option>Otevřené závady</option>
+        </select>
+      </label>
+      <label class="fleet-filter-search">
+        <span>Hledat</span>
+        <input type="search" placeholder="SPZ, interní číslo, VIN, řidič" disabled>
+      </label>
+    </form>
+  `;
+}
+
+function fleetVehiclesSection() {
+  return `
+    <section class="fleet-section" id="fleet-vehicles" aria-labelledby="fleet-vehicles-title">
+      ${fleetSectionHeader(
+        "fleet-vehicles-title",
+        "Seznam vozidel",
+        "Vozidla, STK, revize, závady a servisní historie na jednom místě.",
+        { badge: true }
+      )}
+      ${fleetFiltersSection()}
+      <div class="fleet-table" role="table" aria-label="Seznam vozidel">
+        <div class="fleet-table__header" role="row">
+          ${FLEET_LIST_COLUMNS.map((column) => `<span role="columnheader">${escapeHtml(column)}</span>`).join("")}
+        </div>
+        <div class="fleet-table__empty" role="row">
+          <strong>${escapeHtml(FLEET_API_WAITING_LABEL)}</strong>
+          <span>Seznam se načte až z cloud API. Produkční vozidla nejsou ve frontendu napevno.</span>
+        </div>
+      </div>
+      <div class="fleet-actions-preview" aria-label="Akce vozidla">
+        ${fleetActionButton("Detail")}
+        ${fleetActionButton("Upravit")}
+        ${fleetActionButton("Přidat závadu")}
+        ${fleetActionButton("Přidat servis")}
+      </div>
+      ${fleetApiNotice("GET /api/vehicles")}
+    </section>
+  `;
+}
+
+function fleetDetailSection(vehicleId = "") {
+  const safeVehicleId = vehicleId || "";
+  const detailTitle = safeVehicleId ? `Detail vozidla ${safeVehicleId}` : "Detail vozidla";
+
+  return `
+    <section class="fleet-section fleet-section--wide" id="fleet-detail" aria-labelledby="fleet-detail-title">
+      ${fleetSectionHeader(
+        "fleet-detail-title",
+        detailTitle,
+        safeVehicleId
+          ? "Detail route je připravená, provozní údaje se načtou až z API."
+          : "Karta vozidla se otevře po výběru konkrétního záznamu z API.",
+        { badge: true }
+      )}
+      <div class="fleet-detail-shell">
+        <header class="fleet-detail-header">
+          <div>
+            <span>SPZ / interní číslo</span>
+            <strong>—</strong>
+          </div>
+          <div>
+            <span>Značka / model</span>
+            <strong>—</strong>
+          </div>
+          <div>
+            <span>Stav</span>
+            <strong>${escapeHtml(fleetStatusLabel(""))}</strong>
+          </div>
+          <div>
+            <span>Řidič</span>
+            <strong>—</strong>
+          </div>
+        </header>
+        <div class="fleet-detail-actions">
+          ${safeVehicleId ? `<a class="secondary-link" href="${routeHref(FLEET_ROUTE)}" data-link>Zpět na seznam</a>` : ""}
+          ${fleetActionButton("Upravit")}
+          ${fleetActionButton("Přidat závadu")}
+          ${fleetActionButton("Přidat servis")}
+        </div>
+        <div class="fleet-detail-grid">
+          <article>
+            <h3>Základní údaje</h3>
+            ${fleetFieldChips(FLEET_VEHICLE_FIELDS.slice(0, 14))}
+          </article>
+          <article>
+            <h3>Technický stav</h3>
+            ${fleetFieldChips(FLEET_VEHICLE_FIELDS.slice(14, 24))}
+          </article>
+          <article>
+            <h3>Pojištění a provoz</h3>
+            ${fleetFieldChips(FLEET_VEHICLE_FIELDS.slice(24))}
+          </article>
+        </div>
+      </div>
+      ${fleetApiNotice(safeVehicleId ? "GET /api/vehicles/:id" : "GET /api/vehicles")}
+    </section>
+  `;
+}
+
+function fleetTermsSection() {
+  return `
+    <section class="fleet-section" id="fleet-terms" aria-labelledby="fleet-terms-title">
+      ${fleetSectionHeader(
+        "fleet-terms-title",
+        "Termíny",
+        "STK, emise, revize, tachograf, hasicí přístroje a pojištění.",
+        { badge: true }
+      )}
+      <div class="fleet-term-grid">
+        ${FLEET_TERM_DEFINITIONS.map((term) => `
+          <article class="fleet-term fleet-term--waiting">
+            <span>${escapeHtml(term.label)}</span>
+            <strong>—</strong>
+            <small>${escapeHtml(FLEET_API_WAITING_LABEL)}</small>
+          </article>
+        `).join("")}
+      </div>
+      ${fleetApiNotice("GET /api/vehicles")}
+    </section>
+  `;
+}
+
+function fleetDefectsSection() {
+  return `
+    <section class="fleet-section" id="fleet-defects" aria-labelledby="fleet-defects-title">
+      ${fleetSectionHeader(
+        "fleet-defects-title",
+        "Závady",
+        "Evidence otevřených a uzavřených závad podle vozidla, závažnosti a řešení.",
+        { badge: true }
+      )}
+      ${fleetFieldChips(FLEET_DEFECT_FIELDS)}
+      <div class="fleet-empty-state">
+        <strong>${escapeHtml(FLEET_API_WAITING_LABEL)}</strong>
+        <span>Závady se budou zapisovat pouze přes chráněné cloud API.</span>
+      </div>
+      ${fleetApiNotice("GET /api/vehicles/:id/defects")}
+    </section>
+  `;
+}
+
+function fleetServiceSection() {
+  return `
+    <section class="fleet-section" id="fleet-service" aria-labelledby="fleet-service-title">
+      ${fleetSectionHeader(
+        "fleet-service-title",
+        "Servisní historie",
+        "Servisy, opravy, dodavatelé, náklady, stav kilometrů a další plánovaný servis.",
+        { badge: true }
+      )}
+      ${fleetFieldChips(FLEET_SERVICE_FIELDS)}
+      <div class="fleet-empty-state">
+        <strong>${escapeHtml(FLEET_API_WAITING_LABEL)}</strong>
+        <span>Servisní záznamy se neukládají do prohlížeče ani do mock databáze.</span>
+      </div>
+      ${fleetApiNotice("GET /api/vehicles/:id/service-records")}
+    </section>
+  `;
+}
+
+function fleetDocumentsSection() {
+  return `
+    <section class="fleet-section" id="fleet-documents" aria-labelledby="fleet-documents-title">
+      ${fleetSectionHeader(
+        "fleet-documents-title",
+        "Dokumenty",
+        "Technické průkazy, pojistky, servisní doklady, revizní protokoly a fotodokumentace.",
+        { badge: true }
+      )}
+      ${fleetFieldChips(FLEET_DOCUMENT_FIELDS)}
+      <div class="fleet-empty-state">
+        <strong>${escapeHtml(FLEET_API_WAITING_LABEL)}</strong>
+        <span>Soubory musí jít přes cloud API a R2, ne přes lokální úložiště prohlížeče.</span>
+      </div>
+      <div class="fleet-actions-preview">
+        ${fleetActionButton("Nahrát dokument")}
+        ${fleetActionButton("Stáhnout dokument")}
+      </div>
+      ${fleetApiNotice("GET /api/vehicles/:id/documents")}
+    </section>
+  `;
+}
+
+function fleetSettingsSection(user) {
+  return `
+    <section class="fleet-section fleet-section--wide" id="fleet-settings" aria-labelledby="fleet-settings-title">
+      ${fleetSectionHeader(
+        "fleet-settings-title",
+        "Nastavení / číselníky",
+        "Typy vozidel, interní stavy, termíny a budoucí napojení na cloud API.",
+        { badge: true }
+      )}
+      <div class="fleet-settings-grid">
+        <article>
+          <h3>Stavy</h3>
+          <div class="fleet-status-list">
+            ${FLEET_STATUS_OPTIONS.map((status) => `
+              <span class="fleet-status fleet-status--${escapeHtml(fleetStatusTone(status.value))}">
+                ${escapeHtml(status.label)}
+              </span>
+            `).join("")}
+          </div>
+        </article>
+        <article>
+          <h3>Typy vozidel</h3>
+          ${fleetFieldChips(FLEET_VEHICLE_TYPES)}
+        </article>
+        <article>
+          <h3>API endpointy</h3>
+          ${fleetFieldChips(FLEET_API_ENDPOINTS)}
+        </article>
+      </div>
+      ${fleetVistosImportSection(user)}
+    </section>
+  `;
+}
+
+function fleetModulePage(moduleItem, user, options = {}) {
+  const isDashboard = Boolean(options.isDashboard);
+  const vehicleId = options.vehicleId || "";
+  const title = vehicleId ? "Detail vozidla" : isDashboard ? "Vozový park dashboard" : "Vozový park";
+  const description = vehicleId
+    ? "Detailová karta vozidla je připravená pro cloud API bez lokálního ukládání."
+    : "Evidence vozidel, technického stavu, STK, revizí, pojištění, závad a servisní historie.";
+
+  return `
+    <main class="app-shell module-page module-theme-scope fleet-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="module-detail fleet-hero" aria-labelledby="module-title">
+        <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
+        <div class="module-detail__body">
+          <div class="module-detail__eyebrow">SMART ODPADY / VOZOVÝ PARK</div>
+          <h1 id="module-title">${escapeHtml(title)}</h1>
+          <p>${escapeHtml(description)}</p>
+          <div class="module-detail__status">
+            <span>Stav</span>
+            <strong>${escapeHtml(moduleStatusLabel(moduleItem))}</strong>
+          </div>
+          <div class="module-actions">
+            ${vehicleId ? `<a class="secondary-link" href="${routeHref(FLEET_ROUTE)}" data-link>Seznam vozidel</a>` : ""}
+            ${!isDashboard ? `<a class="secondary-link" href="${routeHref(`${FLEET_ROUTE}/dashboard`)}" data-link>Dashboard modulu</a>` : ""}
+            ${fleetActionButton("Přidat vozidlo")}
+            ${fleetActionButton("Export")}
+          </div>
+        </div>
+      </section>
+
+      ${fleetTabs(vehicleId ? "detail" : "dashboard")}
+      <div class="fleet-content">
+        ${fleetDashboardSection()}
+        ${fleetVehiclesSection()}
+        ${fleetDetailSection(vehicleId)}
+        ${fleetTermsSection()}
+        ${fleetDefectsSection()}
+        ${fleetServiceSection()}
+        ${fleetDocumentsSection()}
+        ${fleetSettingsSection(user)}
+      </div>
+      ${moduleFeedbackBoxFor(moduleItem, user, {
+        moduleId: "vozovy-park",
+        moduleName: "Vozový park",
+        placeholder: "Např. chybí pole ve vozidle, filtr, typ dokladu nebo servisní údaj…"
+      })}
+    </main>
+  `;
+}
+
 function modulePage(moduleItem, user, isDashboard = false) {
   if (moduleItem.id === "absence") {
     return absenceModulePage(moduleItem, user, isDashboard);
+  }
+
+  if (moduleItem.id === "fleet") {
+    return fleetModulePage(moduleItem, user, { isDashboard });
   }
 
   const isTyres = moduleItem.id === "tyres";
@@ -5488,7 +5900,6 @@ function modulePage(moduleItem, user, isDashboard = false) {
   const usersPanel = moduleItem.id === "users" && !isDashboard ? usersManagementSection() : "";
   const settingsPanel = moduleItem.id === "settings" && !isDashboard ? settingsManagementSection(user) : "";
   const reportsPanel = moduleItem.id === "reports" && !isDashboard ? notificationCenterSection(user) : "";
-  const fleetPanel = moduleItem.id === "fleet" && !isDashboard ? fleetVistosImportSection(user) : "";
   const feedbackBox = moduleFeedbackBoxFor(moduleItem, user);
 
   return `
@@ -5515,7 +5926,6 @@ function modulePage(moduleItem, user, isDashboard = false) {
           </div>
         </div>
       </section>
-      ${fleetPanel}
       ${usersPanel}
       ${settingsPanel}
       ${reportsPanel}
@@ -7498,6 +7908,20 @@ function renderAuthenticatedApp(user) {
       ? employeeFullName(employeeCardState.employee)
       : "Karta zaměstnance";
     document.title = `${titleName} | ${APP_NAME}`;
+    return;
+  }
+
+  const fleetVehicleId = routeFleetVehicleId(path);
+  if (fleetVehicleId) {
+    if (!canViewModule(user, "fleet")) {
+      app.innerHTML = forbiddenPage(user);
+      document.title = `Bez oprávnění | ${APP_NAME}`;
+      return;
+    }
+
+    const moduleItem = orderedModules.find((item) => item.id === "fleet");
+    app.innerHTML = fleetModulePage(moduleItem, user, { vehicleId: fleetVehicleId });
+    document.title = `Detail vozidla | ${APP_NAME}`;
     return;
   }
 

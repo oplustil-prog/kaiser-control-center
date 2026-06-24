@@ -29,11 +29,11 @@ export const modules = [
   {
     id: "fleet",
     title: "Vozový park",
-    description: "Evidence vozidel, stav techniky, STK, revize a historie.",
+    description: "Evidence vozidel, technického stavu, STK, revizí, pojištění, závad a servisní historie.",
     route: "/vozovy-park",
     dashboardRoute: "/vozovy-park/dashboard",
     icon: FleetIcon,
-    status: "připraveno",
+    status: "ROZPRACOVÁN",
     active: true,
     disabled: false,
     order: 2

@@ -74,6 +74,7 @@ export const ROLE_PERMISSIONS = {
   management: ["*:*"],
   kancelar: [
     ...actions("dashboard", ["view"]),
+    ...actions("fleet", ["view", "edit", "export"]),
     ...actions("vistos", ["view", "edit", "export"]),
     ...actions("costs", ["view", "edit", "export"]),
     ...actions("reports", ["view", "export"]),
