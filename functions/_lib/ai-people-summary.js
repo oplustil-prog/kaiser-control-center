@@ -232,7 +232,34 @@ export function timeOfDayGreetingForAi(date = new Date()) {
     return "Dobré odpoledne";
   }
 
-  return "Dobrý večer";
+  if (hour >= 18 && hour < 23) {
+    return "Dobrý večer";
+  }
+
+  return "";
+}
+
+function userGreetingForAi(user, date = new Date()) {
+  if (!cleanAiString(user?.name)) {
+    return "";
+  }
+
+  const userFirstNameVocative = firstNameVocativeForAi(user?.name);
+  const timeOfDayGreeting = timeOfDayGreetingForAi(date);
+
+  return timeOfDayGreeting
+    ? `${timeOfDayGreeting}, ${userFirstNameVocative}.`
+    : `Ahoj, ${userFirstNameVocative}.`;
+}
+
+export function introAnnouncementFallbackForAi(user, date = new Date()) {
+  const greeting = userGreetingForAi(user, date);
+
+  if (!greeting) {
+    return "Jsem připravená. Co potřebuješ?";
+  }
+
+  return truncateAiDynamicVariable(`${greeting} Co potřebuješ?`, 220);
 }
 
 export function userDynamicVariablesForAi(user) {
@@ -248,13 +275,14 @@ export function userDynamicVariablesForAi(user) {
   const userFirstName = firstNameForAi(user?.name);
   const userFirstNameVocative = firstNameVocativeForAi(user?.name);
   const timeOfDayGreeting = timeOfDayGreetingForAi();
+  const userGreeting = userGreetingForAi(user) || "Jsem připravená.";
 
   return {
     user_name: truncateAiDynamicVariable(user?.name || "Uživatel", 120),
     user_first_name: truncateAiDynamicVariable(userFirstName, 80),
     user_first_name_vocative: truncateAiDynamicVariable(userFirstNameVocative, 80),
-    time_of_day_greeting: truncateAiDynamicVariable(timeOfDayGreeting, 80),
-    user_greeting: truncateAiDynamicVariable(`${timeOfDayGreeting}, ${userFirstNameVocative}.`, 140),
+    time_of_day_greeting: truncateAiDynamicVariable(timeOfDayGreeting || "Ahoj", 80),
+    user_greeting: truncateAiDynamicVariable(userGreeting, 140),
     user_role: truncateAiDynamicVariable(access.roleLabel || access.role || "Uživatel", 120),
     user_permissions: truncateAiDynamicVariable(userPermissions || "bez oprávnění"),
     available_modules: truncateAiDynamicVariable(availableModules || "žádné moduly"),

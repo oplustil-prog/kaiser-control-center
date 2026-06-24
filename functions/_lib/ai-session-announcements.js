@@ -1,4 +1,5 @@
 import { recordAiAction } from "./ai-action-log-store.js";
+import { introAnnouncementFallbackForAi } from "./ai-people-summary.js";
 
 const AI_ACTION_LOG_DB_BINDING = "SMART_ODPADY_DB";
 const ZAORALOVA_ANNOUNCEMENT_KEY = "sarlota_zaoralova_ctp_2026_06";
@@ -33,9 +34,9 @@ function pragueDateString(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
-function emptyAnnouncementVariables() {
+function emptyAnnouncementVariables(currentUser) {
   return {
-    intro_announcement: "",
+    intro_announcement: introAnnouncementFallbackForAi(currentUser),
     intro_announcement_enabled: "ne",
     intro_announcement_key: ZAORALOVA_ANNOUNCEMENT_KEY,
     intro_announcement_until: ZAORALOVA_ANNOUNCEMENT_END_DATE,
@@ -69,7 +70,7 @@ async function announcementSessionCount(env, userId) {
 }
 
 export async function sarlotaIntroAnnouncementForAi(env, currentUser, assistant) {
-  const variables = emptyAnnouncementVariables();
+  const variables = emptyAnnouncementVariables(currentUser);
   const assistantId = cleanString(assistant?.id).toLowerCase();
   const userId = cleanString(currentUser?.id);
   const today = pragueDateString();
