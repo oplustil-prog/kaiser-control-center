@@ -6,6 +6,8 @@ const TEXT_METADATA_FALLBACK_MS = 1200;
 const VOICE_CONNECTION_TIMEOUT_MS = 15000;
 const VOICE_RESPONSE_TIMEOUT_MS = 45000;
 const VOICE_FINISH_GRACE_MS = 1400;
+const VOICE_AUDIO_UNLOCK_TIMEOUT_MS = 8000;
+const VOICE_MICROPHONE_TIMEOUT_MS = 12000;
 const DEFAULT_AGENT_AUDIO_FORMAT = "pcm_16000";
 const DEFAULT_USER_AUDIO_FORMAT = "pcm_16000";
 const VOICE_OUTPUT_GAIN = 5;
@@ -74,6 +76,10 @@ function float32ToPcm16Base64(input, inputSampleRate, outputSampleRate = 16000) 
 }
 
 function microphoneErrorMessage(error) {
+  if (error?.code === "voice_microphone_timeout") {
+    return error.message;
+  }
+
   const errorName = String(error?.name || "").trim();
 
   if (errorName === "NotAllowedError" || errorName === "SecurityError" || errorName === "PermissionDeniedError") {
@@ -89,6 +95,19 @@ function microphoneErrorMessage(error) {
   }
 
   return "Mikrofon se nepodařilo spustit. Zkontrolujte oprávnění prohlížeče a zkuste to znovu.";
+}
+
+function createVoiceTimeoutError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function createMicrophoneTimeoutError() {
+  return createVoiceTimeoutError(
+    "Mikrofon čeká na povolení. Povolte mikrofon pro tento web a klepněte znovu.",
+    "voice_microphone_timeout"
+  );
 }
 
 function createVoiceStoppedError() {
@@ -130,6 +149,43 @@ function audioInputLevel(inputBuffer) {
   }
 
   return Math.sqrt(total / inputBuffer.length);
+}
+
+function stopMediaStreamTracks(mediaStream) {
+  try {
+    mediaStream?.getTracks?.().forEach((track) => track.stop());
+  } catch {
+    // Late media cleanup must never break the voice UI.
+  }
+}
+
+function withTimeout(promise, timeoutMs, timeoutErrorFactory, onLateResolve = null) {
+  let timer = 0;
+  let timedOut = false;
+
+  return new Promise((resolve, reject) => {
+    timer = window.setTimeout(() => {
+      timedOut = true;
+      reject(timeoutErrorFactory());
+    }, timeoutMs);
+
+    promise.then((value) => {
+      if (timedOut) {
+        onLateResolve?.(value);
+        return;
+      }
+
+      window.clearTimeout(timer);
+      resolve(value);
+    }).catch((error) => {
+      if (timedOut) {
+        return;
+      }
+
+      window.clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function supportedMediaConstraints() {
@@ -627,14 +683,29 @@ export function useElevenLabsAssistant({
     closeVoiceSession("new-voice-stream-session");
     voiceAudioPlayer.stop();
 
-    const audioReady = await unlockVoiceAudio();
+    let audioReady = false;
+    try {
+      audioReady = await withTimeout(
+        unlockVoiceAudio(),
+        VOICE_AUDIO_UNLOCK_TIMEOUT_MS,
+        () => createVoiceTimeoutError("Zvuk se v mobilním prohlížeči nepodařilo připravit včas.", "voice_audio_unlock_timeout")
+      );
+    } catch {
+      audioReady = false;
+    }
+
     if (!audioReady) {
       callbacks.onAudioWarning?.("Zvuk v mobilním prohlížeči se nepodařilo připravit. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč.");
     }
 
     let mediaStream = null;
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia(voiceMicrophoneConstraints());
+      mediaStream = await withTimeout(
+        navigator.mediaDevices.getUserMedia(voiceMicrophoneConstraints()),
+        VOICE_MICROPHONE_TIMEOUT_MS,
+        createMicrophoneTimeoutError,
+        stopMediaStreamTracks
+      );
     } catch (error) {
       throw new Error(microphoneErrorMessage(error));
     }
@@ -643,13 +714,13 @@ export function useElevenLabsAssistant({
     try {
       signedUrlSession = await prepareSignedUrl(assistant.id);
     } catch (error) {
-      mediaStream.getTracks().forEach((track) => track.stop());
+      stopMediaStreamTracks(mediaStream);
       throw error;
     }
 
     const signedUrl = String(signedUrlSession?.signedUrl || "").trim();
     if (!signedUrl) {
-      mediaStream.getTracks().forEach((track) => track.stop());
+      stopMediaStreamTracks(mediaStream);
       throw new Error("ElevenLabs hlasovou session se nepodařilo připravit.");
     }
 
