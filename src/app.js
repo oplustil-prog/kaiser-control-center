@@ -202,6 +202,19 @@ const AI_VOICE_UI_STATES = [
   "disconnected",
   "error"
 ];
+const AI_VOICE_ACTIVE_STATES = [
+  "connecting",
+  "ready",
+  "listening",
+  "userSpeaking",
+  "processing",
+  "assistantSpeaking"
+];
+const AI_VOICE_DOCK_STATES = [
+  ...AI_VOICE_ACTIVE_STATES,
+  "disconnected",
+  "error"
+];
 const AI_VOICE_DEMO_SCRIPT = [
   {
     speaker: "user",
@@ -702,6 +715,23 @@ function setAiVoiceUiState(state, status = "", tags = []) {
   aiAssistantState.voiceTags = tags.length ? tags : aiAssistantState.voiceTags;
 }
 
+function isAiVoiceSessionActive() {
+  return aiAssistantState.mode === "voice" && (
+    aiAssistantState.isListening ||
+    AI_VOICE_ACTIVE_STATES.includes(aiAssistantState.voiceUiState)
+  );
+}
+
+function shouldShowAiVoiceDock() {
+  return aiAssistantState.mode === "voice" &&
+    !aiAssistantState.chatOpen &&
+    !aiAssistantState.welcomeVisible &&
+    (
+      aiAssistantState.isListening ||
+      AI_VOICE_DOCK_STATES.includes(aiAssistantState.voiceUiState)
+    );
+}
+
 function clearAiVoiceWeakInputNotice() {
   aiVoiceWeakInputReadings = 0;
 
@@ -1073,6 +1103,10 @@ function cancelAiTextRequest(nextStatus = AI_TEXT_READY_LABEL) {
 function openAiAssistant(mode = "text") {
   stopAiVoiceDemo({ renderAfter: false });
   const nextMode = mode === "voice" ? "voice" : "text";
+  const keepVoiceState = nextMode === "voice" && (
+    isAiVoiceSessionActive() ||
+    AI_VOICE_DOCK_STATES.includes(aiAssistantState.voiceUiState)
+  );
 
   if (aiAssistantState.mode !== nextMode) {
     cancelAiTextRequest();
@@ -1094,7 +1128,9 @@ function openAiAssistant(mode = "text") {
       ? `ElevenLabs agent ${assistant.name} je nakonfigurovaný.`
       : AI_STATUS_ELEVENLABS_WAITING;
   }
-  resetAiVoiceConversation();
+  if (!keepVoiceState) {
+    resetAiVoiceConversation();
+  }
   renderAiAssistantLayerOnly();
 }
 
@@ -1496,6 +1532,7 @@ function stopAiVoiceRecognition() {
 
 function navigateFromAiAssistant(route) {
   const normalizedRoute = normalizeAiRoute(route);
+  const keepVoiceSession = isAiVoiceSessionActive();
 
   if (!normalizedRoute || !canUseAiRoute(normalizedRoute)) {
     showAiToast({
@@ -1506,14 +1543,17 @@ function navigateFromAiAssistant(route) {
   }
 
   stopAiVoiceDemo({ renderAfter: false });
-  speechRecognition.stop({ status: false });
-  elevenLabsAssistant.stopVoiceAudio?.();
-  cancelAiTextRequest();
+  if (!keepVoiceSession) {
+    speechRecognition.stop({ status: false });
+    cancelAiTextRequest();
+  }
   aiAssistantState.chatOpen = false;
   aiAssistantState.welcomeVisible = false;
   aiAssistantState.welcomeAnimate = false;
   aiAssistantState.launcherVisible = true;
-  aiAssistantState.isListening = false;
+  if (!keepVoiceSession) {
+    aiAssistantState.isListening = false;
+  }
   guardedAccessAction(() => navigateToUrl(routeHref(normalizedRoute)));
 }
 
@@ -1557,7 +1597,11 @@ function renderAiAssistantLayer() {
       demoStatus: aiAssistantState.demoStatus
     }),
     AiAssistantLauncher({
-      visible: aiAssistantState.launcherVisible && !aiAssistantState.chatOpen && !aiAssistantState.welcomeVisible
+      visible: (aiAssistantState.launcherVisible && !aiAssistantState.chatOpen && !aiAssistantState.welcomeVisible) || shouldShowAiVoiceDock(),
+      voiceActive: shouldShowAiVoiceDock(),
+      voiceUiState: aiAssistantState.voiceUiState,
+      voiceStatus: aiAssistantState.voiceStatus,
+      isListening: aiAssistantState.isListening
     }),
     AiConfirmationModal({ confirmation: aiAssistantState.confirmation }),
     renderAiToast(),
@@ -7733,7 +7777,7 @@ document.addEventListener("click", async (event) => {
 
   const aiLauncher = event.target.closest("[data-ai-launcher]");
   if (aiLauncher) {
-    openAiAssistant("text");
+    openAiAssistant(aiLauncher.dataset.aiLauncherMode || "text");
     return;
   }
 
