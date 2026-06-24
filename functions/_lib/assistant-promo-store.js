@@ -72,7 +72,7 @@ function promoPayload({ promoDate, existing = null } = {}) {
     promoKey: SARLOTA_PROMO_KEY,
     promoDate,
     validUntil: SARLOTA_PROMO_END_DATE,
-    show: active && !existing,
+    show: active,
     action: cleanString(existing?.status),
     videoUrl: SARLOTA_PROMO_VIDEO_URL,
     fallbackImageUrl: SARLOTA_PROMO_FALLBACK_IMAGE_URL,

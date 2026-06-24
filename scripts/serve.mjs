@@ -1314,15 +1314,15 @@ async function handleApi(request, response) {
 
     const promoDate = new Date().toISOString().slice(0, 10);
     const promoKey = "sarlota_intro_2026_06";
+    const active = promoDate <= "2026-06-30";
     const stateKey = `${user.id}:${promoKey}:${promoDate}`;
     const existing = mockAssistantDailyPromos.get(stateKey) || null;
-    const active = promoDate <= "2026-06-30";
 
     sendJson(response, 200, {
       promoKey,
       promoDate,
       validUntil: "2026-06-30",
-      show: active && !existing,
+      show: active,
       action: existing?.action || "",
       videoUrl: "/avatars/sarlota-intro.mp4",
       fallbackImageUrl: "/avatars/sarlota-microphone.png",
@@ -1375,7 +1375,7 @@ async function handleApi(request, response) {
       promoKey,
       promoDate,
       validUntil: "2026-06-30",
-      show: false,
+      show: active,
       action,
       videoUrl: "/avatars/sarlota-intro.mp4",
       fallbackImageUrl: "/avatars/sarlota-microphone.png",

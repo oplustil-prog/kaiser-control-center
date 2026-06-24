@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.55"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.56"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Promo Šarloty do konce června",
+    text: "Promo video Šarloty se do 30. 6. 2026 už neblokuje denním zobrazením; volby se dál zapisují jen přes cloudový audit."
+  },
   {
     title: "Přirozenější pozdrav Šarloty",
     text: "Šarlota používá přesnější denní pozdrav podle času v Praze, takže dopoledne už neříká Dobré ráno a drží kratší tykací úvod."
@@ -42,7 +46,7 @@ export const versionNews = [
   },
   {
     title: "Denní promo video Šarloty",
-    text: "Aplikace umí do 30. 6. 2026 zobrazit přihlášenému uživateli jednou denně video Šarloty s volbou rovnou spustit hlasový režim."
+    text: "Aplikace umí do 30. 6. 2026 zobrazit přihlášenému uživateli video Šarloty s volbou rovnou spustit hlasový režim."
   },
   {
     title: "Osobní uvítání Šarloty",
