@@ -5905,6 +5905,32 @@ function renderAssistantPromoLayer() {
   });
 }
 
+function unmuteAssistantPromoVideo(video) {
+  if (!video) {
+    return;
+  }
+
+  try {
+    video.defaultMuted = false;
+    video.muted = false;
+    video.volume = 1;
+  } catch {
+    // Browser media policy is allowed to ignore volume changes.
+  }
+}
+
+function syncAssistantPromoVideo() {
+  const promoVideo = document.querySelector("[data-ai-promo-video]");
+
+  if (!promoVideo) {
+    return;
+  }
+
+  unmuteAssistantPromoVideo(promoVideo);
+  promoVideo.addEventListener("loadedmetadata", () => unmuteAssistantPromoVideo(promoVideo), { once: true });
+  promoVideo.addEventListener("play", () => unmuteAssistantPromoVideo(promoVideo), { once: true });
+}
+
 async function declineAssistantPromo() {
   if (assistantPromoState.saving) {
     return;
@@ -7037,6 +7063,7 @@ function render() {
     renderApp();
     app.insertAdjacentHTML("beforeend", renderAiAssistantLayer());
     app.insertAdjacentHTML("beforeend", renderAssistantPromoLayer());
+    syncAssistantPromoVideo();
     if (aiAssistantState.welcomeVisible && aiAssistantState.welcomeAnimate) {
       aiAssistantState.welcomeAnimate = false;
     }
