@@ -33,7 +33,7 @@ export const modules = [
     route: "/vozovy-park",
     dashboardRoute: "/vozovy-park/dashboard",
     icon: FleetIcon,
-    status: "skeleton",
+    status: "připraveno",
     active: true,
     disabled: false,
     order: 2

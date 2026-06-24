@@ -22,6 +22,10 @@ import {
   normalizeMedicalExamCategory
 } from "../src/data/medicalExamRules.js";
 import { renderMedicalExamRequestDocument } from "../functions/_lib/medical-exam-request-template.js";
+import {
+  FLEET_VISTOS_IMPORT_MAX_FILE_SIZE_BYTES,
+  buildFleetVistosImportPreview
+} from "../functions/_lib/fleet-vistos-import-preview.js";
 import { DEFAULT_THEME_SETTINGS, normalizeThemeSettings } from "../src/data/themeSettings.js";
 import { modules } from "../src/data/modules.js";
 import {
@@ -1389,6 +1393,48 @@ async function handleApi(request, response) {
       })),
       apiStatus: "ready"
     });
+    return true;
+  }
+
+  if (url.pathname === "/api/fleet/vistos-import/preview" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    if (!hasPermission(user, "fleet", "edit")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    try {
+      const { files } = await readMultipartFormData(request);
+      const file = files.get("file");
+
+      if (!file?.buffer?.length) {
+        sendJson(response, 400, { error: "Vyberte soubor exportu z Vistos." });
+        return true;
+      }
+
+      if (file.buffer.length > FLEET_VISTOS_IMPORT_MAX_FILE_SIZE_BYTES) {
+        sendJson(response, 400, { error: "Soubor je příliš velký. Maximum je 10 MB." });
+        return true;
+      }
+
+      const preview = await buildFleetVistosImportPreview({
+        buffer: file.buffer,
+        filename: file.name,
+        contentType: file.type
+      });
+
+      sendJson(response, 200, { preview, apiStatus: "ready" });
+    } catch (error) {
+      sendJson(response, 400, {
+        error: error.message || "Náhled importu se nepodařilo zpracovat.",
+        apiStatus: "waiting"
+      });
+    }
     return true;
   }
 

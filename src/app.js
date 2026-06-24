@@ -594,6 +594,13 @@ const employeeCardState = {
   documentsMissingEndpoint: "POST /api/employees/:id/documents"
 };
 
+const fleetImportPreviewState = {
+  loading: false,
+  preview: null,
+  message: "",
+  error: ""
+};
+
 let lastRenderedUrl = window.location.href;
 
 function escapeHtml(value) {
@@ -5300,6 +5307,164 @@ function absenceModulePage(moduleItem, user, isDashboard = false, context = {}) 
   `;
 }
 
+function fleetImportStat(label, value) {
+  return `
+    <div class="fleet-import-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function fleetImportSummary(preview) {
+  const summary = preview?.summary || {};
+
+  return `
+    <div class="fleet-import-stats" aria-label="Souhrn náhledu importu">
+      ${fleetImportStat("Řádky", summary.rowCount ?? 0)}
+      ${fleetImportStat("Sloupce", summary.columnCount ?? 0)}
+      ${fleetImportStat("Mapováno", summary.supportedColumnCount ?? 0)}
+      ${fleetImportStat("Ke kontrole", (summary.duplicateVinCount || 0) + (summary.duplicateRegistrationCount || 0) + (summary.missingVinCount || 0) + (summary.missingRegistrationCount || 0))}
+    </div>
+  `;
+}
+
+function fleetImportPolicy(preview) {
+  const summary = preview?.summary || {};
+
+  return `
+    <div class="fleet-import-policy" aria-label="Politika importu">
+      <span>Režim: náhled</span>
+      <span>Zápis do produkce: ${summary.productionWrite ? "ano" : "ne"}</span>
+      <span>Uložení hodnot: ${summary.valuesStored ? "ano" : "ne"}</span>
+      <span>Citlivé hodnoty: ${summary.valuesRedacted ? "maskované" : "plné"}</span>
+    </div>
+  `;
+}
+
+function fleetImportColumnsTable(preview) {
+  const rows = (preview?.columns || []).map((column) => `
+    <tr>
+      <td>${escapeHtml(column.header)}</td>
+      <td>${escapeHtml(column.supported ? column.target : "Nepodporováno")}</td>
+      <td>${escapeHtml(column.category)}</td>
+      <td>${escapeHtml(column.importAction)}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div class="fleet-import-table-wrap">
+      <table class="fleet-import-table">
+        <thead>
+          <tr>
+            <th>Sloupec Vistos</th>
+            <th>Cíl</th>
+            <th>Skupina</th>
+            <th>Akce</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function fleetImportRowsTable(preview) {
+  const rows = (preview?.matching?.rows || []).map((row) => `
+    <tr>
+      <td>${escapeHtml(row.rowNumber)}</td>
+      <td><span class="fleet-import-status">${escapeHtml(row.statusLabel)}</span></td>
+      <td>${escapeHtml(row.registrationNumberMasked || "-")}</td>
+      <td>${escapeHtml(row.vinMasked || "-")}</td>
+      <td>${escapeHtml(row.name || row.internalVehicleNumber || "-")}</td>
+      <td>${escapeHtml(row.matchedBy)}</td>
+      <td>${escapeHtml((row.warnings || []).join(", ") || "-")}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div class="fleet-import-table-wrap">
+      <table class="fleet-import-table">
+        <thead>
+          <tr>
+            <th>Řádek</th>
+            <th>Stav</th>
+            <th>SPZ</th>
+            <th>VIN</th>
+            <th>Vozidlo</th>
+            <th>Párování</th>
+            <th>Kontrola</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function fleetVistosImportSection(user) {
+  const canImport = hasPermission(user, "fleet", "edit");
+  const preview = fleetImportPreviewState.preview;
+  const sourceInfo = preview
+    ? `${preview.filename}${preview.sheetName ? ` / ${preview.sheetName}` : ""}`
+    : "Bez načteného souboru";
+
+  return `
+    <section class="fleet-import-panel" aria-labelledby="fleet-import-title">
+      <div class="fleet-import-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Vistos</p>
+          <h2 id="fleet-import-title">Import preview vozidel</h2>
+          <p>${escapeHtml(sourceInfo)}</p>
+        </div>
+        ${preview ? `<button class="secondary-link" type="button" data-fleet-import-download-report>Export náhledu</button>` : ""}
+      </div>
+
+      ${canImport ? `
+        <form class="fleet-import-form" data-fleet-vistos-import-form>
+          <label>
+            <span>Export Vistos</span>
+            <input
+              type="file"
+              name="file"
+              accept=".xlsx,.csv,.tsv,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              required
+            >
+          </label>
+          <button class="primary-action" type="submit" ${fleetImportPreviewState.loading ? "disabled" : ""}>
+            ${fleetImportPreviewState.loading ? "Zpracovávám..." : "Zpracovat náhled"}
+          </button>
+        </form>
+      ` : `
+        <p class="module-feedback__notice">Pro nahrání exportu je potřeba oprávnění Vozový park / úpravy.</p>
+      `}
+
+      ${fleetImportPreviewState.message ? `<p class="module-feedback__notice">${escapeHtml(fleetImportPreviewState.message)}</p>` : ""}
+      ${fleetImportPreviewState.error ? `<p class="module-feedback__error">${escapeHtml(fleetImportPreviewState.error)}</p>` : ""}
+
+      ${preview ? `
+        ${fleetImportSummary(preview)}
+        ${fleetImportPolicy(preview)}
+        <div class="fleet-import-grid">
+          <section>
+            <h3>Mapování sloupců</h3>
+            ${fleetImportColumnsTable(preview)}
+          </section>
+          <section>
+            <h3>Řádky k ověření</h3>
+            ${fleetImportRowsTable(preview)}
+          </section>
+        </div>
+      ` : `
+        <div class="fleet-import-empty">
+          <strong>Pouze náhled</strong>
+          <span>Bez automatické synchronizace a bez zápisu do databáze.</span>
+        </div>
+      `}
+    </section>
+  `;
+}
+
 function modulePage(moduleItem, user, isDashboard = false) {
   if (moduleItem.id === "absence") {
     return absenceModulePage(moduleItem, user, isDashboard);
@@ -5323,6 +5488,7 @@ function modulePage(moduleItem, user, isDashboard = false) {
   const usersPanel = moduleItem.id === "users" && !isDashboard ? usersManagementSection() : "";
   const settingsPanel = moduleItem.id === "settings" && !isDashboard ? settingsManagementSection(user) : "";
   const reportsPanel = moduleItem.id === "reports" && !isDashboard ? notificationCenterSection(user) : "";
+  const fleetPanel = moduleItem.id === "fleet" && !isDashboard ? fleetVistosImportSection(user) : "";
   const feedbackBox = moduleFeedbackBoxFor(moduleItem, user);
 
   return `
@@ -5349,6 +5515,7 @@ function modulePage(moduleItem, user, isDashboard = false) {
           </div>
         </div>
       </section>
+      ${fleetPanel}
       ${usersPanel}
       ${settingsPanel}
       ${reportsPanel}
@@ -7772,6 +7939,76 @@ function downloadCsv(filename, csv) {
   downloadText(filename, csv, "text/csv;charset=utf-8");
 }
 
+function fleetCsvCell(value) {
+  const text = String(value ?? "").replaceAll('"', '""');
+  return `"${text}"`;
+}
+
+function fleetImportPreviewToCsv(preview) {
+  const headers = ["radek", "stav", "spz_maskovana", "vin_maskovany", "vozidlo", "parovani", "kontrola"];
+  const rows = (preview?.matching?.rows || []).map((row) => [
+    row.rowNumber,
+    row.statusLabel,
+    row.registrationNumberMasked || "",
+    row.vinMasked || "",
+    row.name || row.internalVehicleNumber || "",
+    row.matchedBy || "",
+    (row.warnings || []).join(", ")
+  ]);
+
+  return `\uFEFF${[headers, ...rows].map((row) => row.map(fleetCsvCell).join(";")).join("\n")}`;
+}
+
+async function submitFleetVistosImport(form) {
+  const user = currentUser();
+
+  if (!hasPermission(user, "fleet", "edit")) {
+    fleetImportPreviewState.error = "Nemáte oprávnění zpracovat náhled importu.";
+    fleetImportPreviewState.message = "";
+    render();
+    return;
+  }
+
+  const file = form.elements.file?.files?.[0] || null;
+
+  if (!file) {
+    fleetImportPreviewState.error = "Vyberte soubor exportu z Vistos.";
+    fleetImportPreviewState.message = "";
+    render();
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  fleetImportPreviewState.loading = true;
+  fleetImportPreviewState.error = "";
+  fleetImportPreviewState.message = "";
+  render();
+
+  try {
+    const result = await apiJson("/api/fleet/vistos-import/preview", {
+      method: "POST",
+      body: formData
+    });
+    fleetImportPreviewState.preview = result.preview;
+    fleetImportPreviewState.message = "Náhled je připravený. Produkční data nebyla změněná.";
+  } catch (error) {
+    fleetImportPreviewState.error = error.message || "Náhled importu se nepodařilo zpracovat.";
+  } finally {
+    fleetImportPreviewState.loading = false;
+    render();
+  }
+}
+
+function exportFleetImportPreviewCsv() {
+  if (!fleetImportPreviewState.preview) {
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  downloadCsv(`vozovy-park-vistos-preview-${date}.csv`, fleetImportPreviewToCsv(fleetImportPreviewState.preview));
+}
+
 async function submitAbsenceRequest(form) {
   const user = currentUser();
   if (!hasPermission(user, "absence", "create")) {
@@ -8874,6 +9111,13 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  const fleetVistosImportForm = event.target.closest("[data-fleet-vistos-import-form]");
+  if (fleetVistosImportForm) {
+    event.preventDefault();
+    await submitFleetVistosImport(fleetVistosImportForm);
+    return;
+  }
+
   const absenceRequestForm = event.target.closest("[data-absence-request-form]");
   if (absenceRequestForm) {
     event.preventDefault();
@@ -9362,6 +9606,12 @@ document.addEventListener("click", async (event) => {
   const absenceExport = event.target.closest("[data-absence-export-csv]");
   if (absenceExport) {
     exportAbsenceCsv();
+    return;
+  }
+
+  const fleetImportReport = event.target.closest("[data-fleet-import-download-report]");
+  if (fleetImportReport) {
+    exportFleetImportPreviewCsv();
     return;
   }
 
