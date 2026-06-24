@@ -21,7 +21,7 @@ Interní provozní systém pro správu odpadových služeb, vozového parku, ser
 
 Modul Pneumatiky není v tomto projektu přepisovaný ani refaktorovaný. V aplikaci je karta se štítkem `HOTOVO` a stránka `/pneumatiky`, která otevírá hotovou externí aplikaci:
 
-https://oplustil-prog.github.io/kaiser-pneu-evidence/
+https://kaiser-smart.github.io/kaiser-pneu-evidence/
 
 ## Spuštění lokálně
 

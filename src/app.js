@@ -118,7 +118,7 @@ const feedbackMenuItem = {
 const permissionModules = [...orderedModules, feedbackMenuItem];
 const primaryRoutes = new Map(orderedModules.map((moduleItem) => [moduleItem.route, moduleItem]));
 const dashboardRoutes = new Map(moduleDashboards.map((moduleItem) => [moduleItem.route, moduleItem]));
-const TYRES_MODULE_URL = "https://oplustil-prog.github.io/kaiser-pneu-evidence/";
+const TYRES_MODULE_URL = "https://kaiser-smart.github.io/kaiser-pneu-evidence/";
 const APP_NAME = "Smart odpady";
 const HOME_SUBTITLE = "Provozní systém pro odpady, vozidla a trasy";
 const LOGIN_SUBTITLE = "Přihlášení do interního provozního systému";
