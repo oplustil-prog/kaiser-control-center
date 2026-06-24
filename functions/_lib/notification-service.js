@@ -77,6 +77,47 @@ function formatDate(value) {
   return `${day}. ${month}. ${year}`;
 }
 
+function requestIsHourlyDoctor(request) {
+  return (
+    cleanString(request?.type) === "doctor" &&
+    cleanString(request?.unit) === "hours" &&
+    cleanString(request?.startTime) &&
+    cleanString(request?.endTime)
+  );
+}
+
+function formatHours(value) {
+  const hours = Number(value || 0);
+  return `${hours.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} h`;
+}
+
+function requestHours(request) {
+  const storedHours = Number(request?.hours || 0);
+  if (storedHours > 0) {
+    return storedHours;
+  }
+
+  const [startHours, startMinutes] = cleanString(request?.startTime).split(":").map(Number);
+  const [endHours, endMinutes] = cleanString(request?.endTime).split(":").map(Number);
+  const start = (startHours * 60) + startMinutes;
+  const end = (endHours * 60) + endMinutes;
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? (end - start) / 60 : 0;
+}
+
+function formatRequestTerm(request) {
+  if (requestIsHourlyDoctor(request)) {
+    return `${formatDate(request.dateFrom)}, ${request.startTime}-${request.endTime}`;
+  }
+
+  return `${formatDate(request.dateFrom)} - ${formatDate(request.dateTo)}`;
+}
+
+function formatRequestAmount(request) {
+  return requestIsHourlyDoctor(request)
+    ? formatHours(requestHours(request))
+    : cleanString(request?.daysCount);
+}
+
 function htmlEscape(value) {
   return cleanString(value)
     .replaceAll("&", "&amp;")
@@ -149,8 +190,8 @@ function renderApprovalEmail({ title, headline, intro, request, ctaUrl }) {
                 <tr><td style="padding:20px 22px;font-size:16px;line-height:24px;">
                   <p style="margin:0 0 10px 0;"><strong>Zaměstnanec:</strong> ${htmlEscape(request.employeeName)}</p>
                   <p style="margin:0 0 10px 0;"><strong>Typ:</strong> ${htmlEscape(typeLabel(request))}</p>
-                  <p style="margin:0 0 10px 0;"><strong>Termín:</strong> ${htmlEscape(formatDate(request.dateFrom))} - ${htmlEscape(formatDate(request.dateTo))}</p>
-                  <p style="margin:0 0 10px 0;"><strong>Počet dnů:</strong> ${htmlEscape(request.daysCount)}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Termín:</strong> ${htmlEscape(formatRequestTerm(request))}</p>
+                  <p style="margin:0 0 10px 0;"><strong>${requestIsHourlyDoctor(request) ? "Počet hodin" : "Počet dnů"}:</strong> ${htmlEscape(formatRequestAmount(request))}</p>
                   <p style="margin:0;"><strong>Poznámka:</strong> ${htmlEscape(note)}</p>
                 </td></tr>
               </table>
@@ -447,8 +488,8 @@ export async function sendAbsenceDecisionSms(env, request, decision) {
     ? ` Důvod: ${request.rejectionReason}`
     : "";
   const body = approved
-    ? `Smart odpady: Vaše žádost ${typeLabel(request)} od ${formatDate(request.dateFrom)} do ${formatDate(request.dateTo)} byla schválena.`
-    : `Smart odpady: Vaše žádost ${typeLabel(request)} od ${formatDate(request.dateFrom)} do ${formatDate(request.dateTo)} byla zamítnuta.${reason}`;
+    ? `Smart odpady: Vaše žádost ${typeLabel(request)} ${formatRequestTerm(request)} byla schválena.`
+    : `Smart odpady: Vaše žádost ${typeLabel(request)} ${formatRequestTerm(request)} byla zamítnuta.${reason}`;
 
   return sendSms(env, {
     type: approved ? "absence_approved_sms" : "absence_rejected_sms",

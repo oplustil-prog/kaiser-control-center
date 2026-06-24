@@ -44,9 +44,8 @@ Tato složka obsahuje základní HTML e-mailové šablony pro systém Smart odpa
 
 - `{{employee_name}}`
 - `{{absence_type}}`
-- `{{date_from}}`
-- `{{date_to}}`
-- `{{days_count}}`
+- `{{absence_term}}`
+- `{{absence_amount}}`
 - `{{note}}`
 - `{{approval_url}}`
 
@@ -55,7 +54,7 @@ Tato složka obsahuje základní HTML e-mailové šablony pro systém Smart odpa
 - `{{manager_name}}`
 - `{{employee_name}}`
 - `{{absence_type}}`
-- `{{date_from}}`
-- `{{date_to}}`
+- `{{absence_term}}`
+- `{{absence_amount}}`
 - `{{submitted_at}}`
 - `{{approval_url}}`

@@ -4496,6 +4496,17 @@ body:has(.ai-assistant-promo-modal) {
   grid-column: span 2;
 }
 
+.absence-doctor-time-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.absence-doctor-time-fields[hidden] {
+  display: none;
+}
+
 .absence-form__summary {
   display: grid;
   gap: 4px;
@@ -5607,6 +5618,7 @@ body:has(.ai-assistant-promo-modal) {
   .access-form-grid,
   .absence-form,
   .absence-form--settings,
+  .absence-doctor-time-fields,
   .absence-filters,
   .absence-report-grid {
     grid-template-columns: 1fr 1fr;
@@ -6213,6 +6225,7 @@ body:has(.ai-assistant-promo-modal) {
   .absence-panels,
   .absence-form,
   .absence-form--settings,
+  .absence-doctor-time-fields,
   .absence-filters,
   .absence-report-grid,
   .feedback-ticket__meta,

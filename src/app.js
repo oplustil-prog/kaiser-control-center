@@ -26,6 +26,8 @@ import {
   ABSENCE_API_TYPE_LABELS,
   absenceBalanceForEmployee,
   absenceEmployeeOptions,
+  absenceRequestHours,
+  absenceRequestIsHourlyDoctor,
   absenceRequestsToCsv,
   absenceSummary,
   absenceStatusLabel,
@@ -35,6 +37,7 @@ import {
   canCancelAbsence,
   canSeeAllAbsences,
   canSubmitAbsenceForOthers,
+  countAbsenceHours,
   countAbsenceDays,
   currentMonthKey,
   employeeIdForUser,
@@ -42,6 +45,7 @@ import {
   generateMonthlyAbsenceReport,
   initialStatusForAbsenceType,
   loadAbsenceState,
+  monthlyAbsenceDoctorHours,
   monthlyAbsenceReportToCsv,
   monthlyAbsenceTotals,
   normalizeAbsenceSettings,
@@ -416,6 +420,8 @@ const quickAbsenceState = {
   dateFrom: "",
   dateTo: "",
   halfDay: false,
+  startTime: "09:00",
+  endTime: "11:00",
   noteOpen: false,
   attachmentOpen: false,
   note: "",
@@ -3240,6 +3246,49 @@ function formatAbsenceDays(value) {
   return `${formatted} dne`;
 }
 
+function formatAbsenceHours(value) {
+  const hours = Number(value || 0);
+  if (hours <= 0) {
+    return "0 h";
+  }
+
+  return `${hours.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} h`;
+}
+
+function isHourlyDoctorRequest(request) {
+  return absenceRequestIsHourlyDoctor(request);
+}
+
+function absenceTimeRangeLabel(request) {
+  return isHourlyDoctorRequest(request)
+    ? `${request.startTime}-${request.endTime}`
+    : "";
+}
+
+function absenceTermLabel(request) {
+  if (!request) {
+    return "";
+  }
+
+  if (isHourlyDoctorRequest(request)) {
+    return `${formatAbsenceDate(request.dateFrom)} · ${absenceTimeRangeLabel(request)}`;
+  }
+
+  if (!request.dateTo || request.dateTo === request.dateFrom) {
+    return formatAbsenceDate(request.dateFrom);
+  }
+
+  return `${formatAbsenceDate(request.dateFrom)} - ${formatAbsenceDate(request.dateTo)}`;
+}
+
+function absenceDurationLabel(request) {
+  if (isHourlyDoctorRequest(request)) {
+    return formatAbsenceHours(absenceRequestHours(request));
+  }
+
+  return `${formatAbsenceDays(request?.daysCount)}${request?.halfDay ? " · půlden" : ""}`;
+}
+
 function requestStatusLabel(request) {
   return request?.statusLabel || ABSENCE_API_STATUS_LABELS[request?.status] || absenceStatusLabel(request?.status) || "";
 }
@@ -3333,6 +3382,8 @@ function quickAbsenceReset(options = {}) {
   quickAbsenceState.dateFrom = "";
   quickAbsenceState.dateTo = "";
   quickAbsenceState.halfDay = false;
+  quickAbsenceState.startTime = "09:00";
+  quickAbsenceState.endTime = "11:00";
   quickAbsenceState.noteOpen = false;
   quickAbsenceState.attachmentOpen = false;
   quickAbsenceState.note = "";
@@ -3352,6 +3403,10 @@ function quickAbsenceStatusLabel(type) {
 }
 
 function quickAbsenceDaysLabel() {
+  if (quickAbsenceState.type === "doctor") {
+    return formatAbsenceHours(countAbsenceHours(quickAbsenceState.startTime, quickAbsenceState.endTime));
+  }
+
   return formatAbsenceDays(countAbsenceDays(
     quickAbsenceState.dateFrom,
     quickAbsenceState.dateTo || quickAbsenceState.dateFrom,
@@ -3363,6 +3418,10 @@ function quickAbsenceDaysLabel() {
 function quickAbsenceDateLabel() {
   if (!quickAbsenceState.dateFrom) {
     return "";
+  }
+
+  if (quickAbsenceState.type === "doctor") {
+    return `${formatAbsenceDate(quickAbsenceState.dateFrom)} · ${quickAbsenceState.startTime}-${quickAbsenceState.endTime}`;
   }
 
   if (quickAbsenceState.halfDay) {
@@ -3408,7 +3467,6 @@ function quickDateChoices(type) {
     return [
       { id: "today", label: "Dnes" },
       { id: "tomorrow", label: "Zítra" },
-      { id: "half-day", label: "Půl dne" },
       { id: "custom", label: "Vybrat datum" }
     ];
   }
@@ -3446,7 +3504,7 @@ function quickAbsenceTypeStep() {
 }
 
 function quickAbsenceCustomDate(type) {
-  if (quickAbsenceState.dateMode !== "custom") {
+  if (quickAbsenceState.dateMode !== "custom" || type?.id === "doctor") {
     return "";
   }
 
@@ -3472,6 +3530,31 @@ function quickAbsenceCustomDate(type) {
   `;
 }
 
+function quickAbsenceDoctorDateTime() {
+  const today = isoDateAfter(0);
+
+  return `
+    <div class="quick-absence-custom-date quick-absence-time-grid">
+      <label>
+        <span>Datum</span>
+        <input type="date" value="${escapeHtml(quickAbsenceState.dateFrom || today)}" data-quick-date-from />
+      </label>
+      <label>
+        <span>Čas od</span>
+        <input type="time" step="1800" value="${escapeHtml(quickAbsenceState.startTime || "09:00")}" data-quick-start-time />
+      </label>
+      <label>
+        <span>Čas do</span>
+        <input type="time" step="1800" value="${escapeHtml(quickAbsenceState.endTime || "11:00")}" data-quick-end-time />
+      </label>
+      <p class="quick-absence-hint">Rozsah: ${escapeHtml(formatAbsenceHours(countAbsenceHours(quickAbsenceState.startTime, quickAbsenceState.endTime)))}</p>
+      <button class="primary-action quick-absence-wide-action" type="button" data-quick-custom-continue>
+        Pokračovat
+      </button>
+    </div>
+  `;
+}
+
 function quickAbsenceDateStep() {
   const type = quickAbsenceType();
 
@@ -3484,11 +3567,14 @@ function quickAbsenceDateStep() {
       <button class="quick-absence-back" type="button" data-quick-back="type">Zpět</button>
       <p class="quick-absence-kicker">${escapeHtml(type.shortLabel)}</p>
       <h2 id="quick-date-title">Kdy?</h2>
-      <div class="quick-absence-choices">
-        ${quickDateChoices(type).map(quickChoiceButton).join("")}
-      </div>
+      ${type.id === "doctor" ? quickAbsenceDoctorDateTime() : `
+        <div class="quick-absence-choices">
+          ${quickDateChoices(type).map(quickChoiceButton).join("")}
+        </div>
+      `}
       ${type.id === "sick" ? '<p class="quick-absence-hint">Nemoc od dnešního dne</p>' : ""}
       ${quickAbsenceCustomDate(type)}
+      ${quickAbsenceState.error ? `<p class="quick-absence-error">${escapeHtml(quickAbsenceState.error)}</p>` : ""}
     </section>
   `;
 }
@@ -3578,7 +3664,7 @@ function quickAbsenceRecentCard(request) {
         <strong>${escapeHtml(normalized.typeLabel || "Žádost")}</strong>
         <span>${escapeHtml(normalized.statusLabel || "")}</span>
       </div>
-      <small>${escapeHtml(formatAbsenceDate(normalized.dateFrom))}${normalized.dateTo && normalized.dateTo !== normalized.dateFrom ? ` - ${escapeHtml(formatAbsenceDate(normalized.dateTo))}` : ""}</small>
+      <small>${escapeHtml(absenceTermLabel(normalized))}</small>
     </article>
   `;
 }
@@ -3740,8 +3826,8 @@ function absenceApprovalCard(request, user) {
         </div>
         <div>${absenceTypeBadge(normalized.type)}</div>
         <div>
-          <strong>${escapeHtml(formatAbsenceDate(normalized.dateFrom))} - ${escapeHtml(formatAbsenceDate(normalized.dateTo))}</strong>
-          <span>${escapeHtml(formatAbsenceDays(normalized.daysCount))}${normalized.halfDay ? " · půlden" : ""}</span>
+          <strong>${escapeHtml(absenceTermLabel(normalized))}</strong>
+          <span>${escapeHtml(absenceDurationLabel(normalized))}</span>
         </div>
         <div>${absenceStatusBadge(normalized.status)}</div>
       </div>
@@ -3822,7 +3908,7 @@ function absenceRequestsTable(requests, user, emptyText, showActions = true) {
             <th>Zaměstnanec</th>
             <th>Typ</th>
             <th>Termín</th>
-            <th>Dny</th>
+            <th>Rozsah</th>
             <th>Stav</th>
             ${showActions ? "<th>Akce</th>" : ""}
           </tr>
@@ -3836,10 +3922,10 @@ function absenceRequestsTable(requests, user, emptyText, showActions = true) {
               </td>
               <td data-label="Typ">${absenceTypeBadge(request.type)}</td>
               <td data-label="Termín">
-                <strong>${formatAbsenceDate(request.dateFrom)} - ${formatAbsenceDate(request.dateTo)}</strong>
-                <span>${request.halfDayFrom || request.halfDayTo ? "obsahuje půlden" : "celý den"}</span>
+                <strong>${escapeHtml(absenceTermLabel(request))}</strong>
+                <span>${isHourlyDoctorRequest(request) ? "hodinově" : (request.halfDayFrom || request.halfDayTo ? "obsahuje půlden" : "celý den")}</span>
               </td>
-              <td data-label="Dny">${escapeHtml(formatAbsenceDays(request.daysCount))}</td>
+              <td data-label="Rozsah">${escapeHtml(absenceDurationLabel(request))}</td>
               <td data-label="Stav">${absenceStatusBadge(request.status)}</td>
               ${showActions ? `<td data-label="Akce">${absenceRequestActions(request, user)}</td>` : ""}
             </tr>
@@ -3864,7 +3950,7 @@ function absenceMiniList(items, user, emptyText) {
             <span>${absenceTypeBadge(request.type)} ${absenceStatusBadge(request.status)}</span>
           </span>
           <span class="absence-mini-list__date">
-            ${formatAbsenceDate(request.dateFrom)} - ${formatAbsenceDate(request.dateTo)}
+            ${escapeHtml(absenceTermLabel(request))}
           </span>
         </li>
       `).join("")}
@@ -4027,15 +4113,25 @@ function absenceNewRequest(user) {
           <span>Datum od</span>
           <input name="dateFrom" type="date" value="${toIsoDate(new Date())}" data-absence-date required />
         </label>
-        <label>
+        <div class="absence-doctor-time-fields" data-absence-doctor-time-fields hidden>
+          <label>
+            <span>Čas od</span>
+            <input name="startTime" type="time" step="1800" value="09:00" data-absence-date />
+          </label>
+          <label>
+            <span>Čas do</span>
+            <input name="endTime" type="time" step="1800" value="11:00" data-absence-date />
+          </label>
+        </div>
+        <label data-absence-day-field>
           <span>Datum do</span>
           <input name="dateTo" type="date" value="${toIsoDate(new Date())}" data-absence-date required />
         </label>
-        <label class="absence-checkbox">
+        <label class="absence-checkbox" data-absence-day-field>
           <input name="halfDayFrom" type="checkbox" data-absence-date />
           <span>Půlden od</span>
         </label>
-        <label class="absence-checkbox">
+        <label class="absence-checkbox" data-absence-day-field>
           <input name="halfDayTo" type="checkbox" data-absence-date />
           <span>Půlden do</span>
         </label>
@@ -4054,7 +4150,7 @@ function absenceNewRequest(user) {
           <textarea name="note" rows="4" placeholder="Volitelná poznámka"></textarea>
         </label>
         <div class="absence-form__summary">
-          <span>Počet dnů</span>
+          <span data-absence-duration-title>Počet dnů</span>
           <strong data-absence-days-preview>1 den</strong>
           <small data-absence-status-preview>${initialStatusForAbsenceType("Dovolená")}</small>
         </div>
@@ -4140,9 +4236,9 @@ function absenceCalendar(user) {
                     class="absence-calendar__event absence-calendar__event--${ABSENCE_TYPE_TONES[request.type] || "vacation"}"
                     href="${routeHref(employeeCardRoute(request.employeeId))}"
                     data-link
-                    title="${escapeHtml(`${request.employeeName} · ${request.type}`)}"
+                    title="${escapeHtml(`${request.employeeName} · ${request.type} · ${absenceTermLabel(request)}`)}"
                   >
-                    ${escapeHtml(request.employeeName)} · ${escapeHtml(request.type)}
+                    ${escapeHtml(request.employeeName)} · ${escapeHtml(request.type)}${isHourlyDoctorRequest(request) ? ` · ${escapeHtml(absenceTimeRangeLabel(request))}` : ""}
                   </a>
                 `).join("")}
                 ${dayRequests.length > 3 ? `<span class="absence-calendar__more">+${dayRequests.length - 3}</span>` : ""}
@@ -4171,6 +4267,7 @@ function absenceReports(user) {
     month: absenceUiState.monthFilter
   });
   const totals = monthlyAbsenceTotals(reportRequests);
+  const doctorHours = monthlyAbsenceDoctorHours(reportRequests);
 
   return `
     <section class="absence-panel">
@@ -4205,6 +4302,10 @@ function absenceReports(user) {
         <article>
           <span>Lékař</span>
           <strong>${formatAbsenceDays(totals.Lékař)}</strong>
+        </article>
+        <article>
+          <span>Lékař hodiny</span>
+          <strong>${formatAbsenceHours(doctorHours)}</strong>
         </article>
         <article>
           <span>OČR</span>
@@ -4525,7 +4626,10 @@ function employeeAbsenceWorkflowSection() {
     ? items.slice(0, 8).map((item) => `
         <tr>
           <td data-label="Typ">${absenceTypeBadge(item.type)}</td>
-          <td data-label="Termín">${escapeHtml(formatAbsenceDate(item.dateFrom))} - ${escapeHtml(formatAbsenceDate(item.dateTo))}</td>
+          <td data-label="Termín">
+            <strong>${escapeHtml(absenceTermLabel(item))}</strong>
+            <span>${escapeHtml(absenceDurationLabel(item))}</span>
+          </td>
           <td data-label="Stav">${absenceStatusBadge(item.status)}</td>
           <td data-label="Schvaluje">${escapeHtml(item.managerName || "Bez nadřízeného")}</td>
           <td data-label="Odesláno">${escapeHtml(formatDateTime(item.submittedAt || item.createdAt))}</td>
@@ -5978,10 +6082,41 @@ function applyQuickDateChoice(choiceId) {
 }
 
 function continueQuickCustomDate() {
+  const type = quickAbsenceType();
   const fromInput = document.querySelector("[data-quick-date-from]");
   const toInput = document.querySelector("[data-quick-date-to]");
+  const startInput = document.querySelector("[data-quick-start-time]");
+  const endInput = document.querySelector("[data-quick-end-time]");
   const from = fromInput?.value || quickAbsenceState.dateFrom || isoDateAfter(0);
   const to = toInput?.value || from;
+
+  if (type?.id === "doctor") {
+    const startTime = startInput?.value || quickAbsenceState.startTime;
+    const endTime = endInput?.value || quickAbsenceState.endTime;
+    const hours = countAbsenceHours(startTime, endTime);
+
+    if (!from || !startTime || !endTime) {
+      quickAbsenceState.error = "U lékaře zadejte datum, čas od a čas do.";
+      render();
+      return;
+    }
+
+    if (hours <= 0) {
+      quickAbsenceState.error = "Čas do musí být po času od.";
+      render();
+      return;
+    }
+
+    quickAbsenceState.dateFrom = from;
+    quickAbsenceState.dateTo = from;
+    quickAbsenceState.halfDay = false;
+    quickAbsenceState.startTime = startTime;
+    quickAbsenceState.endTime = endTime;
+    quickAbsenceState.step = "summary";
+    quickAbsenceState.error = "";
+    render();
+    return;
+  }
 
   if (!from || !to || countAbsenceDays(from, to, false, false) <= 0) {
     quickAbsenceState.error = "Zkontrolujte prosím datum.";
@@ -6004,6 +6139,14 @@ function updateQuickDateField(field, value) {
   if (field === "to") {
     quickAbsenceState.dateTo = value;
   }
+
+  if (field === "startTime") {
+    quickAbsenceState.startTime = value;
+  }
+
+  if (field === "endTime") {
+    quickAbsenceState.endTime = value;
+  }
 }
 
 async function submitQuickAbsenceRequest() {
@@ -6011,6 +6154,12 @@ async function submitQuickAbsenceRequest() {
   const type = quickAbsenceType();
 
   if (!user || !type || !quickAbsenceState.dateFrom || quickAbsenceState.saving) {
+    return;
+  }
+
+  if (type.id === "doctor" && countAbsenceHours(quickAbsenceState.startTime, quickAbsenceState.endTime) <= 0) {
+    quickAbsenceState.error = "Čas do musí být po času od.";
+    render();
     return;
   }
 
@@ -6027,6 +6176,9 @@ async function submitQuickAbsenceRequest() {
         dateFrom: quickAbsenceState.dateFrom,
         dateTo: quickAbsenceState.dateTo || quickAbsenceState.dateFrom,
         halfDay: quickAbsenceState.halfDay,
+        unit: type.id === "doctor" ? "hours" : "days",
+        startTime: type.id === "doctor" ? quickAbsenceState.startTime : "",
+        endTime: type.id === "doctor" ? quickAbsenceState.endTime : "",
         note: quickAbsenceState.note.trim(),
         status: type.status
       })
@@ -6919,14 +7071,24 @@ async function submitAbsenceRequest(form) {
   }
 
   const type = form.elements.type.value;
+  const isDoctor = absenceTypeLabel(type) === "Lékař";
   const dateFrom = form.elements.dateFrom.value;
-  const dateTo = form.elements.dateTo.value;
-  const halfDayFrom = Boolean(form.elements.halfDayFrom?.checked);
-  const halfDayTo = Boolean(form.elements.halfDayTo?.checked);
-  const daysCount = countAbsenceDays(dateFrom, dateTo, halfDayFrom, halfDayTo);
+  const dateTo = isDoctor ? dateFrom : form.elements.dateTo.value;
+  const startTime = isDoctor ? form.elements.startTime?.value || "" : "";
+  const endTime = isDoctor ? form.elements.endTime?.value || "" : "";
+  const halfDayFrom = isDoctor ? false : Boolean(form.elements.halfDayFrom?.checked);
+  const halfDayTo = isDoctor ? false : Boolean(form.elements.halfDayTo?.checked);
+  const daysCount = isDoctor ? 0 : countAbsenceDays(dateFrom, dateTo, halfDayFrom, halfDayTo);
+  const hoursCount = isDoctor ? countAbsenceHours(startTime, endTime) : 0;
 
-  if (!dateFrom || !dateTo || daysCount <= 0) {
+  if (!dateFrom || (!isDoctor && (!dateTo || daysCount <= 0))) {
     setAbsenceNotice("", "Zkontrolujte prosím datum od a do.");
+    render();
+    return;
+  }
+
+  if (isDoctor && (!startTime || !endTime || hoursCount <= 0)) {
+    setAbsenceNotice("", "U lékaře zadejte čas od a čas do. Čas do musí být po času od.");
     render();
     return;
   }
@@ -6949,6 +7111,9 @@ async function submitAbsenceRequest(form) {
         dateFrom,
         dateTo,
         halfDay: halfDayFrom || halfDayTo,
+        unit: isDoctor ? "hours" : "days",
+        startTime,
+        endTime,
         note: form.elements.note.value.trim()
       })
     });
@@ -7016,18 +7181,39 @@ function applyAbsenceFilters(form) {
 
 function updateAbsenceFormPreview(form) {
   const type = form.elements.type.value;
+  const isDoctor = absenceTypeLabel(type) === "Lékař";
+  const dateFrom = form.elements.dateFrom.value;
+  const dateTo = isDoctor ? dateFrom : form.elements.dateTo.value;
   const days = countAbsenceDays(
-    form.elements.dateFrom.value,
-    form.elements.dateTo.value,
+    dateFrom,
+    dateTo,
     Boolean(form.elements.halfDayFrom?.checked),
     Boolean(form.elements.halfDayTo?.checked)
   );
+  const hours = countAbsenceHours(form.elements.startTime?.value, form.elements.endTime?.value);
+  const dayFields = form.querySelectorAll("[data-absence-day-field]");
+  const doctorTimeFields = form.querySelector("[data-absence-doctor-time-fields]");
+  const durationTitle = form.querySelector("[data-absence-duration-title]");
   const daysPreview = form.querySelector("[data-absence-days-preview]");
   const statusPreview = form.querySelector("[data-absence-status-preview]");
   const submitButton = form.querySelector("[data-absence-submit]");
 
+  dayFields.forEach((field) => {
+    field.hidden = isDoctor;
+  });
+
+  if (doctorTimeFields) {
+    doctorTimeFields.hidden = !isDoctor;
+  }
+
+  if (durationTitle) {
+    durationTitle.textContent = isDoctor ? "Počet hodin" : "Počet dnů";
+  }
+
   if (daysPreview) {
-    daysPreview.textContent = days > 0 ? formatAbsenceDays(days) : "zkontrolujte datum";
+    daysPreview.textContent = isDoctor
+      ? (hours > 0 ? formatAbsenceHours(hours) : "zkontrolujte čas")
+      : (days > 0 ? formatAbsenceDays(days) : "zkontrolujte datum");
   }
 
   if (statusPreview) {
@@ -7985,6 +8171,18 @@ document.addEventListener("input", (event) => {
     return;
   }
 
+  const quickStartTime = event.target.closest("[data-quick-start-time]");
+  if (quickStartTime) {
+    updateQuickDateField("startTime", quickStartTime.value);
+    return;
+  }
+
+  const quickEndTime = event.target.closest("[data-quick-end-time]");
+  if (quickEndTime) {
+    updateQuickDateField("endTime", quickEndTime.value);
+    return;
+  }
+
   const absenceRejectReason = event.target.closest("[data-absence-reject-reason]");
   if (absenceRejectReason) {
     absenceUiState.rejectReason = absenceRejectReason.value;
@@ -8339,6 +8537,8 @@ document.addEventListener("click", async (event) => {
     quickAbsenceState.dateFrom = "";
     quickAbsenceState.dateTo = "";
     quickAbsenceState.halfDay = false;
+    quickAbsenceState.startTime = "09:00";
+    quickAbsenceState.endTime = "11:00";
     quickAbsenceState.success = false;
     quickAbsenceState.error = "";
     render();

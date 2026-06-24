@@ -131,6 +131,50 @@ export function countAbsenceDays(dateFrom, dateTo, halfDayFrom = false, halfDayT
   return Math.max(0.5, days);
 }
 
+function timeMinutes(value) {
+  const cleaned = String(value || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(cleaned)) {
+    return null;
+  }
+
+  const [hours, minutes] = cleaned.split(":").map(Number);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return (hours * 60) + minutes;
+}
+
+export function countAbsenceHours(startTime, endTime) {
+  const start = timeMinutes(startTime);
+  const end = timeMinutes(endTime);
+
+  if (start === null || end === null || end <= start) {
+    return 0;
+  }
+
+  return (end - start) / 60;
+}
+
+export function absenceRequestIsHourlyDoctor(request) {
+  return (
+    absenceTypeLabel(request?.typeLabel || request?.type) === "Lékař" &&
+    String(request?.unit || "").trim() === "hours" &&
+    Boolean(request?.startTime && request?.endTime)
+  );
+}
+
+export function absenceRequestHours(request) {
+  if (!absenceRequestIsHourlyDoctor(request)) {
+    return 0;
+  }
+
+  const storedHours = Number(request?.hours || 0);
+  return storedHours > 0
+    ? storedHours
+    : countAbsenceHours(request.startTime, request.endTime);
+}
+
 export function initialStatusForAbsenceType(type) {
   return ABSENCE_APPROVAL_TYPES.has(type) ? "Čeká na schválení" : "Evidováno";
 }
@@ -427,6 +471,12 @@ export function monthlyAbsenceTotals(requests) {
   }, {});
 }
 
+export function monthlyAbsenceDoctorHours(requests) {
+  return requests
+    .filter((request) => absenceRequestIsHourlyDoctor(request))
+    .reduce((sum, request) => sum + absenceRequestHours(request), 0);
+}
+
 function csvCell(value) {
   const text = String(value ?? "");
 
@@ -443,13 +493,16 @@ function csvRow(values) {
 
 export function absenceRequestsToCsv(requests) {
   const rows = [
-    ["Zaměstnanec", "Typ", "Od", "Do", "Dny", "Stav", "Poznámka"],
+    ["Zaměstnanec", "Typ", "Od", "Do", "Čas od", "Čas do", "Dny", "Hodiny", "Stav", "Poznámka"],
     ...requests.map((request) => [
       request.employeeName,
       absenceTypeLabel(request.typeLabel || request.type),
       request.dateFrom,
       request.dateTo,
+      absenceRequestIsHourlyDoctor(request) ? request.startTime : "",
+      absenceRequestIsHourlyDoctor(request) ? request.endTime : "",
       request.daysCount,
+      absenceRequestHours(request) || "",
       absenceStatusLabel(request.statusLabel || request.status),
       request.note
     ])
@@ -460,6 +513,7 @@ export function absenceRequestsToCsv(requests) {
 
 export function monthlyAbsenceReportToCsv(report, requests) {
   const totals = monthlyAbsenceTotals(requests);
+  const doctorHours = monthlyAbsenceDoctorHours(requests);
   const pendingCount = requests.filter((request) => absenceStatusLabel(request.statusLabel || request.status) === "Čeká na schválení").length;
   const period = `${pad(report.periodMonth)}/${report.periodYear}`;
   const rows = [
@@ -470,17 +524,21 @@ export function monthlyAbsenceReportToCsv(report, requests) {
     ["Dovolená celkem dnů", totals.Dovolená],
     ["Nemoc celkem dnů", totals.Nemoc],
     ["Lékař celkem dnů", totals.Lékař],
+    ["Lékař celkem hodin", doctorHours],
     ["OČR celkem dnů", totals.OČR],
     ["Náhradní volno celkem dnů", totals["Náhradní volno"]],
     ["Čekající žádosti", pendingCount],
     [],
-    ["Zaměstnanec", "Typ", "Od", "Do", "Počet dnů", "Stav"],
+    ["Zaměstnanec", "Typ", "Od", "Do", "Čas od", "Čas do", "Počet dnů", "Hodiny", "Stav"],
     ...requests.map((request) => [
       request.employeeName,
       absenceTypeLabel(request.typeLabel || request.type),
       request.dateFrom,
       request.dateTo,
+      absenceRequestIsHourlyDoctor(request) ? request.startTime : "",
+      absenceRequestIsHourlyDoctor(request) ? request.endTime : "",
       request.daysCount,
+      absenceRequestHours(request) || "",
       absenceStatusLabel(request.statusLabel || request.status)
     ])
   ];

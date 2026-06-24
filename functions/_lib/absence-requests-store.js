@@ -99,6 +99,30 @@ function dateValue(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(cleaned) ? cleaned : "";
 }
 
+function timeValue(value) {
+  const cleaned = cleanString(value);
+  if (!/^\d{2}:\d{2}$/.test(cleaned)) {
+    return "";
+  }
+
+  const [hours, minutes] = cleaned.split(":").map(Number);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return "";
+  }
+
+  return cleaned;
+}
+
+function timeMinutes(value) {
+  const time = timeValue(value);
+  if (!time) {
+    return null;
+  }
+
+  const [hours, minutes] = time.split(":").map(Number);
+  return (hours * 60) + minutes;
+}
+
 function isoNow() {
   return new Date().toISOString();
 }
@@ -124,12 +148,42 @@ function countDays(dateFrom, dateTo, halfDay = false) {
   return Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1;
 }
 
+function countHours(startTime, endTime) {
+  const start = timeMinutes(startTime);
+  const end = timeMinutes(endTime);
+
+  if (start === null || end === null || end <= start) {
+    return 0;
+  }
+
+  return (end - start) / 60;
+}
+
+function isHalfHourStep(value) {
+  const minutes = timeMinutes(value);
+  return minutes !== null && minutes % 30 === 0;
+}
+
 function randomId(prefix) {
   const suffix = globalThis.crypto?.randomUUID
     ? globalThis.crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   return `${prefix}-${suffix}`;
+}
+
+async function absenceRequestColumns(db) {
+  try {
+    const result = await db.prepare("PRAGMA table_info(absence_requests)").all();
+    return new Set((result.results || []).map((row) => cleanString(row.name)));
+  } catch (error) {
+    console.error("absence_requests.schema_read_failed", { message: error.message });
+    return new Set();
+  }
+}
+
+function hasDoctorHoursColumns(columns) {
+  return ["unit", "start_time", "end_time", "hours"].every((columnName) => columns.has(columnName));
 }
 
 function normalizeType(value) {
@@ -270,6 +324,10 @@ function requestFromRow(row, history = []) {
     halfDay: Boolean(row.half_day),
     halfDayFrom: Boolean(row.half_day),
     halfDayTo: false,
+    unit: cleanString(row.unit) || "days",
+    startTime: timeValue(row.start_time),
+    endTime: timeValue(row.end_time),
+    hours: Number(row.hours || 0),
     note: cleanString(row.note),
     status,
     statusLabel: STATUS_LABELS[status] || status,
@@ -299,17 +357,38 @@ function normalizeInput(input, users, currentUser) {
   const type = normalizeType(input?.type);
   const dateFrom = dateValue(input?.dateFrom);
   const rawDateTo = dateValue(input?.dateTo);
-  const halfDay = Boolean(input?.halfDay || input?.halfDayFrom || input?.halfDayTo);
+  const isDoctorHours = type === "doctor";
+  const halfDay = isDoctorHours ? false : Boolean(input?.halfDay || input?.halfDayFrom || input?.halfDayTo);
   const employeeId = cleanString(input?.employeeId || currentUser?.id);
 
   if (!dateFrom) {
     throw new AbsenceRequestStoreError("Vyberte datum začátku.", 400, "absence_date_from_required");
   }
 
-  const dateTo = rawDateTo || dateFrom;
-  const daysCount = countDays(dateFrom, dateTo, halfDay);
-  if (daysCount <= 0) {
-    throw new AbsenceRequestStoreError("Zkontrolujte datum.", 400, "absence_date_range_invalid");
+  const startTime = isDoctorHours ? timeValue(input?.startTime) : "";
+  const endTime = isDoctorHours ? timeValue(input?.endTime) : "";
+  const dateTo = isDoctorHours ? dateFrom : (rawDateTo || dateFrom);
+  let daysCount = 0;
+  let hours = 0;
+
+  if (isDoctorHours) {
+    if (!startTime || !endTime) {
+      throw new AbsenceRequestStoreError("U lékaře zadejte čas od a čas do.", 400, "absence_doctor_time_required");
+    }
+
+    if (!isHalfHourStep(startTime) || !isHalfHourStep(endTime)) {
+      throw new AbsenceRequestStoreError("Čas lékaře zadávejte po 30 minutách.", 400, "absence_doctor_time_step_invalid");
+    }
+
+    hours = countHours(startTime, endTime);
+    if (hours <= 0) {
+      throw new AbsenceRequestStoreError("Čas do musí být po času od.", 400, "absence_doctor_time_range_invalid");
+    }
+  } else {
+    daysCount = countDays(dateFrom, dateTo, halfDay);
+    if (daysCount <= 0) {
+      throw new AbsenceRequestStoreError("Zkontrolujte datum.", 400, "absence_date_range_invalid");
+    }
   }
 
   if (!sameId(employeeId, currentUser?.id) && !canCreateForOtherEmployee(currentUser)) {
@@ -331,6 +410,10 @@ function normalizeInput(input, users, currentUser) {
     dateFrom,
     dateTo,
     halfDay,
+    unit: isDoctorHours ? "hours" : "days",
+    startTime,
+    endTime,
+    hours,
     note: cleanString(input?.note),
     status,
     daysCount,
@@ -473,6 +556,30 @@ export async function getAbsenceRequestRecord(env, users, currentUser, requestId
 export async function createAbsenceRequestRecord(env, users, currentUser, input) {
   const db = absenceDatabase(env, true);
   const request = normalizeInput(input, users, currentUser);
+  const columns = await absenceRequestColumns(db);
+  const canWriteDoctorHours = hasDoctorHoursColumns(columns);
+
+  if (request.unit === "hours" && !canWriteDoctorHours) {
+    throw new AbsenceRequestStoreError("Úložiště hodin lékaře není připravené.", 503, "absence_doctor_hours_schema_missing");
+  }
+
+  const optionalDoctorColumns = canWriteDoctorHours
+    ? `
+        unit,
+        start_time,
+        end_time,
+        hours,
+      `
+    : "";
+  const optionalDoctorPlaceholders = canWriteDoctorHours ? "?, ?, ?, ?," : "";
+  const optionalDoctorValues = canWriteDoctorHours
+    ? [
+        request.unit,
+        nullableString(request.startTime),
+        nullableString(request.endTime),
+        request.hours || null
+      ]
+    : [];
 
   await db
     .prepare(`
@@ -486,6 +593,7 @@ export async function createAbsenceRequestRecord(env, users, currentUser, input)
         date_from,
         date_to,
         half_day,
+        ${optionalDoctorColumns}
         note,
         status,
         days_count,
@@ -506,7 +614,7 @@ export async function createAbsenceRequestRecord(env, users, currentUser, input)
         created_by_user_id,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${optionalDoctorPlaceholders} ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .bind(
       request.id,
@@ -518,6 +626,7 @@ export async function createAbsenceRequestRecord(env, users, currentUser, input)
       request.dateFrom,
       request.dateTo || request.dateFrom,
       request.halfDay ? 1 : 0,
+      ...optionalDoctorValues,
       nullableString(request.note),
       request.status,
       request.daysCount,

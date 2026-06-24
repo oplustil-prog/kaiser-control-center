@@ -791,6 +791,30 @@ function mockIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(cleaned) ? cleaned : "";
 }
 
+function mockTimeValue(value) {
+  const cleaned = String(value || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(cleaned)) {
+    return "";
+  }
+
+  const [hours, minutes] = cleaned.split(":").map(Number);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return "";
+  }
+
+  return cleaned;
+}
+
+function mockTimeMinutes(value) {
+  const time = mockTimeValue(value);
+  if (!time) {
+    return null;
+  }
+
+  const [hours, minutes] = time.split(":").map(Number);
+  return (hours * 60) + minutes;
+}
+
 function countMockAbsenceDays(dateFrom, dateTo, halfDay = false) {
   const from = new Date(`${dateFrom}T12:00:00`);
   const to = new Date(`${dateTo}T12:00:00`);
@@ -804,6 +828,22 @@ function countMockAbsenceDays(dateFrom, dateTo, halfDay = false) {
   }
 
   return Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+function countMockAbsenceHours(startTime, endTime) {
+  const start = mockTimeMinutes(startTime);
+  const end = mockTimeMinutes(endTime);
+
+  if (start === null || end === null || end <= start) {
+    return 0;
+  }
+
+  return (end - start) / 60;
+}
+
+function isMockHalfHourStep(value) {
+  const minutes = mockTimeMinutes(value);
+  return minutes !== null && minutes % 30 === 0;
 }
 
 function canViewMockAbsenceRequest(currentUser, requestItem) {
@@ -834,9 +874,13 @@ function canViewMockAbsenceRequest(currentUser, requestItem) {
 function createMockAbsenceRequest(currentUser, payload) {
   const rawType = String(payload?.type || "").trim();
   const type = MOCK_ABSENCE_TYPE_ALIASES[rawType.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()] || rawType;
+  const isDoctorHours = type === "doctor";
   const dateFrom = mockIsoDate(payload?.dateFrom);
-  const dateTo = mockIsoDate(payload?.dateTo) || dateFrom;
-  const halfDay = Boolean(payload?.halfDay);
+  const dateTo = isDoctorHours ? dateFrom : (mockIsoDate(payload?.dateTo) || dateFrom);
+  const halfDay = isDoctorHours ? false : Boolean(payload?.halfDay);
+  const startTime = isDoctorHours ? mockTimeValue(payload?.startTime) : "";
+  const endTime = isDoctorHours ? mockTimeValue(payload?.endTime) : "";
+  const hours = isDoctorHours ? countMockAbsenceHours(startTime, endTime) : 0;
   const status = type === "sick" ? "recorded" : "pending_approval";
 
   if (!Object.hasOwn(MOCK_ABSENCE_TYPE_LABELS, type)) {
@@ -845,7 +889,31 @@ function createMockAbsenceRequest(currentUser, payload) {
     throw error;
   }
 
-  if (!dateFrom || countMockAbsenceDays(dateFrom, dateTo, halfDay) <= 0) {
+  if (!dateFrom) {
+    const error = new Error("Zkontrolujte datum.");
+    error.status = 400;
+    throw error;
+  }
+
+  if (isDoctorHours) {
+    if (!startTime || !endTime) {
+      const error = new Error("U lékaře zadejte čas od a čas do.");
+      error.status = 400;
+      throw error;
+    }
+
+    if (!isMockHalfHourStep(startTime) || !isMockHalfHourStep(endTime)) {
+      const error = new Error("Čas lékaře zadávejte po 30 minutách.");
+      error.status = 400;
+      throw error;
+    }
+
+    if (hours <= 0) {
+      const error = new Error("Čas do musí být po času od.");
+      error.status = 400;
+      throw error;
+    }
+  } else if (countMockAbsenceDays(dateFrom, dateTo, halfDay) <= 0) {
     const error = new Error("Zkontrolujte datum.");
     error.status = 400;
     throw error;
@@ -873,10 +941,14 @@ function createMockAbsenceRequest(currentUser, payload) {
     dateFrom,
     dateTo,
     halfDay,
+    unit: isDoctorHours ? "hours" : "days",
+    startTime,
+    endTime,
+    hours,
     note: String(payload?.note || "").trim(),
     status,
     statusLabel: MOCK_ABSENCE_STATUS_LABELS[status],
-    daysCount: countMockAbsenceDays(dateFrom, dateTo, halfDay),
+    daysCount: isDoctorHours ? 0 : countMockAbsenceDays(dateFrom, dateTo, halfDay),
     managerId: employee.managerId || "",
     managerName: employee.managerName || manager?.name || "",
     managerEmail: manager?.email || "",
