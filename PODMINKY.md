@@ -282,3 +282,106 @@ Pokud je workspace špinavý a změny patří druhému člověku:
 - vytvořit nový worktree,
 - nebo počkat na commit / stash vlastníka změn,
 - nebo si výslovně potvrdit převzetí konkrétních souborů.
+
+## 16. Šarlota / ElevenLabs – pravidla integrace
+
+### 16.1 Rozlišování stavů
+
+- `microphoneDenied` používat výhradně pro zamítnutý nebo blokovaný mikrofon v prohlížeči.
+- `disconnected` používat výhradně pro skutečné přerušení ElevenLabs / WebSocket session.
+- `error` používat pro ostatní chyby.
+- Při `microphoneDenied` nezobrazovat text `ElevenLabs agent je odpojený`.
+- Při `microphoneDenied` nespouštět WebSocket, dokud není mikrofon povolený.
+- UI má zobrazit jasnou českou hlášku:
+  `Mikrofon není povolený. Povol mikrofon pro tento web a zkus to znovu.`
+
+### 16.2 Dynamic variables
+
+- Každá proměnná použitá v ElevenLabs system promptu, first message nebo tool parametrech musí být vždy posílaná v `conversation_initiation_client_data`.
+- Povinné proměnné nesmí být `undefined`, `null` ani prázdný string.
+- Pro chybějící hodnoty musí existovat bezpečný fallback.
+- Pokud ElevenLabs vrátí chybu `1008 Missing required dynamic variables`, nejdřív zkontrolovat first message a dynamic variables payload.
+
+### 16.3 `intro_announcement`
+
+- `intro_announcement` je kompletní hotový úvodní text pro Šarlotu.
+- First message v ElevenLabs má používat pouze:
+  `{{intro_announcement}}`
+- Do First message nepřidávat současně `{{user_greeting}}` ani další pevný úvodní text.
+- Pozdrav a otázka se nesmí skládat dvakrát.
+
+Správně:
+
+```text
+intro_announcement = "Dobré odpoledne, Radime. Co potřebuješ?"
+```
+
+First message:
+
+```text
+{{intro_announcement}}
+```
+
+Špatně:
+
+```text
+{{user_greeting}} {{intro_announcement}} Co potřebuješ vyřešit?
+```
+
+### 16.4 Denní pozdrav
+
+- Denní pozdrav generovat serverově nebo v aplikaci podle `Europe/Prague`.
+- Nepoužívat UTC bez převodu.
+- Pravidla:
+  - 05:00-08:59 -> `Dobré ráno`
+  - 09:00-11:59 -> `Dobré dopoledne`
+  - 12:00-17:59 -> `Dobré odpoledne`
+  - 18:00-22:59 -> `Dobrý večer`
+  - 23:00-04:59 -> raději neutrální fallback
+- V 10:26 Šarlota nesmí říkat `Dobré ráno`.
+- Ve 13:07 má říkat `Dobré odpoledne`.
+
+### 16.5 Tykání
+
+- Šarlota uživateli tyká.
+- Používat:
+  - `Co potřebuješ?`
+  - `Co mám najít?`
+  - `Mám to odeslat?`
+  - `K tomu nemáš oprávnění.`
+- Nepoužívat:
+  - `Co potřebujete?`
+  - `Chcete pokračovat?`
+  - `K tomu nemáte oprávnění.`
+
+### 16.6 Stručnost
+
+- Šarlota nemá opakovat `Jsem Šarlota`, pokud už ji uživatel spustil z aplikace.
+- Běžná odpověď má mít jednu krátkou větu, maximálně dvě.
+- Při nejasnosti položit jen jednu otázku.
+- Úvod nemá být dlouhý.
+
+### 16.7 Bezpečnost
+
+- ElevenLabs nikdy není zdroj pravdy pro oprávnění.
+- Identita = přihlášený uživatel Smart odpady.
+- Práva = backend Smart odpady.
+- ElevenLabs = hlasová / konverzační vrstva.
+- API key, signed URL tokeny ani secrets se nikdy nesmí vypisovat do logu, UI ani debug odpovědi.
+- Do ElevenLabs neposílat zbytečná osobní data.
+
+### 16.8 Testovací checklist pro Šarlotu
+
+Při každé změně Šarloty ověřit:
+
+- mikrofon zakázán -> UI ukáže `Mikrofon není povolený`,
+- mikrofon povolen -> pokračuje signed URL / WebSocket,
+- WebSocket disconnect -> UI ukáže skutečný disconnect,
+- nechybí žádná required dynamic variable,
+- `intro_announcement` zazní jen jednou,
+- Šarlota tyká,
+- denní pozdrav odpovídá `Europe/Prague`,
+- konzole bez neodchycených chyb,
+- build projde,
+- `node --check` projde,
+- `git diff --check` projde.
