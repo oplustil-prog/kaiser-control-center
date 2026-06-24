@@ -248,3 +248,37 @@ Codex se má zastavit pouze tehdy, když:
 - není jasný příjemce nebo zdroj pravdy,
 - test může smazat, přepsat nebo poškodit produkční data,
 - odeslání vyžaduje bezpečnostní rozhodnutí mimo už daný pokyn Radima.
+
+## 15. Souběžná práce Radim / Martin / Codex
+
+Na projektu může současně pracovat více lidí nebo více Codex vláken.
+
+Před každou prací musí Codex:
+- přečíst `PODMINKY.md`,
+- spustit `git status --short --branch`,
+- ověřit, zda existují necommitnuté změny.
+
+Pokud existují necommitnuté změny:
+- Codex nesmí předpokládat, že jsou jeho,
+- nesmí je přepisovat,
+- nesmí je revertovat,
+- musí určit, zda souvisí s aktuálním úkolem,
+- pokud nejsou jeho nebo není jisté vlastnictví, musí se zastavit a upozornit Radima / Martina.
+
+Pro souběžnou práci platí:
+- každý větší úkol má mít vlastní větev,
+- u souběžné práce se preferuje samostatný `git worktree`,
+- jeden člověk / Codex je vždy vlastník konkrétního rozpracovaného úkolu,
+- dva lidé nesmí současně měnit stejné soubory bez domluvy,
+- společné soubory jako `src/app.js`, `src/styles.css`, `package.json`, `src/data/versionInfo.js` a `PODMINKY.md` vyžadují zvýšenou opatrnost.
+
+Před pushem:
+- spustit build / testy podle úkolu,
+- ověřit `git diff --check`,
+- ověřit, že commit obsahuje jen změny daného úkolu,
+- nepushovat cizí rozpracované změny.
+
+Pokud je workspace špinavý a změny patří druhému člověku:
+- vytvořit nový worktree,
+- nebo počkat na commit / stash vlastníka změn,
+- nebo si výslovně potvrdit převzetí konkrétních souborů.
