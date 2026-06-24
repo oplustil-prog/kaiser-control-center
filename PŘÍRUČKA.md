@@ -1,8 +1,8 @@
-# BIBLE PROJEKTU KAISER SMART / SMART ODPADY
+# PŘÍRUČKA PROJEKTU KAISER SMART / SMART ODPADY
 
 ## 1. Hlavní pravidlo
 
-Tento soubor je hlavní pracovní bible projektu a má přednost před běžným zadáním.
+Tento soubor je hlavní pracovní příručka projektu a má přednost před běžným zadáním.
 
 Pokud je zadání v rozporu s tímto souborem, zastav práci a upozorni na rozpor.
 
@@ -10,9 +10,9 @@ Pokud je zadání v rozporu s tímto souborem, zastav práci a upozorni na rozpo
 
 ### 1. Před zahájením práce
 
-Před jakoukoli prací musí Codex/vývojář otevřít a přečíst `BIBLE.md`.
+Před jakoukoli prací musí Codex/vývojář otevřít a přečíst `PŘÍRUČKA.md`.
 
-Bez přečtení `BIBLE.md` se nesmí:
+Bez přečtení `PŘÍRUČKA.md` se nesmí:
 - analyzovat změna
 - implementovat
 - upravovat soubory
@@ -58,7 +58,7 @@ Codex/vývojář nesmí:
 
 ### 4. Kontrola před commitem
 
-Těsně před každým commitem musí Codex/vývojář znovu otevřít `BIBLE.md`.
+Těsně před každým commitem musí Codex/vývojář znovu otevřít `PŘÍRUČKA.md`.
 
 Musí ověřit:
 - že změny neporušují pravidla projektu
@@ -454,7 +454,7 @@ https://github.com/kaiser-smart/nanolab-shoptet-blog-automat.git
 ```
 
 Před každou prací musí Codex:
-- přečíst `BIBLE.md`,
+- přečíst `PŘÍRUČKA.md`,
 - spustit `git status --short --branch`,
 - ověřit, zda existují necommitnuté změny.
 
@@ -476,9 +476,9 @@ Pro souběžnou práci platí:
 - u souběžné práce se preferuje samostatný `git worktree`,
 - jeden člověk / Codex je vždy vlastník konkrétního rozpracovaného úkolu,
 - dva lidé nesmí současně měnit stejné soubory bez domluvy,
-- společné soubory jako `src/app.js`, `src/styles.css`, `package.json`, `src/data/versionInfo.js` a `BIBLE.md` vyžadují zvýšenou opatrnost,
-- `BIBLE.md` je společný pracovní kontrakt pro Radima i Martina,
-- pokud někdo změní `BIBLE.md`, druhý musí před další prací načíst aktuální verzi z GitHubu.
+- společné soubory jako `src/app.js`, `src/styles.css`, `package.json`, `src/data/versionInfo.js` a `PŘÍRUČKA.md` vyžadují zvýšenou opatrnost,
+- `PŘÍRUČKA.md` je společný pracovní kontrakt pro Radima i Martina,
+- pokud někdo změní `PŘÍRUČKA.md`, druhý musí před další prací načíst aktuální verzi z GitHubu.
 
 Doporučený začátek práce pro Radima i Martina:
 
