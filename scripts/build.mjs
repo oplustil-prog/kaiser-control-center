@@ -61,6 +61,7 @@ const routes = new Set([
   "/dovolena-nemoc/zamestnanci",
   "/dovolena-nemoc/notifikace",
   "/dovolena-nemoc/reporty",
+  "/dovolena-nemoc/pravidla-automatizace",
   "/dovolena-nemoc/nastaveni",
   ...modules.map((moduleItem) => moduleItem.route),
   ...modules.map((moduleItem) => moduleItem.dashboardRoute).filter(Boolean)
@@ -83,6 +84,7 @@ if (await fileExists(publicDir)) {
 await writeFile(path.join(dist, "index.html"), versionedTemplate());
 await writeFile(path.join(dist, "404.html"), versionedTemplate());
 await writeFile(path.join(dist, "_redirects"), [
+  "/dovolena-nemoc/* /index.html 200",
   "/vozovy-park/* /index.html 200",
   "/sledovani-vozidel/* /index.html 200"
 ].join("\n") + "\n");
