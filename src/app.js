@@ -7149,17 +7149,24 @@ function vehicleTrackingTcarsLocationGroups(status = {}) {
     }
   }
 
+  const invalidEntries = invalidLocations.map((location, index) => (
+    vehicleTrackingTcarsInvalidVehicleEntry(location.vehicle || location, location, index)
+  ));
+  const invalidVehicleKeys = new Set(invalidLocations.map((location) => location._vehicleKey).filter(Boolean));
   const invalidVehicles = vehicles.length
-    ? vehicles
+    ? [
+      ...invalidEntries,
+      ...vehicles
       .map((vehicle, index) => {
         const vehicleKey = vehicleTrackingTcarsVehicleKey(vehicle);
-        if (vehicleKey && validVehicleKeys.has(vehicleKey)) {
+        if (vehicleKey && (validVehicleKeys.has(vehicleKey) || invalidVehicleKeys.has(vehicleKey))) {
           return null;
         }
         return vehicleTrackingTcarsInvalidVehicleEntry(vehicle, invalidLocationByVehicle.get(vehicleKey), index);
       })
       .filter(Boolean)
-    : invalidLocations.map((location, index) => vehicleTrackingTcarsInvalidVehicleEntry(location.vehicle || location, location, index));
+    ]
+    : invalidEntries;
 
   return {
     allLocations,
