@@ -7335,10 +7335,42 @@ function vehicleTrackingTcarsSelectedLocation(locations = []) {
     || locations[0];
 }
 
+function vehicleTrackingTcarsLocationById(locationId) {
+  const normalizedId = String(locationId || "").trim();
+  if (!normalizedId) {
+    return null;
+  }
+
+  return vehicleTrackingTcarsLocationGroups(vehicleTrackingLiveState.status || {})
+    .validLocations
+    .find((location) => location._locationId === normalizedId) || null;
+}
+
+function syncVehicleTrackingTcarsSelectionDom(locationId) {
+  const selectedLocation = vehicleTrackingTcarsLocationById(locationId);
+  if (!selectedLocation) {
+    return false;
+  }
+
+  document.querySelectorAll(".tracking-tcars-location-card").forEach((card) => {
+    card.classList.toggle(
+      "tracking-tcars-location-card--selected",
+      card.dataset.trackingTcarsSelect === locationId
+    );
+  });
+
+  const detail = document.querySelector("[data-tracking-tcars-location-detail]");
+  if (detail) {
+    detail.outerHTML = vehicleTrackingTcarsLocationDetail(selectedLocation);
+  }
+
+  return true;
+}
+
 function vehicleTrackingTcarsLocationDetail(location = null) {
   if (!location) {
     return `
-      <div class="tracking-tcars-location-detail tracking-tcars-location-detail--empty">
+      <div class="tracking-tcars-location-detail tracking-tcars-location-detail--empty" data-tracking-tcars-location-detail>
         <strong>Nejsou dostupné žádné validní GPS polohy.</strong>
         <span>Mapa zůstává centrovaná na Brno a neplatné T-Cars polohy jsou oddělené mimo mapu.</span>
       </div>
@@ -7351,7 +7383,7 @@ function vehicleTrackingTcarsLocationDetail(location = null) {
   const coordinates = `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
 
   return `
-    <div class="tracking-tcars-location-detail">
+    <div class="tracking-tcars-location-detail" data-tracking-tcars-location-detail>
       <div class="tracking-tcars-location-detail__head">
         <div>
           <strong>${escapeHtml(displayName)}</strong>
@@ -9370,12 +9402,12 @@ function handleVehicleTrackingSourceMode(mode) {
 
 function handleVehicleTrackingTcarsSelect(locationId, options = {}) {
   const normalizedId = String(locationId || "").trim();
-  if (!normalizedId) {
+  if (!normalizedId || !vehicleTrackingTcarsLocationById(normalizedId)) {
     return;
   }
 
   vehicleTrackingLiveState.selectedLocationId = normalizedId;
-  render();
+  syncVehicleTrackingTcarsSelectionDom(normalizedId);
   queueVehicleTrackingTcarsGoogleSync({ focusSelected: options.focusMap !== false });
 }
 
