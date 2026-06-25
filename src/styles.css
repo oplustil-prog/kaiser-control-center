@@ -2712,6 +2712,10 @@ h1 {
   align-items: start;
 }
 
+.tracking-icon-spec__head > div {
+  min-width: 0;
+}
+
 .tracking-icon-spec__head h3,
 .tracking-icon-spec__head p,
 .tracking-icon-spec__grid h4,
@@ -2735,6 +2739,7 @@ h1 {
 
 .tracking-icon-spec__head > span {
   display: inline-flex;
+  max-width: 100%;
   min-height: 28px;
   align-items: center;
   justify-content: center;
@@ -6373,6 +6378,12 @@ body:has(.ai-assistant-promo-modal) {
   .tracking-list-table__head,
   .tracking-history-table__head {
     display: none;
+  }
+
+  .tracking-icon-spec__head > span {
+    justify-self: start;
+    white-space: normal;
+    text-align: left;
   }
 }
 

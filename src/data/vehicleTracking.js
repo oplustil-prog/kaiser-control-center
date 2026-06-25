@@ -12,7 +12,7 @@ export const VEHICLE_TRACKING_TCAR_API_DOCUMENTATION_MISSING = "Chybí API dokum
 export const VEHICLE_TRACKING_TCAR_LAST_KNOWN = "Poslední známá poloha";
 export const VEHICLE_TRACKING_TABLET_ROLE = "Primární poloha vozidla je z T-Cars jednotky. Android tablet slouží jako vozidlový terminál.";
 export const VEHICLE_TRACKING_ICON_FOLDER = "/vehicles/icons/";
-export const VEHICLE_TRACKING_ICON_WAITING = "Čeká na ikonu vozidla od Radima/Martina.";
+export const VEHICLE_TRACKING_ICON_WAITING = "Ikony dodány a připraveny v mapě.";
 
 export const VEHICLE_TRACKING_ICON_FORMATS = [
   "PNG s transparentním pozadím",

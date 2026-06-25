@@ -6274,12 +6274,9 @@ function vehicleTrackingIconTypeForVehicle(vehicle = {}) {
 }
 
 function vehicleTrackingMarkerImageSrc(vehicle = {}, options = {}) {
+  const mappedImage = vehicleTrackingIconTypeForVehicle(vehicle)?.primary || "";
   const explicitImage = options.imageSrc || vehicle.iconSrc || vehicle.iconUrl || vehicle.imageSrc || "";
-  if (explicitImage) {
-    return explicitImage;
-  }
-
-  return vehicleTrackingIconTypeForVehicle(vehicle)?.primary || "";
+  return mappedImage || explicitImage;
 }
 
 function vehicleTrackingMarkerContent(vehicle = {}, options = {}) {
@@ -7082,7 +7079,7 @@ function vehicleTrackingIconSpecSection() {
       <div class="tracking-icon-spec__head">
         <div>
           <h3 id="tracking-icon-spec-title">Ikony vozidel pro mapu</h3>
-          <p>Finální ikony dodá Radim / Martin. Do té doby marker používá bezpečný CSS fallback.</p>
+          <p>Dodané PNG ikony jsou uložené v aplikaci. Pokud se některá ikona nenačte, marker použije bezpečný CSS fallback.</p>
         </div>
         <span>${escapeHtml(VEHICLE_TRACKING_ICON_WAITING)}</span>
       </div>
