@@ -728,7 +728,8 @@ const vehicleTrackingLiveState = {
   loaded: false,
   loading: false,
   error: "",
-  status: null
+  status: null,
+  selectedLocationId: ""
 };
 
 let vehicleTrackingAudioContext = null;
@@ -6989,6 +6990,264 @@ function vehicleTrackingTcarsConfigItems(status = {}) {
   ];
 }
 
+function vehicleTrackingSafeDateTime(value) {
+  if (!value) {
+    return "neuvedeno";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return formatDateTime(value);
+}
+
+function vehicleTrackingCoordinateValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function vehicleTrackingTcarsLocationId(location = {}, index = 0) {
+  return String(
+    location.id
+      || location.externalVehicleId
+      || location.tcarsVehicleId
+      || location.licensePlate
+      || location.internalNumber
+      || `tcars-location-${index}`
+  );
+}
+
+function vehicleTrackingTcarsLocations(status = {}) {
+  return (Array.isArray(status.locations) ? status.locations : [])
+    .map((location, index) => {
+      const latitude = vehicleTrackingCoordinateValue(location.latitude);
+      const longitude = vehicleTrackingCoordinateValue(location.longitude);
+      return {
+        ...location,
+        latitude,
+        longitude,
+        _locationId: vehicleTrackingTcarsLocationId(location, index)
+      };
+    })
+    .filter((location) => location.latitude !== null && location.longitude !== null);
+}
+
+function vehicleTrackingTcarsMapBounds(locations = []) {
+  if (!locations.length) {
+    return null;
+  }
+
+  const latitudes = locations.map((location) => location.latitude);
+  const longitudes = locations.map((location) => location.longitude);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+
+  return {
+    minLat,
+    maxLat,
+    minLng,
+    maxLng,
+    latRange: Math.max(maxLat - minLat, 0.0001),
+    lngRange: Math.max(maxLng - minLng, 0.0001)
+  };
+}
+
+function vehicleTrackingTcarsMapPosition(location = {}, bounds = null) {
+  if (!bounds) {
+    return { x: 50, y: 50 };
+  }
+
+  const rawX = ((location.longitude - bounds.minLng) / bounds.lngRange) * 80 + 10;
+  const rawY = ((bounds.maxLat - location.latitude) / bounds.latRange) * 80 + 10;
+
+  return {
+    x: Math.max(8, Math.min(92, rawX)),
+    y: Math.max(8, Math.min(92, rawY))
+  };
+}
+
+function vehicleTrackingTcarsIconType(location = {}) {
+  const vehicle = location.vehicle || {};
+  const text = [
+    location.iconType,
+    location.vehicleType,
+    location.type,
+    location.bodyType,
+    location.model,
+    location.internalNumber,
+    vehicle.iconType,
+    vehicle.vehicleType,
+    vehicle.type,
+    vehicle.bodyType,
+    vehicle.model,
+    vehicle.internalNumber
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  if (/kontej|container/.test(text)) {
+    return "container_truck";
+  }
+  if (/dod[aá]v|van/.test(text)) {
+    return "van";
+  }
+  if (/speci|bagr|stroj|technik/.test(text)) {
+    return "special";
+  }
+  if (/osob|car/.test(text)) {
+    return "car";
+  }
+  if (/p[řr][íi]v[eě]s|n[aá]v[eě]s|trailer/.test(text)) {
+    return "trailer";
+  }
+
+  return "collection_truck";
+}
+
+function vehicleTrackingTcarsMarkerVehicle(location = {}) {
+  const vehicle = location.vehicle || {};
+  return {
+    ...vehicle,
+    ...location,
+    iconType: vehicleTrackingTcarsIconType(location),
+    internalNumber: location.internalNumber || vehicle.internalNumber || location.licensePlate || vehicle.licensePlate || location.externalVehicleId || "",
+    licensePlate: location.licensePlate || vehicle.licensePlate || "",
+    status: location.status || "no_signal",
+    heading: vehicleTrackingCoordinateValue(location.heading) || 0
+  };
+}
+
+function vehicleTrackingTcarsSelectedLocation(locations = []) {
+  if (!locations.length) {
+    return null;
+  }
+
+  return locations.find((location) => location._locationId === vehicleTrackingLiveState.selectedLocationId)
+    || locations[0];
+}
+
+function vehicleTrackingTcarsLocationDetail(location = null) {
+  if (!location) {
+    return `
+      <div class="tracking-tcars-location-detail tracking-tcars-location-detail--empty">
+        <strong>Čekám na T-Cars polohu.</strong>
+        <span>Jakmile backend vrátí GPS souřadnice, zobrazí se zde detail vybraného vozidla.</span>
+      </div>
+    `;
+  }
+
+  const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
+  const statusKey = vehicleTrackingMarkerStatusKey(markerVehicle.status);
+  const statusLabel = vehicleTrackingStatusLabel(statusKey);
+  const speedValue = Number(location.speedKmh);
+  const speed = location.speedKmh !== null && location.speedKmh !== undefined && location.speedKmh !== "" && Number.isFinite(speedValue)
+    ? `${speedValue} km/h`
+    : "neuvedeno";
+  const coordinates = `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
+
+  return `
+    <div class="tracking-tcars-location-detail">
+      <div class="tracking-tcars-location-detail__head">
+        <div>
+          <strong>${escapeHtml(markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo")}</strong>
+          <span>${escapeHtml(markerVehicle.licensePlate || "SPZ neuvedena")}</span>
+        </div>
+        <span class="tracking-status tracking-status--${escapeHtml(vehicleTrackingMarkerTone(statusKey))}">${escapeHtml(statusLabel)}</span>
+      </div>
+      <div class="tracking-detail-grid tracking-detail-grid--compact">
+        ${vehicleTrackingDemoDetailField("Rychlost", speed)}
+        ${vehicleTrackingDemoDetailField("Poslední GPS", vehicleTrackingSafeDateTime(location.lastGpsAt || location.updatedAt || location.receivedAt))}
+        ${vehicleTrackingDemoDetailField("Adresa", location.address || "neuvedeno")}
+        ${vehicleTrackingDemoDetailField("Souřadnice", coordinates)}
+        ${vehicleTrackingDemoDetailField("GPS jednotka", location.gpsUnitId || location.externalUnitId || "neuvedeno")}
+        ${vehicleTrackingDemoDetailField("Zdroj", location.source || "T-Cars jednotka")}
+      </div>
+    </div>
+  `;
+}
+
+function vehicleTrackingTcarsMapSection(status = {}) {
+  const loading = vehicleTrackingLiveState.loading && !vehicleTrackingLiveState.loaded;
+  const locations = vehicleTrackingTcarsLocations(status);
+  const bounds = vehicleTrackingTcarsMapBounds(locations);
+  const selectedLocation = vehicleTrackingTcarsSelectedLocation(locations);
+
+  if (!locations.length) {
+    return `
+      <div class="tracking-tcars-live">
+        <div class="tracking-tcars-live__head">
+          <div>
+            <h3>T-Cars mapa vozidel</h3>
+            <p>${escapeHtml(loading ? VEHICLE_TRACKING_LOADING : status.fallback?.message || "T-Cars zatím nevrátil aktuální GPS polohy.")}</p>
+          </div>
+          <span>Read-only</span>
+        </div>
+        <div class="tracking-tcars-empty">
+          <strong>Bez aktuálních poloh.</strong>
+          <span>Data se budou zobrazovat pouze z chráněného Smart odpady API. Nic se neukládá lokálně.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="tracking-tcars-live">
+      <div class="tracking-tcars-live__head">
+        <div>
+          <h3>T-Cars mapa vozidel</h3>
+          <p>Reálné polohy z T-Cars jsou vykreslené read-only. Klik na marker vybere vozidlo.</p>
+        </div>
+        <span>${escapeHtml(`${locations.length} poloh`)}</span>
+      </div>
+      <div class="tracking-map-shell tracking-tcars-map" aria-label="Mapa T-Cars vozidel">
+        ${locations.map((location, index) => {
+          const position = vehicleTrackingTcarsMapPosition(location, bounds);
+          const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
+          const selected = selectedLocation?._locationId === location._locationId;
+          return `
+            <button
+              class="tracking-tcars-marker ${selected ? "tracking-tcars-marker--selected" : ""}"
+              type="button"
+              style="--x: ${position.x.toFixed(2)}%; --y: ${position.y.toFixed(2)}%;"
+              data-tracking-tcars-select="${escapeHtml(location._locationId)}"
+              aria-label="${escapeHtml(`Vybrat vozidlo ${markerVehicle.internalNumber || markerVehicle.licensePlate || index + 1}`)}"
+            >
+              ${vehicleTrackingMarkerContent(markerVehicle, {
+                heading: markerVehicle.heading,
+                label: vehicleTrackingMarkerLabel(markerVehicle),
+                selected,
+                status: markerVehicle.status,
+                statusLabel: vehicleTrackingStatusLabel(vehicleTrackingMarkerStatusKey(markerVehicle.status)),
+                tone: vehicleTrackingMarkerTone(markerVehicle.status)
+              })}
+            </button>
+          `;
+        }).join("")}
+      </div>
+      ${vehicleTrackingTcarsLocationDetail(selectedLocation)}
+      <div class="tracking-tcars-location-list" aria-label="Seznam T-Cars poloh">
+        ${locations.map((location) => {
+          const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
+          const selected = selectedLocation?._locationId === location._locationId;
+          return `
+            <button
+              class="tracking-tcars-location-card ${selected ? "tracking-tcars-location-card--selected" : ""}"
+              type="button"
+              data-tracking-tcars-select="${escapeHtml(location._locationId)}"
+            >
+              <strong>${escapeHtml(markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo")}</strong>
+              <span>${escapeHtml(markerVehicle.licensePlate || location.address || "Bez SPZ")}</span>
+              <small>${escapeHtml(vehicleTrackingStatusLabel(vehicleTrackingMarkerStatusKey(markerVehicle.status)))} · ${escapeHtml(vehicleTrackingSafeDateTime(location.lastGpsAt || location.updatedAt || location.receivedAt))}</small>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function vehicleTrackingTcarsStatusSection() {
   const status = vehicleTrackingLiveState.status || {};
   const loading = vehicleTrackingLiveState.loading && !vehicleTrackingLiveState.loaded;
@@ -7013,6 +7272,7 @@ function vehicleTrackingTcarsStatusSection() {
       <div class="tracking-detail-grid tracking-detail-grid--compact">
         ${itemRows.map((item) => vehicleTrackingDemoDetailField(item.label, item.value)).join("")}
       </div>
+      ${vehicleTrackingTcarsMapSection(status)}
       <div class="tracking-tcars-mode-grid">
         <article>
           <h3>T-Cars data</h3>
@@ -8633,6 +8893,16 @@ function handleVehicleTrackingSourceMode(mode) {
   if (mode === "tcars") {
     loadVehicleTrackingStatus();
   }
+}
+
+function handleVehicleTrackingTcarsSelect(locationId) {
+  const normalizedId = String(locationId || "").trim();
+  if (!normalizedId) {
+    return;
+  }
+
+  vehicleTrackingLiveState.selectedLocationId = normalizedId;
+  render();
 }
 
 function resetAssistantPromoState() {
@@ -11898,6 +12168,13 @@ document.addEventListener("click", async (event) => {
   if (trackingDemoSelect) {
     event.preventDefault();
     handleVehicleTrackingDemoSelect(trackingDemoSelect.dataset.trackingDemoSelect || "");
+    return;
+  }
+
+  const trackingTcarsSelect = event.target.closest("[data-tracking-tcars-select]");
+  if (trackingTcarsSelect) {
+    event.preventDefault();
+    handleVehicleTrackingTcarsSelect(trackingTcarsSelect.dataset.trackingTcarsSelect || "");
     return;
   }
 

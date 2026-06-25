@@ -2690,6 +2690,197 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.tracking-tcars-live {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #fbfdf9;
+}
+
+.tracking-tcars-live__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.tracking-tcars-live__head h3,
+.tracking-tcars-live__head p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tracking-tcars-live__head h3 {
+  color: var(--ink);
+}
+
+.tracking-tcars-live__head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.tracking-tcars-live__head > span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border: 1px solid #dfe8d8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--steel);
+  font-size: 0.76rem;
+  font-weight: 950;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.tracking-tcars-map {
+  min-height: 420px;
+  background:
+    radial-gradient(circle at 22% 28%, rgba(117, 189, 37, 0.15), transparent 20%),
+    radial-gradient(circle at 72% 62%, rgba(68, 117, 142, 0.12), transparent 24%),
+    linear-gradient(90deg, rgba(117, 189, 37, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(66, 80, 74, 0.12) 1px, transparent 1px),
+    linear-gradient(135deg, #f8fbf5 0%, #eef5ea 100%);
+  background-size: auto, auto, 58px 58px, 58px 58px, auto;
+}
+
+.tracking-tcars-marker {
+  position: absolute;
+  z-index: 6;
+  left: var(--x);
+  top: var(--y);
+  display: inline-flex;
+  width: 82px;
+  min-width: 82px;
+  height: 62px;
+  min-height: 62px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: transparent;
+  color: #3f8d1a;
+  font: inherit;
+  cursor: pointer;
+  filter: drop-shadow(0 12px 18px rgba(35, 40, 33, 0.22));
+}
+
+.tracking-tcars-marker--selected {
+  z-index: 8;
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.tracking-tcars-location-detail {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.tracking-tcars-location-detail--empty {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.tracking-tcars-location-detail__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.tracking-tcars-location-detail__head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tracking-tcars-location-detail__head strong,
+.tracking-tcars-location-detail__head span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tracking-tcars-location-detail__head strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.tracking-tcars-location-detail__head div > span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.tracking-tcars-location-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.tracking-tcars-location-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--steel);
+  font: inherit;
+  font-weight: 850;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tracking-tcars-location-card--selected {
+  border-color: var(--module-accent);
+  box-shadow: 0 0 0 3px rgba(117, 189, 37, 0.16);
+}
+
+.tracking-tcars-location-card strong,
+.tracking-tcars-location-card span,
+.tracking-tcars-location-card small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tracking-tcars-location-card strong {
+  color: var(--ink);
+}
+
+.tracking-tcars-location-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.tracking-tcars-empty {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px dashed #cfdcc8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-weight: 850;
+}
+
 .tracking-icon-spec {
   display: grid;
   gap: 14px;
@@ -6365,6 +6556,8 @@ body:has(.ai-assistant-promo-modal) {
   .tracking-detail-grid--compact,
   .tracking-trip-layout,
   .tracking-tcars-mode-grid,
+  .tracking-tcars-live__head,
+  .tracking-tcars-location-list,
   .tracking-icon-spec__head,
   .tracking-icon-spec__grid,
   .tracking-integration-grid {
@@ -6574,6 +6767,10 @@ body:has(.ai-assistant-promo-modal) {
   }
 
   .tracking-demo-map {
+    min-height: 360px;
+  }
+
+  .tracking-tcars-map {
     min-height: 360px;
   }
 
