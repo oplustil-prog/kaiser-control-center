@@ -507,6 +507,105 @@ export async function loadTcarsVehiclesPayload(env = {}) {
   }
 }
 
+function fleetVehicleFromTcars(vehicle) {
+  const internalNumber = vehicle.internalNumber || vehicle.licensePlate || vehicle.tcarsVehicleId || "";
+  const status = vehicle.active === false ? "retired" : "active";
+
+  return {
+    id: vehicle.tcarsVehicleId ? `tcars-${vehicle.tcarsVehicleId}` : `tcars-${internalNumber}`,
+    internalNumber,
+    licensePlate: vehicle.licensePlate || "",
+    vehicleType: "",
+    brand: "",
+    model: vehicle.model || "",
+    vin: vehicle.vin || "",
+    year: "",
+    fuelType: "",
+    euroNorm: "",
+    bodyType: "",
+    department: "",
+    assignedDriverId: "",
+    assignedDriverName: "",
+    status,
+    mileageKm: null,
+    stkValidTo: "",
+    emissionsValidTo: "",
+    tachographValidTo: "",
+    craneRevisionValidTo: "",
+    liftRevisionValidTo: "",
+    pressureEquipmentRevisionValidTo: "",
+    fireExtinguisherValidTo: "",
+    insuranceCompany: "",
+    insurancePolicyNumber: "",
+    insuranceValidTo: "",
+    openDefects: null,
+    tcarsVehicleId: vehicle.tcarsVehicleId || "",
+    tcarsUnitId: vehicle.tcarsUnitId || "",
+    tcarsLicensePlate: vehicle.tcarsLicensePlate || vehicle.licensePlate || "",
+    gpsProvider: "tcars",
+    gpsUnitId: vehicle.tcarsUnitId || "",
+    source: "T-Cars read-only",
+    readOnly: true,
+    createdAt: "",
+    updatedAt: vehicle.lastChangedAt || ""
+  };
+}
+
+function fleetSummaryFromVehicles(vehicles) {
+  const active = vehicles.filter((vehicle) => vehicle.status === "active").length;
+  const retired = vehicles.filter((vehicle) => vehicle.status === "retired").length;
+
+  return {
+    total: vehicles.length,
+    active,
+    outOfOrder: 0,
+    inService: 0,
+    retired,
+    stkDue: 0,
+    revisionDue: 0,
+    insuranceDue: 0,
+    openDefects: 0
+  };
+}
+
+export async function loadFleetVehiclesPayload(env = {}) {
+  const basePayload = {
+    provider: "tcars",
+    source: "T-Cars read-only",
+    apiStatus: "waiting",
+    configured: tcarsConfig(env).configured,
+    readOnly: true,
+    vehicles: [],
+    summary: fleetSummaryFromVehicles([]),
+    message: "Vozový park čeká na T-Cars konfiguraci."
+  };
+
+  if (!basePayload.configured) {
+    return basePayload;
+  }
+
+  try {
+    const vehicles = (await fetchTcarsVehicles(env)).map(fleetVehicleFromTcars);
+    return {
+      ...basePayload,
+      apiStatus: "ready",
+      configured: true,
+      vehicles,
+      summary: fleetSummaryFromVehicles(vehicles),
+      message: "Vozidla byla načtena read-only z T-Cars. Do D1 se nic neukládá.",
+      lastFetchedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("fleet.tcars_vehicles_failed", { code: error?.code || "unknown", message: error?.message || "unknown" });
+    return {
+      ...basePayload,
+      waitingReason: error?.code || "tcars_read_failed",
+      errorCode: error?.code || "tcars_read_failed",
+      message: "Vozidla z T-Cars se nepodařilo načíst."
+    };
+  }
+}
+
 export async function syncTcarsLocations(env = {}) {
   const status = tcarsStatusPayload(env);
 

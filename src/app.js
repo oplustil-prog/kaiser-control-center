@@ -682,6 +682,17 @@ const fleetImportPreviewState = {
   error: ""
 };
 
+const fleetVehiclesState = {
+  loading: false,
+  loaded: false,
+  vehicles: [],
+  summary: null,
+  apiStatus: "waiting",
+  message: "",
+  error: "",
+  lastFetchedAt: ""
+};
+
 const fleetUiState = {
   message: "",
   error: ""
@@ -5615,8 +5626,8 @@ function fleetVistosImportSection(user) {
   `;
 }
 
-function fleetApiBadge() {
-  return `<span class="fleet-api-badge">${escapeHtml(FLEET_API_WAITING_LABEL)}</span>`;
+function fleetApiBadge(label = FLEET_API_WAITING_LABEL) {
+  return `<span class="fleet-api-badge">${escapeHtml(label)}</span>`;
 }
 
 function fleetSectionHeader(id, title, subtitle = "", options = {}) {
@@ -5627,7 +5638,7 @@ function fleetSectionHeader(id, title, subtitle = "", options = {}) {
         <h2 id="${escapeHtml(id)}">${escapeHtml(title)}</h2>
         ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
       </div>
-      ${options.badge === false ? "" : fleetApiBadge()}
+      ${options.badge === false ? "" : fleetApiBadge(options.badgeText || FLEET_API_WAITING_LABEL)}
     </div>
   `;
 }
@@ -5718,24 +5729,50 @@ function fleetFieldChips(fields) {
 }
 
 function fleetDashboardSection(activeId) {
+  const summary = fleetVehiclesState.summary || {};
+  const isReady = fleetVehiclesState.apiStatus === "ready";
+  const valueFor = (metricId) => {
+    if (fleetVehiclesState.loading) {
+      return "…";
+    }
+    if (isReady && Number.isFinite(Number(summary[metricId]))) {
+      return String(summary[metricId]);
+    }
+    return "—";
+  };
+  const statusFor = () => {
+    if (fleetVehiclesState.error) {
+      return "Chyba načtení";
+    }
+    if (isReady) {
+      return "T-Cars read-only";
+    }
+    if (fleetVehiclesState.loading) {
+      return "Načítám";
+    }
+    return FLEET_API_WAITING_LABEL;
+  };
+
   return `
     <section class="fleet-section" id="fleet-dashboard" aria-labelledby="fleet-dashboard-title" ${fleetPanelAttributes("dashboard", activeId)}>
       ${fleetSectionHeader(
         "fleet-dashboard-title",
         "Dashboard",
         "Centrální přehled provozního stavu vozidel a blížících se termínů.",
-        { badge: true }
+        { badgeText: isReady ? "T-Cars read-only" : FLEET_API_WAITING_LABEL }
       )}
       <div class="fleet-kpi-grid" aria-label="Přehled vozového parku">
         ${FLEET_DASHBOARD_METRICS.map((metric) => `
           <article class="fleet-kpi">
             <span>${escapeHtml(metric.label)}</span>
-            <strong>—</strong>
-            <small>${escapeHtml(FLEET_API_WAITING_LABEL)}</small>
+            <strong>${escapeHtml(valueFor(metric.id))}</strong>
+            <small>${escapeHtml(statusFor())}</small>
           </article>
         `).join("")}
       </div>
-      ${fleetApiNotice("GET /api/vehicles/summary")}
+      ${isReady
+        ? `<p class="fleet-api-note">Dashboard používá stejný read-only zdroj jako seznam vozidel.<span>Zdroj: T-Cars přes GET /api/vehicles</span></p>`
+        : fleetApiNotice("GET /api/vehicles/summary")}
     </section>
   `;
 }
@@ -5783,6 +5820,86 @@ function fleetFiltersSection() {
   `;
 }
 
+function fleetVehicleDisplayValue(value, fallback = "—") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function fleetVehicleModel(vehicle) {
+  return [vehicle.brand, vehicle.model].map((value) => String(value || "").trim()).filter(Boolean).join(" ") || vehicle.model || "";
+}
+
+function fleetVehiclesStatusText() {
+  if (fleetVehiclesState.loading) {
+    return "Načítám vozidla z T-Cars.";
+  }
+  if (fleetVehiclesState.error) {
+    return fleetVehiclesState.error;
+  }
+  if (fleetVehiclesState.apiStatus === "ready") {
+    const fetchedAt = fleetVehiclesState.lastFetchedAt ? ` Poslední načtení: ${formatDateTime(fleetVehiclesState.lastFetchedAt)}.` : "";
+    return `${fleetVehiclesState.message || "Vozidla byla načtena z T-Cars read-only."}${fetchedAt}`;
+  }
+  return fleetVehiclesState.message || "Seznam se načte z chráněného cloud API.";
+}
+
+function fleetVehicleRow(vehicle) {
+  const cells = [
+    ["Interní číslo", vehicle.internalNumber],
+    ["SPZ", vehicle.licensePlate],
+    ["Typ", vehicle.vehicleType || vehicle.source || "T-Cars"],
+    ["Značka/model", fleetVehicleModel(vehicle)],
+    ["Řidič", vehicle.assignedDriverName],
+    ["Stav", fleetStatusLabel(vehicle.status)],
+    ["STK do", vehicle.stkValidTo],
+    ["Revize do", vehicle.tachographValidTo || vehicle.craneRevisionValidTo || vehicle.liftRevisionValidTo || vehicle.pressureEquipmentRevisionValidTo],
+    ["Pojištění do", vehicle.insuranceValidTo],
+    ["Otevřené závady", Number.isFinite(Number(vehicle.openDefects)) ? String(vehicle.openDefects) : "—"]
+  ];
+
+  return `
+    <div class="fleet-table__row" role="row">
+      ${cells.map(([label, value]) => `
+        <span role="cell" data-label="${escapeHtml(label)}">${escapeHtml(fleetVehicleDisplayValue(value))}</span>
+      `).join("")}
+      <span role="cell" data-label="Akce">
+        ${fleetActionButton("Detail", "detail", { vehicleId: vehicle.id })}
+      </span>
+    </div>
+  `;
+}
+
+function fleetVehiclesTableBody() {
+  if (fleetVehiclesState.loading) {
+    return `
+      <div class="fleet-table__empty" role="row">
+        <strong>Načítám</strong>
+        <span>Čtu vozidla z T-Cars přes backend Smart odpady.</span>
+      </div>
+    `;
+  }
+
+  if (fleetVehiclesState.error) {
+    return `
+      <div class="fleet-table__empty" role="row">
+        <strong>Vozidla se nepodařilo načíst</strong>
+        <span>${escapeHtml(fleetVehiclesState.error)}</span>
+      </div>
+    `;
+  }
+
+  if (fleetVehiclesState.apiStatus === "ready" && fleetVehiclesState.vehicles.length) {
+    return fleetVehiclesState.vehicles.map(fleetVehicleRow).join("");
+  }
+
+  return `
+    <div class="fleet-table__empty" role="row">
+      <strong>${escapeHtml(fleetVehiclesState.apiStatus === "ready" ? "Bez vozidel" : FLEET_API_WAITING_LABEL)}</strong>
+      <span>${escapeHtml(fleetVehiclesState.apiStatus === "ready" ? "T-Cars nevrátil žádná vozidla." : fleetVehiclesState.message || "Seznam se načte z cloud API. Produkční vozidla nejsou ve frontendu napevno.")}</span>
+    </div>
+  `;
+}
+
 function fleetVehiclesSection(activeId) {
   return `
     <section class="fleet-section" id="fleet-vehicles" aria-labelledby="fleet-vehicles-title" ${fleetPanelAttributes("vehicles", activeId)}>
@@ -5790,17 +5907,18 @@ function fleetVehiclesSection(activeId) {
         "fleet-vehicles-title",
         "Seznam vozidel",
         "Vozidla, STK, revize, závady a servisní historie na jednom místě.",
-        { badge: true }
+        { badgeText: fleetVehiclesState.apiStatus === "ready" ? "T-Cars read-only" : FLEET_API_WAITING_LABEL }
       )}
       ${fleetFiltersSection()}
+      <p class="fleet-api-note">
+        ${escapeHtml(fleetVehiclesStatusText())}
+        <span>Read-only zdroj: GET /api/vehicles z T-Cars. Do D1 se nic neukládá.</span>
+      </p>
       <div class="fleet-table" role="table" aria-label="Seznam vozidel">
         <div class="fleet-table__header" role="row">
           ${FLEET_LIST_COLUMNS.map((column) => `<span role="columnheader">${escapeHtml(column)}</span>`).join("")}
         </div>
-        <div class="fleet-table__empty" role="row">
-          <strong>${escapeHtml(FLEET_API_WAITING_LABEL)}</strong>
-          <span>Seznam se načte až z cloud API. Produkční vozidla nejsou ve frontendu napevno.</span>
-        </div>
+        ${fleetVehiclesTableBody()}
       </div>
       <div class="fleet-actions-preview" aria-label="Akce vozidla">
         ${fleetActionButton("Detail", "detail")}
@@ -5808,7 +5926,6 @@ function fleetVehiclesSection(activeId) {
         ${fleetActionButton("Přidat servis", "service")}
         ${fleetActionButton("Dokumenty", "documents", { target: "fleet-documents" })}
       </div>
-      ${fleetApiNotice("GET /api/vehicles")}
     </section>
   `;
 }
@@ -8272,6 +8389,42 @@ async function loadVehicleTrackingStatus(options = {}) {
   }
 }
 
+async function loadFleetVehicles(options = {}) {
+  const { force = false, renderAfter = true } = options;
+
+  if (fleetVehiclesState.loading || (fleetVehiclesState.loaded && !force)) {
+    return;
+  }
+
+  if (!hasPermission(currentUser(), "fleet", "view")) {
+    return;
+  }
+
+  fleetVehiclesState.loading = true;
+  fleetVehiclesState.error = "";
+
+  try {
+    const result = await apiJson("/api/vehicles");
+    fleetVehiclesState.vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
+    fleetVehiclesState.summary = result.summary || null;
+    fleetVehiclesState.apiStatus = result.apiStatus || "waiting";
+    fleetVehiclesState.message = result.message || "";
+    fleetVehiclesState.lastFetchedAt = result.lastFetchedAt || "";
+    fleetVehiclesState.loaded = true;
+  } catch (error) {
+    fleetVehiclesState.vehicles = [];
+    fleetVehiclesState.summary = null;
+    fleetVehiclesState.apiStatus = "waiting";
+    fleetVehiclesState.error = error?.payload?.error || error?.message || "Vozidla se teď nepodařilo načíst.";
+  } finally {
+    fleetVehiclesState.loading = false;
+  }
+
+  if (renderAfter) {
+    render();
+  }
+}
+
 function handleVehicleTrackingSourceMode(mode) {
   if (!["demo", "tcars"].includes(mode)) {
     return;
@@ -9513,6 +9666,7 @@ function renderAuthenticatedApp(user) {
     const moduleItem = orderedModules.find((item) => item.id === "fleet");
     app.innerHTML = fleetModulePage(moduleItem, user, { vehicleId: fleetVehicleId });
     document.title = `Detail vozidla | ${APP_NAME}`;
+    loadFleetVehicles();
     return;
   }
 
@@ -9555,6 +9709,9 @@ function renderAuthenticatedApp(user) {
     if (moduleItem.id === "vehicle-tracking" && vehicleTrackingActiveSourceMode() === "tcars") {
       loadVehicleTrackingStatus();
     }
+    if (moduleItem.id === "fleet") {
+      loadFleetVehicles();
+    }
     return;
   }
 
@@ -9566,6 +9723,9 @@ function renderAuthenticatedApp(user) {
       loadEmployeeList();
       loadAbsenceRequests();
       loadAbsenceApprovalRequests();
+    }
+    if (moduleItem.id === "fleet") {
+      loadFleetVehicles();
     }
     return;
   }

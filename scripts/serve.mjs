@@ -28,6 +28,7 @@ import {
 } from "../functions/_lib/fleet-vistos-import-preview.js";
 import {
   TcarsClientError,
+  loadFleetVehiclesPayload,
   loadTcarsStatusPayload,
   loadTcarsVehiclesPayload,
   syncTcarsLocations,
@@ -1451,6 +1452,21 @@ async function handleApi(request, response) {
         apiStatus: "waiting"
       });
     }
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicles" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "fleet", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    sendJson(response, 200, await loadFleetVehiclesPayload(process.env));
     return true;
   }
 

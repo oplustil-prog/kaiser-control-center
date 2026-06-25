@@ -1303,6 +1303,13 @@ h1 {
   background: #f5f8f1;
 }
 
+.fleet-table__row {
+  display: grid;
+  grid-template-columns: 0.85fr 0.75fr 0.9fr 1.1fr 0.9fr 0.8fr 0.8fr 0.8fr 0.9fr 0.75fr 1fr;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+}
+
 .fleet-table__header span {
   min-width: 0;
   padding: 10px 8px;
@@ -1312,6 +1319,27 @@ h1 {
   line-height: 1.25;
   overflow-wrap: anywhere;
   text-transform: uppercase;
+}
+
+.fleet-table__row span {
+  min-width: 0;
+  padding: 10px 8px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.fleet-table__row [data-label="Akce"] {
+  display: flex;
+  align-items: center;
+}
+
+.fleet-table__row .secondary-link {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.76rem;
 }
 
 .fleet-table__empty {
@@ -6174,6 +6202,43 @@ body:has(.ai-assistant-promo-modal) {
 
   .fleet-table__header {
     display: none;
+  }
+
+  .fleet-table__row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 10px 12px;
+  }
+
+  .fleet-table__row span {
+    display: grid;
+    grid-template-columns: minmax(90px, 0.44fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(102, 124, 105, 0.14);
+    font-size: 0.8rem;
+  }
+
+  .fleet-table__row span::before {
+    content: attr(data-label);
+    color: var(--steel);
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .fleet-table__row span:last-child {
+    border-bottom: 0;
+  }
+
+  .fleet-table__row [data-label="Akce"] {
+    display: grid;
+  }
+
+  .fleet-table__row .secondary-link {
+    justify-content: center;
+    width: 100%;
   }
 
   .fleet-actions-preview .secondary-link,
