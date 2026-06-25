@@ -56,6 +56,7 @@ const routes = new Set([
   "/dovolena-nemoc/notifikace",
   "/dovolena-nemoc/reporty",
   "/dovolena-nemoc/nastaveni",
+  "/sledovani-vozidel/terminal",
   ...modules.map((moduleItem) => moduleItem.route),
   ...modules.map((moduleItem) => moduleItem.dashboardRoute).filter(Boolean)
 ]);

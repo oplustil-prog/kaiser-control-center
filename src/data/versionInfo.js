@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.74"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.75"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Vozidlový terminál",
+    text: "Sledování vozidel má tabletový terminál pro Android zařízení ve vozidle, chráněné cloud API pro start/stop a odesílání polohy bez lokálního ukládání."
+  },
   {
     title: "Vozový park: vlastní akce tlačítek",
     text: "Tlačítka ve Vozovém parku mají vlastní mapování akcí, otevírají správnou route nebo zobrazí jasný stav Čeká na API bez spuštění promo videa."

@@ -55,6 +55,8 @@ let mockAbsenceRequests = [];
 let mockModuleFeedback = [];
 let mockNotificationLogs = [];
 let mockAssistantDailyPromos = new Map();
+let mockVehicleDeviceSessions = [];
+let mockVehicleLocationPings = [];
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -1303,6 +1305,239 @@ function employeeWorkHistory(employeeId) {
   return mockEmployeeWorkHistory.get(employeeId) || [];
 }
 
+function canUseMockVehicleTerminal(user) {
+  const role = normalizeRole(user?.role);
+  return Boolean(user) &&
+    hasPermission(user, "vehicle-tracking", "view") &&
+    (isFullAccessRole(user) || ["admin", "management", "dispecer", "ridic"].includes(role));
+}
+
+function canViewMockVehicleTrackingStatus(user) {
+  const role = normalizeRole(user?.role);
+  return Boolean(user) &&
+    hasPermission(user, "vehicle-tracking", "view") &&
+    (isFullAccessRole(user) || ["admin", "management", "kancelar", "garazmistr", "dispecer", "ridic"].includes(role));
+}
+
+function mockVehicleStatusForSession(session) {
+  if (!session?.lastLocationAt) {
+    return {
+      status: "offline",
+      statusLabel: "Offline",
+      signalState: "Offline"
+    };
+  }
+
+  const ageMs = Date.now() - new Date(session.lastLocationAt).getTime();
+  if (ageMs > 5 * 60 * 1000) {
+    return {
+      status: "offline",
+      statusLabel: "Offline",
+      signalState: "Offline"
+    };
+  }
+
+  if (!Number.isFinite(Number(session.lastAccuracyMeters)) || ageMs > 2 * 60 * 1000) {
+    return {
+      status: "no_signal",
+      statusLabel: "Bez signálu",
+      signalState: "Bez aktuální polohy"
+    };
+  }
+
+  const moving = Number(session.lastSpeedKmh || 0) > 5;
+  return {
+    status: moving ? "moving" : "stopped",
+    statusLabel: moving ? "Jede" : "Stojí",
+    signalState: "Aktuální poloha"
+  };
+}
+
+function mockVehicleTrackingStatusItems(user) {
+  const role = normalizeRole(user?.role);
+  const sessions = role === "ridic" && !isFullAccessRole(user)
+    ? mockVehicleDeviceSessions.filter((session) => session.userId === user.id)
+    : mockVehicleDeviceSessions;
+
+  return sessions
+    .slice()
+    .sort((left, right) => String(right.lastLocationAt || right.startedAt).localeCompare(String(left.lastLocationAt || left.startedAt)))
+    .map((session) => {
+      const state = mockVehicleStatusForSession(session);
+      return {
+        vehicleId: session.vehicleId,
+        licensePlate: session.vehicleLicensePlate,
+        driverId: session.userId,
+        driverName: session.userName,
+        status: state.status,
+        statusLabel: state.statusLabel,
+        signalState: state.signalState,
+        lastLatitude: session.lastLatitude,
+        lastLongitude: session.lastLongitude,
+        speedKmh: session.lastSpeedKmh,
+        heading: session.lastHeading,
+        accuracyMeters: session.lastAccuracyMeters,
+        source: "Android tablet",
+        lastLocationAt: session.lastLocationAt,
+        updatedAt: session.updatedAt
+      };
+    });
+}
+
+function mockTerminalVehicles(user) {
+  const role = normalizeRole(user?.role);
+  const sessions = role === "ridic" && !isFullAccessRole(user)
+    ? mockVehicleDeviceSessions.filter((session) => session.userId === user.id)
+    : mockVehicleDeviceSessions;
+  const vehicles = new Map();
+
+  for (const session of sessions) {
+    if (!session.vehicleId || vehicles.has(session.vehicleId)) {
+      continue;
+    }
+
+    vehicles.set(session.vehicleId, {
+      id: session.vehicleId,
+      vehicleId: session.vehicleId,
+      licensePlate: session.vehicleLicensePlate,
+      driverName: session.userName,
+      source: "Android tablet",
+      updatedAt: session.updatedAt
+    });
+  }
+
+  return [...vehicles.values()];
+}
+
+function startMockVehicleTerminal(user, payload) {
+  if (!canUseMockVehicleTerminal(user)) {
+    const error = new Error("Nemáte oprávnění spustit vozidlový terminál.");
+    error.status = 403;
+    throw error;
+  }
+
+  const vehicleId = String(payload?.vehicleId || "").trim();
+  if (!vehicleId) {
+    const error = new Error("Nejdřív vyberte vozidlo.");
+    error.status = 400;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  mockVehicleDeviceSessions = mockVehicleDeviceSessions.map((session) => (
+    session.userId === user.id && session.status === "active"
+      ? { ...session, status: "stopped", stoppedAt: now, updatedAt: now }
+      : session
+  ));
+
+  const session = {
+    id: `dev-vts-${randomUUID()}`,
+    vehicleId,
+    vehicleLicensePlate: String(payload?.vehicleLicensePlate || vehicleId).trim(),
+    userId: user.id,
+    userName: user.name,
+    deviceName: String(payload?.deviceName || "").trim(),
+    deviceType: String(payload?.deviceType || "android-tablet").trim(),
+    startedAt: now,
+    stoppedAt: null,
+    lastLocationAt: null,
+    lastLatitude: null,
+    lastLongitude: null,
+    lastAccuracyMeters: null,
+    lastSpeedKmh: null,
+    lastHeading: null,
+    status: "active",
+    createdAt: now,
+    updatedAt: now
+  };
+
+  mockVehicleDeviceSessions.unshift(session);
+  return session;
+}
+
+function createMockVehicleLocationPing(user, payload) {
+  if (!canUseMockVehicleTerminal(user)) {
+    const error = new Error("Nemáte oprávnění spustit vozidlový terminál.");
+    error.status = 403;
+    throw error;
+  }
+
+  const session = mockVehicleDeviceSessions.find((item) => item.id === String(payload?.sessionId || "").trim());
+  if (!session || session.userId !== user.id) {
+    const error = new Error("Sledovací session neexistuje.");
+    error.status = 404;
+    throw error;
+  }
+
+  const latitude = Number(payload?.latitude);
+  const longitude = Number(payload?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const error = new Error("Poloha není platná.");
+    error.status = 400;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  const ping = {
+    id: `dev-vlp-${randomUUID()}`,
+    vehicleId: session.vehicleId,
+    sessionId: session.id,
+    userId: user.id,
+    latitude,
+    longitude,
+    accuracyMeters: Number.isFinite(Number(payload?.accuracyMeters)) ? Number(payload.accuracyMeters) : null,
+    speedKmh: Number.isFinite(Number(payload?.speedKmh)) ? Number(payload.speedKmh) : null,
+    heading: Number.isFinite(Number(payload?.heading)) ? Number(payload.heading) : null,
+    batteryLevel: Number.isFinite(Number(payload?.batteryLevel)) ? Number(payload.batteryLevel) : null,
+    isCharging: typeof payload?.isCharging === "boolean" ? payload.isCharging : null,
+    networkType: String(payload?.networkType || "").trim(),
+    recordedAt: payload?.recordedAt && !Number.isNaN(new Date(payload.recordedAt).getTime())
+      ? new Date(payload.recordedAt).toISOString()
+      : now,
+    receivedAt: now
+  };
+
+  mockVehicleLocationPings.unshift(ping);
+  Object.assign(session, {
+    lastLocationAt: ping.recordedAt,
+    lastLatitude: ping.latitude,
+    lastLongitude: ping.longitude,
+    lastAccuracyMeters: ping.accuracyMeters,
+    lastSpeedKmh: ping.speedKmh,
+    lastHeading: ping.heading,
+    status: "active",
+    updatedAt: now
+  });
+
+  return {
+    ping,
+    session
+  };
+}
+
+function stopMockVehicleTerminal(user, payload) {
+  if (!canUseMockVehicleTerminal(user)) {
+    const error = new Error("Nemáte oprávnění spustit vozidlový terminál.");
+    error.status = 403;
+    throw error;
+  }
+
+  const session = mockVehicleDeviceSessions.find((item) => item.id === String(payload?.sessionId || "").trim());
+  if (!session || (session.userId !== user.id && !isFullAccessRole(user))) {
+    const error = new Error("Sledovací session neexistuje.");
+    error.status = 404;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  Object.assign(session, {
+    status: "stopped",
+    stoppedAt: now,
+    updatedAt: now
+  });
+  return session;
+}
+
 async function handleApi(request, response) {
   const url = new URL(request.url || "/", "http://localhost");
 
@@ -1374,6 +1609,79 @@ async function handleApi(request, response) {
       return true;
     }
     sendJson(response, 200, { user: publicUser(user) });
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/terminal/vehicles" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!canUseMockVehicleTerminal(user)) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { vehicles: mockTerminalVehicles(user), apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/status" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!canViewMockVehicleTrackingStatus(user)) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { items: mockVehicleTrackingStatusItems(user), apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/terminal/start" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    try {
+      const session = startMockVehicleTerminal(user, await readJsonBody(request));
+      sendJson(response, 201, { session, apiStatus: "ready" });
+    } catch (error) {
+      sendJson(response, error.status || 400, { error: error.message || "Sledování se nepodařilo spustit." });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/location" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    try {
+      const result = createMockVehicleLocationPing(user, await readJsonBody(request));
+      sendJson(response, 201, { ...result, apiStatus: "ready" });
+    } catch (error) {
+      sendJson(response, error.status || 400, { error: error.message || "Polohu se nepodařilo odeslat." });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/terminal/stop" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    try {
+      const session = stopMockVehicleTerminal(user, await readJsonBody(request));
+      sendJson(response, 200, { session, apiStatus: "ready" });
+    } catch (error) {
+      sendJson(response, error.status || 400, { error: error.message || "Sledování se nepodařilo zastavit." });
+    }
     return true;
   }
 

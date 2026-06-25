@@ -1617,6 +1617,12 @@ h1 {
   color: #9f2f1f;
 }
 
+.tracking-status--offline,
+.tracking-status--error {
+  background: #ffe4e0;
+  color: #9f2f1f;
+}
+
 .tracking-status--off,
 .tracking-status--waiting {
   background: #eef1ec;
@@ -1709,6 +1715,32 @@ h1 {
   line-height: 1.25;
   overflow-wrap: anywhere;
   text-transform: uppercase;
+}
+
+.tracking-list-table__row {
+  display: grid;
+  grid-template-columns: 0.8fr 0.9fr 0.95fr 0.75fr 0.75fr 1fr 1.2fr 0.7fr;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+}
+
+.tracking-list-table__row > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  align-content: center;
+  padding: 10px 8px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.tracking-list-table__row small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.3;
 }
 
 .tracking-detail-grid,
@@ -1805,6 +1837,148 @@ h1 {
   max-width: 100%;
   min-width: 0;
   white-space: normal;
+}
+
+.vehicle-terminal-page {
+  color: var(--ink);
+}
+
+.vehicle-terminal-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.75fr);
+  gap: 18px;
+  margin-top: 18px;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid rgba(35, 40, 33, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow-card);
+}
+
+.vehicle-terminal-panel__main,
+.vehicle-terminal-panel__status {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  align-content: start;
+}
+
+.vehicle-terminal-panel__head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.vehicle-terminal-panel__head h2 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.vehicle-terminal-select {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--steel);
+  font-weight: 900;
+}
+
+.vehicle-terminal-select select,
+.vehicle-terminal-select input {
+  width: 100%;
+  min-height: 50px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 850;
+}
+
+.vehicle-terminal-consent,
+.vehicle-terminal-message,
+.vehicle-terminal-warning {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #fbfdf9;
+  color: var(--muted);
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.vehicle-terminal-message {
+  border-color: #cfe6be;
+  background: #f3faee;
+  color: var(--kaiser-green-dark);
+}
+
+.vehicle-terminal-message--error,
+.vehicle-terminal-warning--error {
+  border-color: #ffd1ca;
+  background: #fff4f2;
+  color: #9f2f1f;
+}
+
+.vehicle-terminal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vehicle-terminal-actions .primary-action,
+.vehicle-terminal-actions .secondary-link {
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+
+.vehicle-terminal-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #fbfdf9;
+}
+
+.vehicle-terminal-card span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vehicle-terminal-card strong,
+.vehicle-terminal-card small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vehicle-terminal-card strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.vehicle-terminal-card small,
+.vehicle-terminal-warning span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.vehicle-terminal-warning {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
 }
 
 .users-panel {
@@ -5290,11 +5464,13 @@ body:has(.ai-assistant-promo-modal) {
   .tracking-history-filters,
   .tracking-detail-grid,
   .tracking-trip-layout,
-  .tracking-integration-grid {
+  .tracking-integration-grid,
+  .vehicle-terminal-panel {
     grid-template-columns: 1fr;
   }
 
-  .tracking-section__head {
+  .tracking-section__head,
+  .vehicle-terminal-panel__head {
     display: grid;
   }
 
@@ -5426,11 +5602,13 @@ body:has(.ai-assistant-promo-modal) {
   .tracking-history-filters,
   .tracking-detail-grid,
   .tracking-trip-layout,
-  .tracking-integration-grid {
+  .tracking-integration-grid,
+  .vehicle-terminal-panel {
     grid-template-columns: 1fr;
   }
 
-  .tracking-section__head {
+  .tracking-section__head,
+  .vehicle-terminal-panel__head {
     display: grid;
   }
 
@@ -5456,8 +5634,28 @@ body:has(.ai-assistant-promo-modal) {
     display: none;
   }
 
+  .tracking-list-table__row {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 8px 0;
+  }
+
+  .tracking-list-table__row > span {
+    padding: 8px 10px;
+  }
+
+  .tracking-list-table__row > span::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
   .tracking-actions .secondary-link,
-  .tracking-disabled-action {
+  .tracking-disabled-action,
+  .vehicle-terminal-actions .primary-action,
+  .vehicle-terminal-actions .secondary-link {
     width: 100%;
     justify-content: center;
   }
@@ -5488,7 +5686,8 @@ body:has(.ai-assistant-promo-modal) {
   }
 
   .fleet-section,
-  .tracking-section {
+  .tracking-section,
+  .vehicle-terminal-panel {
     padding: 18px;
   }
 

@@ -129,8 +129,13 @@ import {
   VEHICLE_TRACKING_ROUTE,
   VEHICLE_TRACKING_STATUS_FIELDS,
   VEHICLE_TRACKING_STATUS_OPTIONS,
+  VEHICLE_TRACKING_TERMINAL_ROUTE,
+  VEHICLE_TERMINAL_TEXTS,
+  VEHICLE_DEVICE_SESSION_FIELDS,
+  VEHICLE_LOCATION_PING_FIELDS,
   VEHICLE_TRIP_FIELDS,
   VEHICLE_TRIP_POINT_FIELDS,
+  vehicleTrackingStatusLabel,
   vehicleTrackingStatusTone
 } from "./data/vehicleTracking.js";
 
@@ -165,6 +170,13 @@ const FLEET_ACTION_WAITING_MESSAGES = {
   export: "Čeká na API pro export vozového parku."
 };
 const VEHICLE_TRACKING_BASE_ROUTE = VEHICLE_TRACKING_ROUTE;
+const VEHICLE_TERMINAL_MOVING_INTERVAL_MS = 30 * 1000;
+const VEHICLE_TERMINAL_STOPPED_INTERVAL_MS = 90 * 1000;
+const VEHICLE_TERMINAL_GEOLOCATION_OPTIONS = {
+  enableHighAccuracy: true,
+  maximumAge: 10000,
+  timeout: 20000
+};
 const ABSENCE_ROUTE = "/dovolena-nemoc";
 const EMPLOYEE_CARD_ROUTE_PREFIX = "/dovolena-nemoc/zamestnanci";
 const ABSENCE_QUICK_ROUTE = "/dovolena-nemoc/rychle-zadani";
@@ -648,6 +660,44 @@ const fleetUiState = {
   error: ""
 };
 
+const vehicleTrackingDispatcherState = {
+  items: [],
+  loaded: false,
+  loading: false,
+  error: "",
+  apiStatus: "waiting",
+  missingEndpoint: "GET /api/vehicle-tracking/status"
+};
+
+const vehicleTerminalState = {
+  vehicles: [],
+  vehiclesLoaded: false,
+  vehiclesLoading: false,
+  selectedVehicleId: "",
+  selectedVehicleLicensePlate: "",
+  session: null,
+  tracking: false,
+  starting: false,
+  stopping: false,
+  sending: false,
+  gpsStatus: "idle",
+  online: typeof navigator === "undefined" ? true : navigator.onLine,
+  lastLocation: null,
+  lastRecordedAt: "",
+  lastSentAt: "",
+  lastSendStatus: "",
+  lastSpeedKmh: null,
+  lastMotionState: "stopped",
+  lastPingAt: 0,
+  message: "",
+  error: "",
+  apiStatus: "waiting",
+  missingEndpoint: "GET /api/vehicle-tracking/terminal/vehicles",
+  watchId: null
+};
+
+let vehicleTerminalPingTimer = 0;
+
 let lastRenderedUrl = window.location.href;
 
 function escapeHtml(value) {
@@ -723,6 +773,13 @@ function routeVehicleTrackingContext(path) {
 
   if (!parts.length) {
     return null;
+  }
+
+  if (parts[0] === "terminal") {
+    return {
+      vehicleId: "",
+      view: "terminal"
+    };
   }
 
   return {
@@ -2034,6 +2091,92 @@ function formatFileSize(value) {
   }
 
   return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
+function formatTrackingNumber(value, digits = 1, fallback = "—") {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return number.toLocaleString("cs-CZ", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits
+  });
+}
+
+function formatTrackingCoordinate(value) {
+  return formatTrackingNumber(value, 6);
+}
+
+function formatTrackingSpeed(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "—";
+  }
+
+  return `${formatTrackingNumber(number, 1)} km/h`;
+}
+
+function formatTrackingAccuracy(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "—";
+  }
+
+  return `${formatTrackingNumber(number, 0)} m`;
+}
+
+function trackingLocationLabel(item) {
+  const latitude = item?.lastLatitude ?? item?.latitude;
+  const longitude = item?.lastLongitude ?? item?.longitude;
+
+  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+    return "Bez aktuální polohy";
+  }
+
+  return `${formatTrackingCoordinate(latitude)}, ${formatTrackingCoordinate(longitude)}`;
+}
+
+function distanceMeters(left, right) {
+  if (!left || !right) {
+    return 0;
+  }
+
+  const leftLatitude = Number(left.latitude);
+  const leftLongitude = Number(left.longitude);
+  const rightLatitude = Number(right.latitude);
+  const rightLongitude = Number(right.longitude);
+
+  if (![leftLatitude, leftLongitude, rightLatitude, rightLongitude].every(Number.isFinite)) {
+    return 0;
+  }
+
+  const radiusMeters = 6371000;
+  const toRadians = (degrees) => degrees * Math.PI / 180;
+  const latDelta = toRadians(rightLatitude - leftLatitude);
+  const lonDelta = toRadians(rightLongitude - leftLongitude);
+  const a = Math.sin(latDelta / 2) ** 2 +
+    Math.cos(toRadians(leftLatitude)) *
+    Math.cos(toRadians(rightLatitude)) *
+    Math.sin(lonDelta / 2) ** 2;
+
+  return radiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function optionList(options, selected, emptyLabel = "Vše") {
@@ -5990,6 +6133,7 @@ function vehicleTrackingTabs(activeView, vehicleId = "") {
   const tabs = [
     { id: "map", label: "Mapa vozidel", href: `${VEHICLE_TRACKING_BASE_ROUTE}#tracking-map` },
     { id: "list", label: "Seznam vozidel", href: `${VEHICLE_TRACKING_BASE_ROUTE}#tracking-list` },
+    { id: "terminal", label: "Vozidlový terminál", href: VEHICLE_TRACKING_TERMINAL_ROUTE },
     { id: "detail", label: "Detail vozidla", href: vehicleId ? `${VEHICLE_TRACKING_BASE_ROUTE}/${safeVehicleId}` : "#tracking-detail" },
     { id: "today-trip", label: "Dnešní trasa", href: vehicleId ? `${VEHICLE_TRACKING_BASE_ROUTE}/${safeVehicleId}/trasa-dnes` : "#tracking-today-trip" },
     { id: "history", label: "Historie jízd", href: vehicleId ? `${VEHICLE_TRACKING_BASE_ROUTE}/${safeVehicleId}/historie` : "#tracking-history" },
@@ -6032,6 +6176,66 @@ function vehicleTrackingFilters() {
   `;
 }
 
+function vehicleTrackingStatusRows() {
+  const items = vehicleTrackingDispatcherState.items;
+
+  if (vehicleTrackingDispatcherState.loading) {
+    return `
+      <div class="tracking-empty" role="row">
+        <strong>Načítám aktuální polohy…</strong>
+        <span>${escapeHtml(VEHICLE_TRACKING_LOADING)}</span>
+      </div>
+    `;
+  }
+
+  if (vehicleTrackingDispatcherState.error) {
+    return `
+      <div class="tracking-empty" role="row">
+        <strong>${escapeHtml(VEHICLE_TRACKING_API_ERROR)}</strong>
+        <span>${escapeHtml(vehicleTrackingDispatcherState.error)}</span>
+      </div>
+    `;
+  }
+
+  if (!items.length) {
+    return `
+      <div class="tracking-empty" role="row">
+        <strong>${escapeHtml(VEHICLE_TRACKING_EMPTY)}</strong>
+        <span>${escapeHtml(VEHICLE_TRACKING_GPS_WAITING)}</span>
+      </div>
+    `;
+  }
+
+  return items.map((item) => {
+    const status = item.status || "no_signal";
+    const vehicleId = item.vehicleId || "";
+    const detailHref = vehicleId ? `${VEHICLE_TRACKING_BASE_ROUTE}/${encodeURIComponent(vehicleId)}` : "";
+    const lastUpdate = item.lastLocationAt || item.updatedAt || "";
+
+    return `
+      <div class="tracking-list-table__row" role="row">
+        <span role="cell" data-label="SPZ">${escapeHtml(item.licensePlate || item.vehicleLicensePlate || "neuvedeno")}</span>
+        <span role="cell" data-label="Interní číslo">${escapeHtml(item.internalNumber || item.vehicleId || "neuvedeno")}</span>
+        <span role="cell" data-label="Řidič">${escapeHtml(item.driverName || item.userName || "neuvedeno")}</span>
+        <span role="cell" data-label="Stav">
+          <span class="tracking-status tracking-status--${escapeHtml(vehicleTrackingStatusTone(status))}">
+            ${escapeHtml(item.statusLabel || vehicleTrackingStatusLabel(status))}
+          </span>
+        </span>
+        <span role="cell" data-label="Rychlost">${escapeHtml(formatTrackingSpeed(item.speedKmh))}</span>
+        <span role="cell" data-label="Poslední aktualizace">${escapeHtml(formatDateTime(lastUpdate))}</span>
+        <span role="cell" data-label="Lokalita">
+          ${escapeHtml(trackingLocationLabel(item))}
+          <small>${escapeHtml(item.source || "Android tablet")} · ${escapeHtml(item.signalState || "Bez aktuální polohy")} · ${escapeHtml(formatTrackingAccuracy(item.accuracyMeters))}</small>
+        </span>
+        <span role="cell" data-label="Akce">
+          ${detailHref ? `<a class="secondary-link" href="${routeHref(detailHref)}" data-link>Detail</a>` : "—"}
+        </span>
+      </div>
+    `;
+  }).join("");
+}
+
 function vehicleTrackingMapSection() {
   return `
     <section class="tracking-section tracking-section--map" id="tracking-map" aria-labelledby="tracking-map-title">
@@ -6042,8 +6246,8 @@ function vehicleTrackingMapSection() {
       )}
       <div class="tracking-map-shell" aria-label="Mapový pohled sledování vozidel">
         <div class="tracking-map-placeholder">
-          <strong>${escapeHtml(VEHICLE_TRACKING_GPS_WAITING)}</strong>
-          <span>Bez potvrzeného GPS poskytovatele se nezobrazují žádné body, trasy ani testovací vozidla.</span>
+          <strong>${vehicleTrackingDispatcherState.items.length ? "Aktuální polohy se načítají z Android terminálů." : escapeHtml(VEHICLE_TRACKING_GPS_WAITING)}</strong>
+          <span>Mapový podklad přijde později. Teď je zdrojem cloud API a vozidlový terminál.</span>
         </div>
       </div>
       ${vehicleTrackingStatusLegend()}
@@ -6065,10 +6269,7 @@ function vehicleTrackingListSection() {
         <div class="tracking-list-table__head" role="row">
           ${VEHICLE_TRACKING_LIST_COLUMNS.map((column) => `<span role="columnheader">${escapeHtml(column)}</span>`).join("")}
         </div>
-        <div class="tracking-empty" role="row">
-          <strong>${escapeHtml(VEHICLE_TRACKING_EMPTY)}</strong>
-          <span>${escapeHtml(VEHICLE_TRACKING_GPS_WAITING)}</span>
-        </div>
+        ${vehicleTrackingStatusRows()}
       </div>
       ${vehicleTrackingApiNote("GET /api/vehicle-tracking/status")}
     </section>
@@ -6207,6 +6408,14 @@ function vehicleTrackingIntegrationSection() {
           ${vehicleTrackingFieldChips(VEHICLE_TRACKING_API_ENDPOINTS)}
         </article>
         <article>
+          <h3>VehicleDeviceSession</h3>
+          ${vehicleTrackingFieldChips(VEHICLE_DEVICE_SESSION_FIELDS)}
+        </article>
+        <article>
+          <h3>VehicleLocationPing</h3>
+          ${vehicleTrackingFieldChips(VEHICLE_LOCATION_PING_FIELDS)}
+        </article>
+        <article>
           <h3>Bez GPS signálu</h3>
           <div class="tracking-empty">
             <strong>${escapeHtml(VEHICLE_TRACKING_NO_SIGNAL)}</strong>
@@ -6215,6 +6424,185 @@ function vehicleTrackingIntegrationSection() {
         </article>
       </div>
     </section>
+  `;
+}
+
+function vehicleTerminalVehicleOptions() {
+  const options = vehicleTerminalState.vehicles.map((vehicle) => {
+    const vehicleId = vehicle.id || vehicle.vehicleId || vehicle.licensePlate || vehicle.vehicleLicensePlate || "";
+    const label = [
+      vehicle.licensePlate || vehicle.vehicleLicensePlate || vehicleId,
+      vehicle.name || vehicle.internalNumber || vehicle.driverName || ""
+    ].filter(Boolean).join(" · ");
+
+    return `
+      <option
+        value="${escapeHtml(vehicleId)}"
+        data-license-plate="${escapeHtml(vehicle.licensePlate || vehicle.vehicleLicensePlate || "")}"
+        ${vehicleId === vehicleTerminalState.selectedVehicleId ? "selected" : ""}
+      >
+        ${escapeHtml(label || vehicleId)}
+      </option>
+    `;
+  }).join("");
+
+  return `
+    <option value="">${escapeHtml(VEHICLE_TERMINAL_TEXTS.vehicleSelect)}</option>
+    ${options}
+  `;
+}
+
+function vehicleTerminalGpsLabel() {
+  if (vehicleTerminalState.gpsStatus === "allowed") {
+    return VEHICLE_TERMINAL_TEXTS.gpsAllowed;
+  }
+
+  if (vehicleTerminalState.gpsStatus === "denied") {
+    return VEHICLE_TERMINAL_TEXTS.gpsDenied;
+  }
+
+  if (vehicleTerminalState.gpsStatus === "error") {
+    return VEHICLE_TERMINAL_TEXTS.error;
+  }
+
+  return "Poloha čeká na spuštění sledování.";
+}
+
+function vehicleTerminalStatusCard(label, value, extra = "") {
+  return `
+    <article class="vehicle-terminal-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${extra ? `<small>${escapeHtml(extra)}</small>` : ""}
+    </article>
+  `;
+}
+
+function vehicleTrackingTerminalPage(moduleItem, user) {
+  const isOnline = vehicleTerminalState.online;
+  const selectedVehicle = vehicleTerminalState.selectedVehicleId;
+  const lastLocation = vehicleTerminalState.lastLocation
+    ? `${formatTrackingCoordinate(vehicleTerminalState.lastLocation.latitude)}, ${formatTrackingCoordinate(vehicleTerminalState.lastLocation.longitude)}`
+    : "—";
+  const lastLocationExtra = vehicleTerminalState.lastLocation
+    ? `Přesnost ${formatTrackingAccuracy(vehicleTerminalState.lastLocation.accuracyMeters)}`
+    : "";
+  const message = vehicleTerminalState.error || vehicleTerminalState.message || vehicleTerminalState.lastSendStatus;
+  const selectDisabled = vehicleTerminalState.tracking || vehicleTerminalState.vehiclesLoading;
+  const startDisabled = vehicleTerminalState.starting || vehicleTerminalState.tracking;
+  const stopDisabled = vehicleTerminalState.stopping || !vehicleTerminalState.tracking;
+
+  return `
+    <main class="app-shell module-page module-theme-scope tracking-page vehicle-terminal-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref(VEHICLE_TRACKING_BASE_ROUTE)}" data-link>Zpět na Sledování vozidel</a>
+      </nav>
+
+      <section class="module-detail tracking-hero vehicle-terminal-hero" aria-labelledby="module-title">
+        <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
+        <div class="module-detail__body">
+          <div class="module-detail__eyebrow">SMART ODPADY / ANDROID TERMINÁL</div>
+          <h1 id="module-title">${escapeHtml(VEHICLE_TERMINAL_TEXTS.title)}</h1>
+          <p>${escapeHtml(VEHICLE_TERMINAL_TEXTS.subtitle)}</p>
+          <div class="module-detail__status">
+            <span>Přihlášený uživatel</span>
+            <strong>${escapeHtml(user?.name || "neuvedeno")} · ${escapeHtml(roleLabel(user?.role))}</strong>
+          </div>
+        </div>
+      </section>
+
+      ${vehicleTrackingTabs("terminal")}
+
+      <section class="vehicle-terminal-panel" aria-labelledby="vehicle-terminal-title">
+        <div class="vehicle-terminal-panel__main">
+          <div class="vehicle-terminal-panel__head">
+            <div>
+              <p class="module-feedback__eyebrow">Vozidlový režim</p>
+              <h2 id="vehicle-terminal-title">${escapeHtml(VEHICLE_TERMINAL_TEXTS.title)}</h2>
+            </div>
+            <span class="tracking-status tracking-status--${vehicleTerminalState.tracking ? "moving" : "waiting"}">
+              ${vehicleTerminalState.tracking ? "Sledování běží" : "Sledování vypnuté"}
+            </span>
+          </div>
+
+          <label class="vehicle-terminal-select">
+            <span>${escapeHtml(VEHICLE_TERMINAL_TEXTS.vehicleSelect)}</span>
+            <select data-vehicle-terminal-select ${selectDisabled ? "disabled" : ""}>
+              ${vehicleTerminalVehicleOptions()}
+            </select>
+          </label>
+
+          ${vehicleTerminalState.vehicles.length ? "" : `
+            <label class="vehicle-terminal-select">
+              <span>SPZ / ID vozidla</span>
+              <input
+                type="text"
+                value="${escapeHtml(vehicleTerminalState.selectedVehicleId)}"
+                data-vehicle-terminal-manual
+                placeholder="Zadejte SPZ nebo interní ID vozidla"
+                ${vehicleTerminalState.tracking ? "disabled" : ""}
+              >
+            </label>
+            <p class="tracking-api-note">
+              Čeká na API seznam vozidel z Vozového parku. Pro pilotní terminál lze vozidlo zadat ručně.
+            </p>
+          `}
+
+          <p class="vehicle-terminal-consent">${escapeHtml(VEHICLE_TERMINAL_TEXTS.consent)}</p>
+
+          <div class="vehicle-terminal-actions">
+            <button class="primary-action" type="button" data-vehicle-terminal-start ${startDisabled ? "disabled" : ""}>
+              ${escapeHtml(vehicleTerminalState.starting ? "Spouštím…" : VEHICLE_TERMINAL_TEXTS.start)}
+            </button>
+            <button class="secondary-link" type="button" data-vehicle-terminal-stop ${stopDisabled ? "disabled" : ""}>
+              ${escapeHtml(vehicleTerminalState.stopping ? "Zastavuji…" : VEHICLE_TERMINAL_TEXTS.stop)}
+            </button>
+          </div>
+
+          ${message ? `
+            <p class="vehicle-terminal-message ${vehicleTerminalState.error ? "vehicle-terminal-message--error" : ""}">
+              ${escapeHtml(message)}
+            </p>
+          ` : ""}
+        </div>
+
+        <div class="vehicle-terminal-panel__status">
+          ${vehicleTerminalStatusCard("Vozidlo", selectedVehicle || "Nevybráno", vehicleTerminalState.selectedVehicleLicensePlate)}
+          ${vehicleTerminalStatusCard("GPS", vehicleTerminalGpsLabel())}
+          ${vehicleTerminalStatusCard("Připojení", isOnline ? VEHICLE_TERMINAL_TEXTS.online : VEHICLE_TERMINAL_TEXTS.offline)}
+          ${vehicleTerminalStatusCard("Odesílání", vehicleTerminalState.sending ? "Odesílám…" : (vehicleTerminalState.lastSendStatus || "Čeká na spuštění"))}
+          ${vehicleTerminalStatusCard("Poslední poloha", lastLocation, lastLocationExtra)}
+          ${vehicleTerminalStatusCard("Poslední odeslání", vehicleTerminalState.lastSentAt ? formatDateTime(vehicleTerminalState.lastSentAt) : "—")}
+          ${vehicleTerminalStatusCard("Rychlost", formatTrackingSpeed(vehicleTerminalState.lastSpeedKmh))}
+          ${vehicleTerminalStatusCard("Session", vehicleTerminalState.session?.id || "—")}
+        </div>
+
+        <div class="vehicle-terminal-warning">
+          <strong>${escapeHtml(VEHICLE_TERMINAL_TEXTS.pwaOpen)}</strong>
+          <span>${escapeHtml(VEHICLE_TERMINAL_TEXTS.pwaNative)}</span>
+        </div>
+
+        ${vehicleTerminalState.gpsStatus === "denied" ? `
+          <div class="vehicle-terminal-warning vehicle-terminal-warning--error">
+            <strong>${escapeHtml(VEHICLE_TERMINAL_TEXTS.gpsDenied)}</strong>
+          </div>
+        ` : ""}
+
+        ${!isOnline ? `
+          <div class="vehicle-terminal-warning vehicle-terminal-warning--error">
+            <strong>${escapeHtml(VEHICLE_TERMINAL_TEXTS.offline)}</strong>
+          </div>
+        ` : ""}
+      </section>
+
+      ${moduleFeedbackBoxFor(moduleItem, user, {
+        moduleId: "sledovani-vozidel",
+        moduleName: "Sledování vozidel",
+        placeholder: "Např. terminál nejde spustit, chybí vozidlo nebo GPS oprávnění…"
+      })}
+    </main>
   `;
 }
 
@@ -8184,6 +8572,7 @@ async function verifyLogin(form) {
 }
 
 async function logout() {
+  await stopVehicleTerminalTracking({ silent: true });
   await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
   resetAiAssistantSession();
   resetAssistantPromoState();
@@ -8342,8 +8731,16 @@ function renderAuthenticatedApp(user) {
     }
 
     const moduleItem = orderedModules.find((item) => item.id === "vehicle-tracking");
+    if (trackingContext.view === "terminal") {
+      app.innerHTML = vehicleTrackingTerminalPage(moduleItem, user);
+      document.title = `${VEHICLE_TERMINAL_TEXTS.title} | ${APP_NAME}`;
+      loadVehicleTerminalVehicles();
+      return;
+    }
+
     app.innerHTML = vehicleTrackingPage(moduleItem, user, trackingContext);
     document.title = `${trackingContext.view === "today-trip" ? "Dnešní trasa" : trackingContext.view === "history" ? "Historie jízd" : "Detail sledování vozidla"} | ${APP_NAME}`;
+    loadVehicleTrackingStatus();
     return;
   }
 
@@ -8351,6 +8748,9 @@ function renderAuthenticatedApp(user) {
     const moduleItem = userPrimaryRoutes.get(path);
     app.innerHTML = modulePage(moduleItem, user);
     document.title = `${moduleItem.title} | ${APP_NAME}`;
+    if (moduleItem.id === "vehicle-tracking") {
+      loadVehicleTrackingStatus();
+    }
 
     if (moduleItem.id === "users" && hasPermission(user, "users", "view")) {
       loadAdminUsers();
@@ -8918,6 +9318,381 @@ function handleFleetAction(button) {
   }
 
   setFleetActionMessage("Akce není dostupná.");
+}
+
+async function loadVehicleTrackingStatus(options = {}) {
+  if (
+    !authState.user ||
+    !hasPermission(currentUser(), "vehicle-tracking", "view") ||
+    vehicleTrackingDispatcherState.loaded ||
+    vehicleTrackingDispatcherState.loading
+  ) {
+    return;
+  }
+
+  vehicleTrackingDispatcherState.loading = true;
+  vehicleTrackingDispatcherState.error = "";
+
+  try {
+    const result = await apiJson("/api/vehicle-tracking/status");
+    vehicleTrackingDispatcherState.items = Array.isArray(result.items) ? result.items : [];
+    vehicleTrackingDispatcherState.apiStatus = result.apiStatus || "ready";
+    vehicleTrackingDispatcherState.missingEndpoint = "";
+    vehicleTrackingDispatcherState.loaded = true;
+  } catch (error) {
+    vehicleTrackingDispatcherState.items = [];
+    vehicleTrackingDispatcherState.apiStatus = error.payload?.apiStatus || "waiting";
+    vehicleTrackingDispatcherState.missingEndpoint = error.payload?.missingEndpoint || "GET /api/vehicle-tracking/status";
+    vehicleTrackingDispatcherState.error = error.payload?.error || VEHICLE_TRACKING_API_ERROR;
+  } finally {
+    vehicleTrackingDispatcherState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+async function loadVehicleTerminalVehicles(options = {}) {
+  if (
+    !authState.user ||
+    !hasPermission(currentUser(), "vehicle-tracking", "view") ||
+    vehicleTerminalState.vehiclesLoaded ||
+    vehicleTerminalState.vehiclesLoading
+  ) {
+    return;
+  }
+
+  vehicleTerminalState.vehiclesLoading = true;
+  vehicleTerminalState.error = "";
+
+  try {
+    const result = await apiJson("/api/vehicle-tracking/terminal/vehicles");
+    vehicleTerminalState.vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
+    vehicleTerminalState.apiStatus = result.apiStatus || "ready";
+    vehicleTerminalState.missingEndpoint = "";
+    vehicleTerminalState.vehiclesLoaded = true;
+  } catch (error) {
+    vehicleTerminalState.vehicles = [];
+    vehicleTerminalState.apiStatus = error.payload?.apiStatus || "waiting";
+    vehicleTerminalState.missingEndpoint = error.payload?.missingEndpoint || "GET /api/vehicle-tracking/terminal/vehicles";
+    vehicleTerminalState.error = error.payload?.error || "Seznam vozidel se teď nepodařilo načíst.";
+  } finally {
+    vehicleTerminalState.vehiclesLoading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+function selectVehicleTerminalVehicle(select) {
+  vehicleTerminalState.selectedVehicleId = select.value || "";
+  vehicleTerminalState.selectedVehicleLicensePlate = select.selectedOptions?.[0]?.dataset?.licensePlate || "";
+  vehicleTerminalState.error = "";
+  vehicleTerminalState.message = "";
+  render();
+}
+
+function updateVehicleTerminalManualVehicle(input) {
+  const value = String(input.value || "").trim();
+  vehicleTerminalState.selectedVehicleId = value;
+  vehicleTerminalState.selectedVehicleLicensePlate = value;
+  vehicleTerminalState.error = "";
+  vehicleTerminalState.message = "";
+}
+
+function vehicleTerminalDeviceType() {
+  const userAgent = navigator.userAgent || "";
+
+  if (/Android/i.test(userAgent)) {
+    return /Mobile/i.test(userAgent) ? "android-phone" : "android-tablet";
+  }
+
+  return "web-device";
+}
+
+function vehicleTerminalDeviceName() {
+  const platform = navigator.userAgentData?.platform || navigator.platform || "";
+  return [vehicleTerminalDeviceType(), platform].filter(Boolean).join(" · ");
+}
+
+function vehicleTerminalNetworkType() {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  return connection?.effectiveType || connection?.type || null;
+}
+
+async function vehicleTerminalBatterySnapshot() {
+  if (typeof navigator.getBattery !== "function") {
+    return {
+      batteryLevel: null,
+      isCharging: null
+    };
+  }
+
+  try {
+    const battery = await navigator.getBattery();
+    return {
+      batteryLevel: Number.isFinite(Number(battery.level)) ? Math.round(Number(battery.level) * 100) : null,
+      isCharging: typeof battery.charging === "boolean" ? battery.charging : null
+    };
+  } catch {
+    return {
+      batteryLevel: null,
+      isCharging: null
+    };
+  }
+}
+
+function vehicleTerminalLocationFromPosition(position) {
+  const coords = position?.coords || {};
+  const previousLocation = vehicleTerminalState.lastLocation;
+  const recordedAt = new Date(position?.timestamp || Date.now()).toISOString();
+  const speedFromDevice = Number(coords.speed);
+  let speedKmh = Number.isFinite(speedFromDevice) && speedFromDevice >= 0
+    ? speedFromDevice * 3.6
+    : null;
+
+  if (speedKmh === null && previousLocation?.recordedAt) {
+    const seconds = (new Date(recordedAt).getTime() - new Date(previousLocation.recordedAt).getTime()) / 1000;
+    if (seconds > 0) {
+      speedKmh = distanceMeters(previousLocation, {
+        latitude: coords.latitude,
+        longitude: coords.longitude
+      }) / seconds * 3.6;
+    }
+  }
+
+  const normalizedSpeed = Number.isFinite(Number(speedKmh)) ? Number(speedKmh) : null;
+
+  return {
+    latitude: Number(coords.latitude),
+    longitude: Number(coords.longitude),
+    accuracyMeters: Number.isFinite(Number(coords.accuracy)) ? Number(coords.accuracy) : null,
+    speedKmh: normalizedSpeed,
+    heading: Number.isFinite(Number(coords.heading)) ? Number(coords.heading) : null,
+    recordedAt
+  };
+}
+
+function vehicleTerminalMotionState(location) {
+  const speedKmh = Number(location?.speedKmh);
+  return Number.isFinite(speedKmh) && speedKmh > 5 ? "moving" : "stopped";
+}
+
+function vehicleTerminalCurrentIntervalMs() {
+  return vehicleTerminalState.lastMotionState === "moving"
+    ? VEHICLE_TERMINAL_MOVING_INTERVAL_MS
+    : VEHICLE_TERMINAL_STOPPED_INTERVAL_MS;
+}
+
+function stopVehicleTerminalWatch() {
+  if (vehicleTerminalPingTimer) {
+    window.clearInterval(vehicleTerminalPingTimer);
+    vehicleTerminalPingTimer = 0;
+  }
+
+  if (vehicleTerminalState.watchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(vehicleTerminalState.watchId);
+    vehicleTerminalState.watchId = null;
+  }
+}
+
+async function sendVehicleTerminalLocation({ force = false } = {}) {
+  if (!vehicleTerminalState.tracking || !vehicleTerminalState.session?.id || !vehicleTerminalState.lastLocation) {
+    return;
+  }
+
+  if (!vehicleTerminalState.online) {
+    vehicleTerminalState.lastSendStatus = VEHICLE_TERMINAL_TEXTS.offline;
+    return;
+  }
+
+  const now = Date.now();
+  const due = now - vehicleTerminalState.lastPingAt >= vehicleTerminalCurrentIntervalMs();
+  if (!force && !due) {
+    return;
+  }
+
+  const battery = await vehicleTerminalBatterySnapshot();
+  const location = vehicleTerminalState.lastLocation;
+  vehicleTerminalState.sending = true;
+  vehicleTerminalState.error = "";
+  render();
+
+  try {
+    const result = await apiJson("/api/vehicle-tracking/location", {
+      method: "POST",
+      body: JSON.stringify({
+        vehicleId: vehicleTerminalState.selectedVehicleId,
+        sessionId: vehicleTerminalState.session.id,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracyMeters: location.accuracyMeters,
+        speedKmh: location.speedKmh,
+        heading: location.heading,
+        batteryLevel: battery.batteryLevel,
+        isCharging: battery.isCharging,
+        networkType: vehicleTerminalNetworkType(),
+        recordedAt: location.recordedAt
+      })
+    });
+
+    vehicleTerminalState.session = result.session || vehicleTerminalState.session;
+    vehicleTerminalState.lastPingAt = now;
+    vehicleTerminalState.lastSentAt = result.ping?.receivedAt || new Date().toISOString();
+    vehicleTerminalState.lastSendStatus = VEHICLE_TERMINAL_TEXTS.sent;
+    vehicleTerminalState.message = VEHICLE_TERMINAL_TEXTS.sent;
+    vehicleTerminalState.error = "";
+    vehicleTrackingDispatcherState.loaded = false;
+  } catch (error) {
+    vehicleTerminalState.lastPingAt = now;
+    vehicleTerminalState.lastSendStatus = VEHICLE_TERMINAL_TEXTS.error;
+    vehicleTerminalState.error = error.payload?.error || VEHICLE_TERMINAL_TEXTS.error;
+  } finally {
+    vehicleTerminalState.sending = false;
+    render();
+  }
+}
+
+function handleVehicleTerminalPosition(position) {
+  const location = vehicleTerminalLocationFromPosition(position);
+
+  if (!Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
+    vehicleTerminalState.gpsStatus = "error";
+    vehicleTerminalState.error = VEHICLE_TERMINAL_TEXTS.error;
+    render();
+    return;
+  }
+
+  vehicleTerminalState.gpsStatus = "allowed";
+  vehicleTerminalState.lastLocation = location;
+  vehicleTerminalState.lastRecordedAt = location.recordedAt;
+  vehicleTerminalState.lastSpeedKmh = location.speedKmh;
+  vehicleTerminalState.lastMotionState = vehicleTerminalMotionState(location);
+  vehicleTerminalState.message = VEHICLE_TERMINAL_TEXTS.gpsAllowed;
+  vehicleTerminalState.error = "";
+  void sendVehicleTerminalLocation({ force: !vehicleTerminalState.lastSentAt });
+  render();
+}
+
+function handleVehicleTerminalGeolocationError(error) {
+  vehicleTerminalState.gpsStatus = error?.code === 1 ? "denied" : "error";
+  vehicleTerminalState.error = error?.code === 1 ? VEHICLE_TERMINAL_TEXTS.gpsDenied : VEHICLE_TERMINAL_TEXTS.error;
+  render();
+}
+
+function startVehicleTerminalWatch() {
+  stopVehicleTerminalWatch();
+
+  vehicleTerminalState.watchId = navigator.geolocation.watchPosition(
+    handleVehicleTerminalPosition,
+    handleVehicleTerminalGeolocationError,
+    VEHICLE_TERMINAL_GEOLOCATION_OPTIONS
+  );
+
+  vehicleTerminalPingTimer = window.setInterval(() => {
+    void sendVehicleTerminalLocation();
+  }, 10 * 1000);
+}
+
+async function startVehicleTerminalTracking() {
+  if (vehicleTerminalState.starting || vehicleTerminalState.tracking) {
+    return;
+  }
+
+  if (!vehicleTerminalState.selectedVehicleId) {
+    vehicleTerminalState.error = VEHICLE_TERMINAL_TEXTS.noVehicle;
+    vehicleTerminalState.message = "";
+    render();
+    return;
+  }
+
+  if (!navigator.geolocation || typeof navigator.geolocation.watchPosition !== "function") {
+    vehicleTerminalState.gpsStatus = "denied";
+    vehicleTerminalState.error = VEHICLE_TERMINAL_TEXTS.gpsDenied;
+    vehicleTerminalState.message = "";
+    render();
+    return;
+  }
+
+  if (!window.confirm(VEHICLE_TERMINAL_TEXTS.confirm)) {
+    return;
+  }
+
+  vehicleTerminalState.starting = true;
+  vehicleTerminalState.error = "";
+  vehicleTerminalState.message = "Spouštím sledování…";
+  render();
+
+  try {
+    const result = await apiJson("/api/vehicle-tracking/terminal/start", {
+      method: "POST",
+      body: JSON.stringify({
+        vehicleId: vehicleTerminalState.selectedVehicleId,
+        vehicleLicensePlate: vehicleTerminalState.selectedVehicleLicensePlate,
+        deviceName: vehicleTerminalDeviceName(),
+        deviceType: vehicleTerminalDeviceType()
+      })
+    });
+
+    vehicleTerminalState.session = result.session || null;
+    vehicleTerminalState.tracking = Boolean(result.session);
+    vehicleTerminalState.lastPingAt = 0;
+    vehicleTerminalState.lastSentAt = "";
+    vehicleTerminalState.lastSendStatus = "";
+    vehicleTerminalState.message = "Sledování spuštěno.";
+    vehicleTerminalState.error = "";
+    startVehicleTerminalWatch();
+  } catch (error) {
+    vehicleTerminalState.session = null;
+    vehicleTerminalState.tracking = false;
+    vehicleTerminalState.error = error.payload?.error || "Sledování se nepodařilo spustit.";
+    vehicleTerminalState.message = "";
+  } finally {
+    vehicleTerminalState.starting = false;
+    render();
+  }
+}
+
+async function stopVehicleTerminalTracking(options = {}) {
+  if (vehicleTerminalState.stopping) {
+    return;
+  }
+
+  const sessionId = vehicleTerminalState.session?.id || "";
+  stopVehicleTerminalWatch();
+  vehicleTerminalState.stopping = true;
+
+  if (!options.silent) {
+    render();
+  }
+
+  try {
+    if (sessionId) {
+      await apiJson("/api/vehicle-tracking/terminal/stop", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId
+        })
+      });
+    }
+  } catch (error) {
+    if (!options.silent) {
+      vehicleTerminalState.error = error.payload?.error || "Sledování se nepodařilo zastavit.";
+    }
+  } finally {
+    vehicleTerminalState.tracking = false;
+    vehicleTerminalState.session = null;
+    vehicleTerminalState.stopping = false;
+    vehicleTerminalState.lastSendStatus = "";
+    vehicleTerminalState.message = options.silent ? "" : "Sledování zastaveno.";
+    vehicleTrackingDispatcherState.loaded = false;
+
+    if (!options.silent) {
+      render();
+    }
+  }
 }
 
 async function submitAbsenceRequest(form) {
@@ -10102,6 +10877,12 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const vehicleTerminalManual = event.target.closest("[data-vehicle-terminal-manual]");
+  if (vehicleTerminalManual) {
+    updateVehicleTerminalManualVehicle(vehicleTerminalManual);
+    return;
+  }
+
   const aiInput = event.target.closest("[data-ai-input]");
   if (aiInput) {
     aiAssistantState.input = aiInput.value;
@@ -10166,6 +10947,12 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  const vehicleTerminalSelect = event.target.closest("[data-vehicle-terminal-select]");
+  if (vehicleTerminalSelect) {
+    selectVehicleTerminalVehicle(vehicleTerminalSelect);
+    return;
+  }
+
   const appearanceImport = event.target.closest("[data-appearance-import]");
   if (appearanceImport) {
     importAppearanceSettings(appearanceImport);
@@ -10266,6 +11053,20 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+window.addEventListener("online", () => {
+  vehicleTerminalState.online = true;
+  vehicleTerminalState.message = VEHICLE_TERMINAL_TEXTS.online;
+  vehicleTerminalState.error = "";
+  render();
+});
+
+window.addEventListener("offline", () => {
+  vehicleTerminalState.online = false;
+  vehicleTerminalState.message = "";
+  vehicleTerminalState.error = VEHICLE_TERMINAL_TEXTS.offline;
+  render();
+});
+
 document.addEventListener("error", (event) => {
   const promoVideo = event.target?.closest?.("[data-ai-promo-video]");
 
@@ -10278,6 +11079,20 @@ document.addEventListener("error", (event) => {
 }, true);
 
 document.addEventListener("click", async (event) => {
+  const vehicleTerminalStart = event.target.closest("[data-vehicle-terminal-start]");
+  if (vehicleTerminalStart) {
+    event.preventDefault();
+    await startVehicleTerminalTracking();
+    return;
+  }
+
+  const vehicleTerminalStop = event.target.closest("[data-vehicle-terminal-stop]");
+  if (vehicleTerminalStop) {
+    event.preventDefault();
+    await stopVehicleTerminalTracking();
+    return;
+  }
+
   const fleetAction = event.target.closest("[data-fleet-action]");
   if (fleetAction) {
     event.preventDefault();
