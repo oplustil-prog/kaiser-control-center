@@ -2,7 +2,7 @@ export const DEMO_VEHICLE_TRACKING_NOTICE = "DEMO REŽIM – ukázkový pohyb vo
 
 export const DEMO_VEHICLE_TRACKING_API_NOTICE = "Reálné GPS API zatím není připojené.";
 
-export const DEMO_VEHICLE_TRACKING_API_DETAIL = "Demo ukazuje budoucí chování modulu. Reálné polohy budou později chodit z Android tabletů ve vozidlech přes cloud API.";
+export const DEMO_VEHICLE_TRACKING_API_DETAIL = "Demo ukazuje budoucí chování modulu. Reálné polohy budou chodit z T-Cars jednotek přes backend Smart odpady. Android tablet zůstává jako vozidlový terminál.";
 
 export const DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING = "Čeká na Google Maps API key.";
 
@@ -112,7 +112,7 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     speedWave: 4,
     lastUpdate: "teď",
     accuracy: "Demo",
-    source: "Android tablet – demo",
+    source: "T-Cars jednotka – demo",
     routeName: "Brno-střed → Černovice → Slatina",
     plannedRoute: [BRNO_POINTS.centrum, BRNO_POINTS.cernovice, BRNO_POINTS.slatina],
     actualRoute: [BRNO_POINTS.centrum, BRNO_POINTS.cernovice, BRNO_POINTS.slatina],
@@ -133,7 +133,7 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     speedWave: 5,
     lastUpdate: "teď",
     accuracy: "Demo",
-    source: "Android tablet – demo",
+    source: "T-Cars jednotka – demo",
     routeName: "Komárov → Modřice",
     plannedRoute: [BRNO_POINTS.komarov, BRNO_POINTS.modrice],
     actualRoute: [BRNO_POINTS.komarov, BRNO_POINTS.modrice],
@@ -156,7 +156,7 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     speedWave: 6,
     lastUpdate: "teď",
     accuracy: "Demo",
-    source: "Android tablet – demo",
+    source: "T-Cars jednotka – demo",
     routeName: "Královo Pole → Brno-střed",
     plannedRoute: [BRNO_POINTS.kralovoPole, { lat: 49.2118, lng: 16.6012 }, BRNO_POINTS.centrum],
     actualRoute: [BRNO_POINTS.kralovoPole, { lat: 49.2118, lng: 16.6012 }, BRNO_POINTS.centrum],
@@ -177,7 +177,7 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     speedWave: 0,
     lastUpdate: "před 6 min",
     accuracy: "Demo",
-    source: "Android tablet – demo",
+    source: "T-Cars jednotka – demo",
     routeName: "Líšeň",
     plannedRoute: [BRNO_POINTS.lisen],
     actualRoute: [BRNO_POINTS.lisen],

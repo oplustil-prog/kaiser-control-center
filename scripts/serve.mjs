@@ -26,6 +26,12 @@ import {
   FLEET_VISTOS_IMPORT_MAX_FILE_SIZE_BYTES,
   buildFleetVistosImportPreview
 } from "../functions/_lib/fleet-vistos-import-preview.js";
+import {
+  TcarsClientError,
+  syncTcarsLocations,
+  tcarsStatusPayload,
+  tcarsVehiclesPayload
+} from "../functions/_lib/tcars-client.js";
 import { DEFAULT_THEME_SETTINGS, normalizeThemeSettings } from "../src/data/themeSettings.js";
 import { modules } from "../src/data/modules.js";
 import {
@@ -497,6 +503,10 @@ function canEditMockFeedback(currentUser) {
 
 function canCreateCentralMockFeedback(currentUser) {
   return ["admin", "management"].includes(normalizeRole(currentUser?.role));
+}
+
+function canManageMockTcars(currentUser) {
+  return ["admin", "management", "dispecer"].includes(normalizeRole(currentUser?.role));
 }
 
 function visibleMockFeedback(currentUser) {
@@ -1441,6 +1451,85 @@ async function handleApi(request, response) {
         apiStatus: "waiting"
       });
     }
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/status" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "vehicle-tracking", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    sendJson(response, 200, tcarsStatusPayload(process.env));
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/tcars/vehicles" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "vehicle-tracking", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    sendJson(response, 200, tcarsVehiclesPayload(process.env));
+    return true;
+  }
+
+  if (url.pathname === "/api/vehicle-tracking/tcars/sync" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "vehicle-tracking", "view") || !canManageMockTcars(user)) {
+      sendJson(response, 403, { error: "Nemáte oprávnění spustit T-Cars synchronizaci." });
+      return true;
+    }
+
+    try {
+      const result = await syncTcarsLocations(process.env);
+      sendJson(response, 200, result);
+    } catch (error) {
+      if (error instanceof TcarsClientError) {
+        sendJson(response, error.status, {
+          error: error.message,
+          code: error.code,
+          apiStatus: "waiting"
+        });
+        return true;
+      }
+
+      sendJson(response, 500, { error: "Nepodařilo se načíst polohy z T-Cars.", apiStatus: "waiting" });
+    }
+    return true;
+  }
+
+  const tcarsLinkMatch = /^\/api\/vehicles\/([^/]+)\/tcars-link$/.exec(url.pathname);
+  if (tcarsLinkMatch && ["PATCH", "DELETE"].includes(request.method)) {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "vehicle-tracking", "view") || !canManageMockTcars(user)) {
+      sendJson(response, 403, { error: "Nemáte oprávnění měnit párování T-Cars." });
+      return true;
+    }
+
+    sendJson(response, 501, {
+      error: request.method === "PATCH" ? "Čeká na API pro párování T-Cars." : "Čeká na API pro odpojení T-Cars.",
+      apiStatus: "waiting",
+      vehicleId: decodeURIComponent(tcarsLinkMatch[1])
+    });
     return true;
   }
 

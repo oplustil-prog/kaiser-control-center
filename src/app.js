@@ -141,14 +141,25 @@ import { runtimeConfig } from "./data/runtimeConfig.js";
 import {
   VEHICLE_STOP_FIELDS,
   VEHICLE_TRACKING_API_ENDPOINTS,
+  VEHICLE_TRACKING_API_ERROR,
+  VEHICLE_TRACKING_SOURCE_MODES,
   VEHICLE_TRACKING_EMPTY,
   VEHICLE_TRACKING_FILTERS,
   VEHICLE_TRACKING_GPS_WAITING,
   VEHICLE_TRACKING_LIST_COLUMNS,
+  VEHICLE_TRACKING_LOADING,
   VEHICLE_TRACKING_NO_SIGNAL,
   VEHICLE_TRACKING_ROUTE,
   VEHICLE_TRACKING_STATUS_FIELDS,
   VEHICLE_TRACKING_STATUS_OPTIONS,
+  VEHICLE_TRACKING_TABLET_ROLE,
+  VEHICLE_TRACKING_TCAR_API_DOCUMENTATION_MISSING,
+  VEHICLE_TRACKING_TCAR_LAST_KNOWN,
+  VEHICLE_TRACKING_TCAR_LINK_FIELDS,
+  VEHICLE_TRACKING_TCAR_PAIRING_COLUMNS,
+  VEHICLE_TRACKING_TCAR_SYNC_LOG_FIELDS,
+  VEHICLE_TRACKING_TCAR_UNAVAILABLE,
+  VEHICLE_TRACKING_TCAR_WAITING,
   VEHICLE_TRIP_FIELDS,
   VEHICLE_TRIP_POINT_FIELDS,
   vehicleTrackingStatusTone
@@ -692,6 +703,13 @@ const vehicleTrackingDemoState = {
   googleMapNode: null,
   googleMap: null,
   googleOverlays: null
+};
+const vehicleTrackingLiveState = {
+  sourceMode: "demo",
+  loaded: false,
+  loading: false,
+  error: "",
+  status: null
 };
 
 let vehicleTrackingAudioContext = null;
@@ -6074,13 +6092,53 @@ function vehicleTrackingAction(label, href = "") {
   return `<a class="secondary-link" href="${routeHref(href)}" data-link>${escapeHtml(label)}</a>`;
 }
 
-function vehicleTrackingTabs(activeView = "map") {
-  const tabs = [
-    { id: "map", label: "Demo mapa", href: "#tracking-map" },
-    { id: "list", label: "Vozidla", href: "#tracking-list" },
-    { id: "detail", label: "Detail", href: "#tracking-detail" },
-    { id: "api", label: "Budoucí API", href: "#tracking-api" }
-  ];
+function vehicleTrackingSourceModeMeta(modeId) {
+  return VEHICLE_TRACKING_SOURCE_MODES.find((mode) => mode.id === modeId) || VEHICLE_TRACKING_SOURCE_MODES[0];
+}
+
+function vehicleTrackingSourceModeFromHash(hash = window.location.hash) {
+  const normalizedHash = String(hash || "").trim();
+
+  if (["#tracking-tcars-status", "#tracking-tcars-pairing"].includes(normalizedHash)) {
+    return "tcars";
+  }
+
+  if (["#tracking-map", "#tracking-list", "#tracking-detail"].includes(normalizedHash)) {
+    return "demo";
+  }
+
+  return "";
+}
+
+function vehicleTrackingActiveSourceMode() {
+  const hashMode = vehicleTrackingSourceModeFromHash();
+  if (hashMode) {
+    vehicleTrackingLiveState.sourceMode = hashMode;
+    return hashMode;
+  }
+
+  return VEHICLE_TRACKING_SOURCE_MODES.some((mode) => mode.id === vehicleTrackingLiveState.sourceMode)
+    ? vehicleTrackingLiveState.sourceMode
+    : "demo";
+}
+
+function vehicleTrackingSourceModeHash(modeId) {
+  return modeId === "tcars" ? "#tracking-tcars-status" : "#tracking-map";
+}
+
+function vehicleTrackingTabs(activeView = "map", sourceMode = vehicleTrackingActiveSourceMode()) {
+  const tabs = sourceMode === "tcars"
+    ? [
+      { id: "tcars-status", label: "T-Cars stav", href: "#tracking-tcars-status" },
+      { id: "tcars-pairing", label: "Párování", href: "#tracking-tcars-pairing" },
+      { id: "api", label: "API", href: "#tracking-api" }
+    ]
+    : [
+      { id: "map", label: "Demo mapa", href: "#tracking-map" },
+      { id: "list", label: "Vozidla", href: "#tracking-list" },
+      { id: "detail", label: "Detail", href: "#tracking-detail" },
+      { id: "api", label: "Budoucí API", href: "#tracking-api" }
+    ];
 
   return `
     <nav class="tracking-tabs" aria-label="Menu modulu Sledování vozidel">
@@ -6090,6 +6148,56 @@ function vehicleTrackingTabs(activeView = "map") {
         </a>
       `).join("")}
     </nav>
+  `;
+}
+
+function vehicleTrackingSourceModePanel() {
+  const activeMode = vehicleTrackingActiveSourceMode();
+
+  return `
+    <section class="tracking-source-panel" aria-labelledby="tracking-source-title">
+      <div>
+        <p class="module-detail__eyebrow">Zdroj polohy</p>
+        <h2 id="tracking-source-title">T-Cars je primární GPS zdroj</h2>
+        <p>${escapeHtml(VEHICLE_TRACKING_TABLET_ROLE)}</p>
+      </div>
+      <div class="tracking-source-modes" role="group" aria-label="Režim sledování vozidel">
+        ${VEHICLE_TRACKING_SOURCE_MODES.map((mode) => {
+          const isFallback = mode.id === "fallback";
+          const isActive = mode.id === activeMode;
+          const content = `
+              <strong>${escapeHtml(mode.label)}</strong>
+              <span>${escapeHtml(mode.badge)}</span>
+              <small>${escapeHtml(mode.description)}</small>
+          `;
+
+          if (isFallback) {
+            return `
+            <button
+              class="tracking-source-mode ${isActive ? "tracking-source-mode--active" : ""} ${isFallback ? "tracking-source-mode--passive" : ""}"
+              type="button"
+              data-tracking-source-mode="${escapeHtml(mode.id)}"
+              aria-pressed="${isActive ? "true" : "false"}"
+              disabled
+            >
+              ${content}
+            </button>
+          `;
+          }
+
+          return `
+            <a
+              class="tracking-source-mode ${isActive ? "tracking-source-mode--active" : ""}"
+              href="${escapeHtml(vehicleTrackingSourceModeHash(mode.id))}"
+              data-tracking-source-mode="${escapeHtml(mode.id)}"
+              aria-pressed="${isActive ? "true" : "false"}"
+            >
+              ${content}
+            </a>
+          `;
+        }).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -6625,14 +6733,112 @@ function vehicleTrackingDetailSection(selectedVehicle) {
   `;
 }
 
+function vehicleTrackingTcarsConfigItems(status = {}) {
+  const config = status.config || {};
+  return [
+    { label: "T-Cars konfigurace", value: status.configured ? "Nastavená" : "Čeká na Cloudflare Secrets" },
+    { label: "API URL", value: config.baseUrl || "https://webservice.t-cars.cz/v2/" },
+    { label: "Zákaznické číslo", value: config.hasCustomerNumber ? "Uloženo v Cloudflare" : "Čeká na TCARS_CUSTOMER_NUMBER" },
+    { label: "Přístupy", value: config.hasCredentials ? "Uloženo v Cloudflare" : "Čeká na TCARS_USERNAME / TCARS_PASSWORD nebo TCARS_API_TOKEN" },
+    { label: "API režim", value: config.apiMode || "Čeká na TCARS_API_MODE" },
+    { label: "API dokumentace", value: config.documentationStatus === "missing" ? "Chybí" : config.documentationStatus },
+    { label: "Interval načítání", value: `${status.pollIntervalSeconds || 60} s` },
+    { label: "Zdroj", value: status.source || "T-Cars jednotka" }
+  ];
+}
+
+function vehicleTrackingTcarsStatusSection() {
+  const status = vehicleTrackingLiveState.status || {};
+  const loading = vehicleTrackingLiveState.loading && !vehicleTrackingLiveState.loaded;
+  const error = vehicleTrackingLiveState.error;
+  const message = error || status.message || VEHICLE_TRACKING_TCAR_WAITING;
+  const badge = status.configured ? "T-CARS" : "Čeká na konfiguraci";
+  const itemRows = vehicleTrackingTcarsConfigItems(status);
+
+  return `
+    <section class="tracking-section tracking-tcars-section" id="tracking-tcars-status" aria-labelledby="tracking-tcars-status-title">
+      ${vehicleTrackingSectionHeader(
+        "tracking-tcars-status-title",
+        "T-Cars režim",
+        "Frontend volá pouze vlastní Smart odpady API. T-Cars přístupy zůstávají v backendu.",
+        { badgeText: badge }
+      )}
+      <div class="tracking-tcars-state ${error ? "tracking-tcars-state--error" : ""}" role="${error ? "alert" : "status"}">
+        <strong>${escapeHtml(loading ? VEHICLE_TRACKING_LOADING : message)}</strong>
+        <span>${escapeHtml(status.tabletRole || VEHICLE_TRACKING_TABLET_ROLE)}</span>
+        ${status.configured ? `<small>${escapeHtml(VEHICLE_TRACKING_TCAR_API_DOCUMENTATION_MISSING)}</small>` : ""}
+      </div>
+      <div class="tracking-detail-grid tracking-detail-grid--compact">
+        ${itemRows.map((item) => vehicleTrackingDemoDetailField(item.label, item.value)).join("")}
+      </div>
+      <div class="tracking-tcars-mode-grid">
+        <article>
+          <h3>T-Cars data</h3>
+          <p>${escapeHtml(status.configured ? "Čeká na ověřené API / export T-Cars." : VEHICLE_TRACKING_TCAR_WAITING)}</p>
+        </article>
+        <article>
+          <h3>Fallback</h3>
+          <p>${escapeHtml(status.fallback?.message || `${VEHICLE_TRACKING_TCAR_UNAVAILABLE} ${VEHICLE_TRACKING_TCAR_LAST_KNOWN}.`)}</p>
+        </article>
+        <article>
+          <h3>Android tablet</h3>
+          <p>${escapeHtml(VEHICLE_TRACKING_TABLET_ROLE)}</p>
+        </article>
+      </div>
+      <div class="tracking-actions">
+        <button class="secondary-link tracking-disabled-action" type="button" disabled>Čeká na API dokumentaci T-Cars.</button>
+      </div>
+    </section>
+  `;
+}
+
+function vehicleTrackingTcarsPairingSection() {
+  return `
+    <section class="tracking-section tracking-tcars-section" id="tracking-tcars-pairing" aria-labelledby="tracking-tcars-pairing-title">
+      ${vehicleTrackingSectionHeader(
+        "tracking-tcars-pairing-title",
+        "Párování T-Cars",
+        "Párování bude ukládané pouze přes cloud API. Teď je připravený kontrakt bez lokálního ukládání.",
+        { badgeText: "Čeká na API" }
+      )}
+      <div class="tracking-table-shell">
+        <table class="tracking-table">
+          <thead>
+            <tr>
+              ${VEHICLE_TRACKING_TCAR_PAIRING_COLUMNS.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="${VEHICLE_TRACKING_TCAR_PAIRING_COLUMNS.length}">
+                Vozidla a jednotky T-Cars se zobrazí po dodání API dokumentace a nastavení Cloudflare Secrets.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tracking-integration-grid">
+        <article>
+          <h3>Pole párování</h3>
+          ${vehicleTrackingFieldChips(VEHICLE_TRACKING_TCAR_LINK_FIELDS)}
+        </article>
+        <article>
+          <h3>Akce</h3>
+          ${vehicleTrackingFieldChips(["Spárovat", "Změnit párování", "Odpojit"])}
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function vehicleTrackingApiSection() {
   return `
     <section class="tracking-section tracking-demo-api-section" id="tracking-api" aria-labelledby="tracking-api-title">
       ${vehicleTrackingSectionHeader(
         "tracking-api-title",
         "API stav",
-        "Demo režim je oddělený od budoucího reálného GPS provozu.",
-        { badgeText: "Bez reálného GPS API" }
+        "T-Cars se bude volat pouze serverově přes Smart odpady API.",
+        { badgeText: "Backend kontrakt" }
       )}
       <div class="tracking-demo-api-note">
         <strong>${escapeHtml(DEMO_VEHICLE_TRACKING_API_NOTICE)}</strong>
@@ -6640,12 +6846,16 @@ function vehicleTrackingApiSection() {
       </div>
       <div class="tracking-integration-grid">
         <article>
-          <h3>Budoucí endpointy</h3>
-          ${vehicleTrackingFieldChips(["GET /api/vehicle-tracking/status", "POST /api/vehicle-tracking/location"])}
+          <h3>Smart odpady endpointy</h3>
+          ${vehicleTrackingFieldChips(VEHICLE_TRACKING_API_ENDPOINTS)}
         </article>
         <article>
           <h3>Aktuální stav vozidla</h3>
           ${vehicleTrackingFieldChips(VEHICLE_TRACKING_STATUS_FIELDS)}
+        </article>
+        <article>
+          <h3>T-Cars sync log</h3>
+          ${vehicleTrackingFieldChips(VEHICLE_TRACKING_TCAR_SYNC_LOG_FIELDS)}
         </article>
         <article>
           <h3>Jízda</h3>
@@ -6658,10 +6868,6 @@ function vehicleTrackingApiSection() {
         <article>
           <h3>Zastávky</h3>
           ${vehicleTrackingFieldChips(VEHICLE_STOP_FIELDS)}
-        </article>
-        <article>
-          <h3>Cloud API kontrakt</h3>
-          ${vehicleTrackingFieldChips(VEHICLE_TRACKING_API_ENDPOINTS)}
         </article>
       </div>
     </section>
@@ -7145,6 +7351,7 @@ function syncVehicleTrackingDemoRuntime() {
 function vehicleTrackingPage(moduleItem, user, context = {}) {
   const vehicleId = context.vehicleId || "";
   const view = context.view || "map";
+  const sourceMode = vehicleTrackingActiveSourceMode();
   const visibleVehicles = vehicleTrackingDemoVisibleVehicles();
   const selectedVehicle = vehicleTrackingDemoSelectedVehicle(vehicleId, visibleVehicles);
   if (selectedVehicle) {
@@ -7164,7 +7371,7 @@ function vehicleTrackingPage(moduleItem, user, context = {}) {
         <div class="module-detail__body">
           <div class="module-detail__eyebrow">SMART ODPADY / SLEDOVÁNÍ VOZIDEL</div>
           <h1 id="module-title">Sledování vozidel</h1>
-          <p>Demo ukazuje Google mapu, plánované trasy, odchylku KS 204 a dispečerský alert bez reálných GPS dat.</p>
+          <p>Primární poloha vozidel bude z T-Cars jednotek. Demo režim zůstává jako bezpečná ukázka bez reálných GPS dat.</p>
           <div class="module-detail__status">
             <span>Stav</span>
             <strong>${escapeHtml(moduleStatusLabel(moduleItem))}</strong>
@@ -7176,12 +7383,18 @@ function vehicleTrackingPage(moduleItem, user, context = {}) {
         </div>
       </section>
 
-      ${vehicleTrackingDemoBanner()}
-      ${vehicleTrackingTabs(view)}
+      ${vehicleTrackingSourceModePanel()}
+      ${sourceMode === "demo" ? vehicleTrackingDemoBanner() : ""}
+      ${vehicleTrackingTabs(view, sourceMode)}
       <div class="tracking-layout tracking-demo-layout">
-        ${vehicleTrackingMapSection(visibleVehicles, selectedVehicle)}
-        ${vehicleTrackingListSection(visibleVehicles, selectedVehicle)}
-        ${vehicleTrackingDetailSection(selectedVehicle)}
+        ${sourceMode === "demo" ? `
+          ${vehicleTrackingMapSection(visibleVehicles, selectedVehicle)}
+          ${vehicleTrackingListSection(visibleVehicles, selectedVehicle)}
+          ${vehicleTrackingDetailSection(selectedVehicle)}
+        ` : `
+          ${vehicleTrackingTcarsStatusSection()}
+          ${vehicleTrackingTcarsPairingSection()}
+        `}
         ${vehicleTrackingApiSection()}
       </div>
       ${moduleFeedbackBoxFor(moduleItem, user, {
@@ -8027,6 +8240,51 @@ async function apiJson(path, options = {}) {
   }
 
   return payload;
+}
+
+async function loadVehicleTrackingStatus(options = {}) {
+  const { force = false, renderAfter = true } = options;
+
+  if (vehicleTrackingLiveState.loading || (vehicleTrackingLiveState.loaded && !force)) {
+    return;
+  }
+
+  vehicleTrackingLiveState.loading = true;
+  vehicleTrackingLiveState.error = "";
+
+  try {
+    const status = await apiJson("/api/vehicle-tracking/status");
+    vehicleTrackingLiveState.status = status;
+    vehicleTrackingLiveState.loaded = true;
+  } catch (error) {
+    vehicleTrackingLiveState.status = null;
+    vehicleTrackingLiveState.error = error?.payload?.error || error?.message || VEHICLE_TRACKING_API_ERROR;
+  } finally {
+    vehicleTrackingLiveState.loading = false;
+  }
+
+  if (renderAfter) {
+    render();
+  }
+}
+
+function handleVehicleTrackingSourceMode(mode) {
+  if (!["demo", "tcars"].includes(mode)) {
+    return;
+  }
+
+  const nextHash = vehicleTrackingSourceModeHash(mode);
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+    lastRenderedUrl = window.location.href;
+  }
+
+  vehicleTrackingLiveState.sourceMode = mode;
+  render();
+
+  if (mode === "tcars") {
+    loadVehicleTrackingStatus();
+  }
 }
 
 function resetAssistantPromoState() {
@@ -9265,6 +9523,9 @@ function renderAuthenticatedApp(user) {
     const moduleItem = orderedModules.find((item) => item.id === "vehicle-tracking");
     app.innerHTML = vehicleTrackingPage(moduleItem, user, trackingContext);
     document.title = `${trackingContext.view === "today-trip" ? "Dnešní trasa" : trackingContext.view === "history" ? "Historie jízd" : "Detail sledování vozidla"} | ${APP_NAME}`;
+    if (vehicleTrackingActiveSourceMode() === "tcars") {
+      loadVehicleTrackingStatus();
+    }
     return;
   }
 
@@ -9286,6 +9547,9 @@ function renderAuthenticatedApp(user) {
       if (absenceUiState.tab === "quick" || normalizeRole(user?.role) === "ridic") {
         loadQuickAbsenceRequests();
       }
+    }
+    if (moduleItem.id === "vehicle-tracking" && vehicleTrackingActiveSourceMode() === "tcars") {
+      loadVehicleTrackingStatus();
     }
     return;
   }
@@ -9422,6 +9686,20 @@ function handlePopStateNavigation() {
   }
 
   lastRenderedUrl = targetUrl;
+  render();
+}
+
+function handleHashChangeNavigation() {
+  if (accessUnsavedChangesGuard.isDirty()) {
+    window.history.replaceState({}, "", lastRenderedUrl);
+    accessUnsavedChangesGuard.confirm(() => {
+      lastRenderedUrl = window.location.href;
+      render();
+    });
+    return;
+  }
+
+  lastRenderedUrl = window.location.href;
   render();
 }
 
@@ -11231,6 +11509,13 @@ document.addEventListener("error", (event) => {
 }, true);
 
 document.addEventListener("click", async (event) => {
+  const trackingSourceMode = event.target.closest("[data-tracking-source-mode]");
+  if (trackingSourceMode) {
+    event.preventDefault();
+    handleVehicleTrackingSourceMode(trackingSourceMode.dataset.trackingSourceMode || "demo");
+    return;
+  }
+
   const trackingDemoControl = event.target.closest("[data-tracking-demo-control]");
   if (trackingDemoControl) {
     event.preventDefault();
@@ -11677,6 +11962,7 @@ document.addEventListener("click", async (event) => {
 
 window.addEventListener("beforeunload", (event) => accessUnsavedChangesGuard.beforeUnload(event));
 window.addEventListener("popstate", handlePopStateNavigation);
+window.addEventListener("hashchange", handleHashChangeNavigation);
 render();
 probeAiAssistantAvatarAssets();
 bootstrapAuth();
