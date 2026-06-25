@@ -6978,6 +6978,7 @@ function vehicleTrackingDetailSection(selectedVehicle) {
 }
 
 const VEHICLE_TRACKING_TCARS_MAX_GPS_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const VEHICLE_TRACKING_TCARS_MARKER_ICON_SRC = "/vehicles/icons/osobni.png";
 
 function vehicleTrackingTcarsConfigItems(status = {}) {
   const config = status.config || {};
@@ -7262,6 +7263,69 @@ function vehicleTrackingTcarsMarkerVehicle(location = {}) {
   };
 }
 
+function vehicleTrackingTcarsTextValue(...values) {
+  return values.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function vehicleTrackingTcarsVehicleBrand(location = {}) {
+  const vehicle = location.vehicle || {};
+  const fleetVehicle = location.fleetVehicle || location.pairedVehicle || {};
+  return vehicleTrackingTcarsTextValue(
+    location.brand,
+    location.make,
+    location.manufacturer,
+    location.vehicleBrand,
+    vehicle.brand,
+    vehicle.make,
+    vehicle.manufacturer,
+    vehicle.vehicleBrand,
+    fleetVehicle.brand,
+    fleetVehicle.make,
+    fleetVehicle.manufacturer,
+    fleetVehicle.vehicleBrand
+  );
+}
+
+function vehicleTrackingTcarsVehicleModel(location = {}) {
+  const vehicle = location.vehicle || {};
+  const fleetVehicle = location.fleetVehicle || location.pairedVehicle || {};
+  return vehicleTrackingTcarsTextValue(
+    location.model,
+    location.vehicleModel,
+    location.modelName,
+    vehicle.model,
+    vehicle.vehicleModel,
+    vehicle.modelName,
+    fleetVehicle.model,
+    fleetVehicle.vehicleModel,
+    fleetVehicle.modelName
+  );
+}
+
+function vehicleTrackingTcarsVehicleDisplayName(location = {}) {
+  const brand = vehicleTrackingTcarsVehicleBrand(location);
+  const model = vehicleTrackingTcarsVehicleModel(location);
+  return [brand, model].filter(Boolean).join(" ") || "Vozidlo";
+}
+
+function vehicleTrackingTcarsSpeedText(location = {}) {
+  const speedValue = Number(location.speedKmh);
+  return location.speedKmh !== null && location.speedKmh !== undefined && location.speedKmh !== "" && Number.isFinite(speedValue)
+    ? `${speedValue} km/h`
+    : "neuvedeno";
+}
+
+function vehicleTrackingTcarsMarkerTooltip(location = {}) {
+  const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
+  return [
+    vehicleTrackingTcarsVehicleDisplayName(location),
+    markerVehicle.licensePlate ? `SPZ: ${markerVehicle.licensePlate}` : "SPZ: neuvedena",
+    "Stav: Validní poloha",
+    `Poslední GPS: ${vehicleTrackingSafeDateTime(vehicleTrackingTcarsGpsDateValue(location))}`,
+    `Rychlost: ${vehicleTrackingTcarsSpeedText(location)}`
+  ].join("\n");
+}
+
 function vehicleTrackingTcarsSelectedLocation(locations = []) {
   if (!locations.length) {
     return null;
@@ -7282,22 +7346,22 @@ function vehicleTrackingTcarsLocationDetail(location = null) {
   }
 
   const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
-  const speedValue = Number(location.speedKmh);
-  const speed = location.speedKmh !== null && location.speedKmh !== undefined && location.speedKmh !== "" && Number.isFinite(speedValue)
-    ? `${speedValue} km/h`
-    : "neuvedeno";
+  const displayName = vehicleTrackingTcarsVehicleDisplayName(location);
+  const speed = vehicleTrackingTcarsSpeedText(location);
   const coordinates = `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
 
   return `
     <div class="tracking-tcars-location-detail">
       <div class="tracking-tcars-location-detail__head">
         <div>
-          <strong>${escapeHtml(markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo")}</strong>
+          <strong>${escapeHtml(displayName)}</strong>
           <span>${escapeHtml(markerVehicle.licensePlate || "SPZ neuvedena")}</span>
         </div>
         <span class="tracking-status tracking-status--moving">Validní poloha</span>
       </div>
       <div class="tracking-detail-grid tracking-detail-grid--compact">
+        ${vehicleTrackingDemoDetailField("Značka/model", displayName)}
+        ${vehicleTrackingDemoDetailField("SPZ", markerVehicle.licensePlate || "neuvedeno")}
         ${vehicleTrackingDemoDetailField("Rychlost", speed)}
         ${vehicleTrackingDemoDetailField("Poslední GPS", vehicleTrackingSafeDateTime(vehicleTrackingTcarsGpsDateValue(location)))}
         ${vehicleTrackingDemoDetailField("Adresa", location.address || "neuvedeno")}
@@ -7311,14 +7375,17 @@ function vehicleTrackingTcarsLocationDetail(location = null) {
 }
 
 function vehicleTrackingTcarsGoogleMarkerContent(location = {}, selected = false) {
-  const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
-  const label = vehicleTrackingMarkerLabel(markerVehicle, "TC").slice(0, 10);
-  const title = markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo";
+  const displayName = vehicleTrackingTcarsVehicleDisplayName(location);
+  const title = vehicleTrackingTcarsMarkerTooltip(location);
 
   return `
     <span class="tracking-tcars-google-pin ${selected ? "tracking-tcars-google-pin--selected" : ""}" title="${escapeHtml(title)}">
-      <strong>${escapeHtml(label)}</strong>
-      <span>Validní poloha</span>
+      <span class="tracking-tcars-google-pin__icon" aria-hidden="true">
+        <img src="${escapeHtml(VEHICLE_TRACKING_TCARS_MARKER_ICON_SRC)}" alt="" loading="eager" decoding="async" data-tracking-tcars-marker-icon>
+        <span class="tracking-tcars-google-pin__fallback">Vozidlo</span>
+      </span>
+      <strong>${escapeHtml(displayName)}</strong>
+      <span>${escapeHtml(vehicleTrackingTcarsSpeedText(location))}</span>
     </span>
   `;
 }
@@ -7340,10 +7407,11 @@ function vehicleTrackingTcarsInvalidSection(invalidVehicles = []) {
       <div class="tracking-tcars-invalid-list">
         ${invalidVehicles.map((item) => {
           const markerVehicle = vehicleTrackingTcarsMarkerVehicle(item);
+          const displayName = vehicleTrackingTcarsVehicleDisplayName(item);
           return `
             <article class="tracking-tcars-invalid-card">
               <div>
-                <strong>${escapeHtml(markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo")}</strong>
+                <strong>${escapeHtml(displayName)}</strong>
                 <span>${escapeHtml(markerVehicle.licensePlate || "SPZ neuvedena")}</span>
               </div>
               <span class="tracking-status tracking-status--no-signal">Bez signálu</span>
@@ -7387,7 +7455,6 @@ function vehicleTrackingTcarsMapSection(status = {}) {
       <div class="tracking-tcars-live__head">
         <div>
           <h3>T-Cars mapa vozidel</h3>
-          <p>Reálné validní polohy z T-Cars jsou vykreslené read-only nad Google mapou. Klik na marker nebo položku vybere vozidlo.</p>
         </div>
         <span>${escapeHtml(`${locations.length} validních`)}</span>
       </div>
@@ -7415,6 +7482,7 @@ function vehicleTrackingTcarsMapSection(status = {}) {
           <div class="tracking-tcars-location-list" aria-label="Seznam validních T-Cars poloh">
             ${locations.length ? locations.map((location) => {
               const markerVehicle = vehicleTrackingTcarsMarkerVehicle(location);
+              const displayName = vehicleTrackingTcarsVehicleDisplayName(location);
               const selected = selectedLocation?._locationId === location._locationId;
               return `
                 <button
@@ -7422,9 +7490,10 @@ function vehicleTrackingTcarsMapSection(status = {}) {
                   type="button"
                   data-tracking-tcars-select="${escapeHtml(location._locationId)}"
                 >
-                  <strong>${escapeHtml(markerVehicle.internalNumber || markerVehicle.licensePlate || "T-Cars vozidlo")}</strong>
-                  <span>${escapeHtml(markerVehicle.licensePlate || location.address || "Bez SPZ")}</span>
-                  <small>Validní poloha · ${escapeHtml(vehicleTrackingSafeDateTime(vehicleTrackingTcarsGpsDateValue(location)))}</small>
+                  <strong>${escapeHtml(displayName)}</strong>
+                  <span>${escapeHtml(markerVehicle.licensePlate || "SPZ neuvedena")}</span>
+                  <small>Validní poloha · Poslední GPS ${escapeHtml(vehicleTrackingSafeDateTime(vehicleTrackingTcarsGpsDateValue(location)))}</small>
+                  <small>Rychlost ${escapeHtml(vehicleTrackingTcarsSpeedText(location))} · ${escapeHtml(location.source || "T-Cars jednotka")}</small>
                 </button>
               `;
             }).join("") : `
@@ -7435,6 +7504,7 @@ function vehicleTrackingTcarsMapSection(status = {}) {
             `}
           </div>
         </div>
+        <p class="tracking-tcars-map-note">Reálné validní polohy z T-Cars jsou vykreslené read-only nad Google mapou. Klik na marker nebo položku vybere vozidlo.</p>
       ` : `
         <div class="tracking-tcars-map-fallback" role="status">
           <strong>Čeká na Google Maps API key.</strong>
@@ -8040,8 +8110,10 @@ function createVehicleTrackingTcarsGoogleMarker(maps, map, location) {
         return;
       }
       const markerVehicle = vehicleTrackingTcarsMarkerVehicle(this.location);
-      const label = markerVehicle.internalNumber || markerVehicle.licensePlate || this.location._locationId;
-      this.div.setAttribute("aria-label", `Vybrat vozidlo ${label}`);
+      const displayName = vehicleTrackingTcarsVehicleDisplayName(this.location);
+      const licensePlate = markerVehicle.licensePlate ? `, SPZ ${markerVehicle.licensePlate}` : "";
+      this.div.setAttribute("aria-label", `Vybrat vozidlo ${displayName}${licensePlate}`);
+      this.div.setAttribute("title", vehicleTrackingTcarsMarkerTooltip(this.location));
       this.div.dataset.trackingTcarsSelect = this.location._locationId;
       this.div.dataset.trackingTcarsGoogleMarker = this.location._locationId;
       this.div.innerHTML = vehicleTrackingTcarsGoogleMarkerContent(this.location, this.selected);
@@ -8078,7 +8150,9 @@ function initializeVehicleTrackingTcarsGoogleMap(maps, node) {
     zoom: 11,
     clickableIcons: false,
     fullscreenControl: false,
+    gestureHandling: "greedy",
     mapTypeControl: true,
+    scrollwheel: true,
     streetViewControl: false
   });
 
@@ -12525,6 +12599,13 @@ document.addEventListener("visibilitychange", () => {
 });
 
 document.addEventListener("error", (event) => {
+  const tcarsMarkerIcon = event.target?.closest?.("[data-tracking-tcars-marker-icon]");
+  if (tcarsMarkerIcon) {
+    tcarsMarkerIcon.hidden = true;
+    tcarsMarkerIcon.closest(".tracking-tcars-google-pin")?.classList.add("tracking-tcars-google-pin--fallback");
+    return;
+  }
+
   const vehicleIcon = event.target?.closest?.("[data-tracking-vehicle-icon]");
   if (vehicleIcon) {
     const marker = vehicleIcon.closest("[data-tracking-vehicle-marker]");
