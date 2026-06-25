@@ -6440,12 +6440,13 @@ body:has(.ai-assistant-promo-modal) {
   width: 100%;
   min-width: 1020px;
   border-collapse: collapse;
-  font-size: 0.86rem;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .module-rules-table th,
 .module-rules-table td {
-  padding: 11px 10px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -6453,14 +6454,14 @@ body:has(.ai-assistant-promo-modal) {
 
 .module-rules-table th {
   color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 950;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 .module-rules-table td {
   color: var(--steel);
-  font-weight: 850;
+  font-weight: 400;
 }
 
 .module-rules-table td strong,
@@ -6472,27 +6473,30 @@ body:has(.ai-assistant-promo-modal) {
 
 .module-rules-table td strong {
   color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .module-rules-table td small,
 .module-rules-search-count {
   margin-top: 5px;
   color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 850;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.35;
 }
 
 .module-rules-status-chip {
   display: inline-flex;
   max-width: 100%;
-  padding: 5px 8px;
+  padding: 4px 7px;
   border: 1px solid #f6d184;
   border-radius: 999px;
   background: #fff7df;
   color: #7a4e00;
-  font-size: 0.72rem;
-  font-weight: 950;
+  font-size: 11.5px;
+  font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -9521,8 +9525,8 @@ body:has(.ai-assistant-promo-modal) {
   .module-rules-table td[colspan]::before {
     display: block;
     color: var(--muted);
-    font-size: 0.68rem;
-    font-weight: 950;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
   }
 
