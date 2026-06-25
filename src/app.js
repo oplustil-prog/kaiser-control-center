@@ -126,6 +126,7 @@ import {
   DEMO_VEHICLE_TRACKING_API_NOTICE,
   DEMO_VEHICLE_TRACKING_BOUNDS,
   DEMO_VEHICLE_TRACKING_DEVIATION_START_MS,
+  DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_FALLBACK,
   DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING,
   DEMO_VEHICLE_TRACKING_LOOP_MS,
   DEMO_VEHICLE_TRACKING_MAP_CENTER,
@@ -6433,6 +6434,15 @@ function vehicleTrackingDemoAlertOverlay(elapsedMs = vehicleTrackingDemoCurrentE
   `;
 }
 
+function vehicleTrackingDemoMapNotice() {
+  return `
+    <div class="tracking-demo-map-notice" aria-live="polite">
+      <strong>${escapeHtml(DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING)}</strong>
+      <span>${escapeHtml(DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_FALLBACK)}</span>
+    </div>
+  `;
+}
+
 function vehicleTrackingMapSection(visibleVehicles, selectedVehicle) {
   const elapsedMs = vehicleTrackingDemoCurrentElapsed();
   const hasGoogleMapsKey = Boolean(vehicleTrackingDemoGoogleMapsKey());
@@ -6444,19 +6454,16 @@ function vehicleTrackingMapSection(visibleVehicles, selectedVehicle) {
         hasGoogleMapsKey ? "Google mapa vozidel" : "Demo mapa vozidel",
         hasGoogleMapsKey
           ? "Mapový podklad používá Google Maps. Vozidla a trasy jsou pořád pouze demo data."
-          : "Google Maps klíč zatím není dostupný, proto je zobrazen bezpečný fallback bez bílé obrazovky.",
+          : "Demo mapa běží v náhradním režimu bez Google podkladu.",
         { badgeText: hasGoogleMapsKey ? "Google Maps + demo data" : DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING }
       )}
       ${vehicleTrackingDemoControls()}
       ${vehicleTrackingDemoScenarioPanel(elapsedMs)}
+      ${hasGoogleMapsKey ? "" : vehicleTrackingDemoMapNotice()}
       <div class="tracking-map-shell tracking-demo-map ${hasGoogleMapsKey ? "tracking-demo-map--google" : "tracking-demo-map--fallback"}" data-tracking-demo-map aria-label="Demo mapový pohled sledování vozidel">
         ${hasGoogleMapsKey
           ? `<div class="tracking-google-map" data-tracking-google-map aria-label="Google mapa demo sledování vozidel"></div>`
           : `
-            <div class="tracking-demo-map-waiting">
-              <strong>${escapeHtml(DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING)}</strong>
-              <span>Po nastavení proměnné VITE_GOOGLE_MAPS_API_KEY se tady zobrazí Google mapa. Demo scénář běží i ve fallbacku.</span>
-            </div>
             <div class="tracking-demo-road tracking-demo-road--one" aria-hidden="true"></div>
             <div class="tracking-demo-road tracking-demo-road--two" aria-hidden="true"></div>
             <div class="tracking-demo-road tracking-demo-road--three" aria-hidden="true"></div>
@@ -6494,6 +6501,18 @@ function vehicleTrackingDemoFilters() {
   `;
 }
 
+function vehicleTrackingDemoVehicleImage(vehicle, className = "") {
+  if (!vehicle.imageSrc) {
+    return "";
+  }
+
+  return `
+    <figure class="tracking-demo-vehicle-image ${escapeHtml(className)}">
+      <img src="${escapeHtml(vehicle.imageSrc)}" alt="${escapeHtml(vehicle.imageAlt || `${vehicle.internalNumber} demo vozidlo`)}" loading="lazy" decoding="async">
+    </figure>
+  `;
+}
+
 function vehicleTrackingDemoVehicleCard(vehicle, selectedVehicle, elapsedMs) {
   const summary = vehicleTrackingDemoVehicleSummary(vehicle, elapsedMs);
   const isSelected = selectedVehicle?.id === vehicle.id;
@@ -6507,6 +6526,7 @@ function vehicleTrackingDemoVehicleCard(vehicle, selectedVehicle, elapsedMs) {
         </div>
         <span class="tracking-demo-data-badge">Demo data</span>
       </div>
+      ${vehicleTrackingDemoVehicleImage(vehicle, "tracking-demo-vehicle-image--card")}
       <div class="tracking-demo-vehicle-meta">
         <span>${escapeHtml(vehicle.driver)}</span>
         <span>${escapeHtml(vehicle.type)}</span>
@@ -6582,6 +6602,7 @@ function vehicleTrackingDetailSection(selectedVehicle) {
           Vozidlo je mimo plánovanou trasu.
         </div>
       ` : `<div class="tracking-demo-detail-alert" data-tracking-demo-detail-alert hidden>Vozidlo je mimo plánovanou trasu.</div>`}
+      ${vehicleTrackingDemoVehicleImage(selectedVehicle, "tracking-demo-vehicle-image--detail")}
       <div class="tracking-detail-grid">
         ${vehicleTrackingDemoDetailField("Interní číslo", selectedVehicle.internalNumber)}
         ${vehicleTrackingDemoDetailField("SPZ", selectedVehicle.licensePlate)}

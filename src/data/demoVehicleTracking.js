@@ -6,6 +6,8 @@ export const DEMO_VEHICLE_TRACKING_API_DETAIL = "Demo ukazuje budoucí chování
 
 export const DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_WAITING = "Čeká na Google Maps API key.";
 
+export const DEMO_VEHICLE_TRACKING_GOOGLE_MAPS_FALLBACK = "Demo mapa běží bez Google podkladu. Po nastavení produkčního Google Maps API key se zapne reálný mapový podklad.";
+
 export const DEMO_VEHICLE_TRACKING_LOOP_MS = 50000;
 
 export const DEMO_VEHICLE_TRACKING_DEVIATION_START_MS = 25000;
@@ -102,6 +104,8 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     internalNumber: "KS 101",
     licensePlate: "1BK 2345",
     type: "Svozové vozidlo",
+    imageSrc: "/demo-vehicles/ks-101.svg",
+    imageAlt: "Zelené demo svozové vozidlo KS 101",
     driver: "Jarmila Olšaníková",
     baseStatus: "moving",
     speedKmh: 31,
@@ -121,6 +125,8 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     internalNumber: "KS 204",
     licensePlate: "2BK 8912",
     type: "Kontejnerové vozidlo",
+    imageSrc: "/demo-vehicles/ks-204.svg",
+    imageAlt: "Zelené demo kontejnerové vozidlo KS 204",
     driver: "Radim Opluštil",
     baseStatus: "moving",
     speedKmh: 34,
@@ -142,6 +148,8 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     internalNumber: "KS 318",
     licensePlate: "3BK 4455",
     type: "Dodávka",
+    imageSrc: "/demo-vehicles/ks-318.svg",
+    imageAlt: "Zelená demo dodávka KS 318",
     driver: "Marek",
     baseStatus: "moving",
     speedKmh: 43,
@@ -161,6 +169,8 @@ export const DEMO_VEHICLE_TRACKING_VEHICLES = [
     internalNumber: "KS 407",
     licensePlate: "4BK 7788",
     type: "Speciální technika",
+    imageSrc: "/demo-vehicles/ks-407.svg",
+    imageAlt: "Zelené demo vozidlo speciální techniky KS 407",
     driver: "Šarlota",
     baseStatus: "stopped",
     speedKmh: 0,
