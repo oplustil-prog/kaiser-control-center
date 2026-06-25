@@ -23,6 +23,7 @@ export const ABSENCE_TABS = [
   { id: "calendar", label: "Kalendář" },
   { id: "employee-card", label: "Karta zaměstnance" },
   { id: "reports", label: "Reporty" },
+  { id: "rules-automation", label: "Seznam pravidel a automatizace" },
   { id: "settings", label: "Nastavení" }
 ];
 

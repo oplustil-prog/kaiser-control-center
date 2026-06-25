@@ -226,6 +226,7 @@ const ABSENCE_TAB_ROUTES = {
   calendar: "/dovolena-nemoc/kalendar",
   "employee-card": EMPLOYEE_CARD_ROUTE_PREFIX,
   reports: "/dovolena-nemoc/reporty",
+  "rules-automation": "/dovolena-nemoc/pravidla-automatizace",
   settings: "/dovolena-nemoc/nastaveni"
 };
 const quickAbsenceMenuItem = {
@@ -4754,6 +4755,135 @@ function absenceReports(user) {
   `;
 }
 
+function moduleRulesAutomationPanel({
+  moduleKey,
+  moduleName,
+  user,
+  apiStatus = "waiting"
+}) {
+  const canManage = hasPermission(user, moduleKey, "manage") || isFullAccessRole(user);
+  const statusLabel = apiStatus === "ready" ? "Cloud API aktivní" : "Čeká na cloud API";
+  const statusClass = apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
+  const endpoints = [
+    `GET /api/modules/${moduleKey}/rules`,
+    `POST /api/modules/${moduleKey}/rules`,
+    `PATCH /api/modules/${moduleKey}/rules/:id`,
+    `GET /api/modules/${moduleKey}/rules/:id/audit`,
+    `GET /api/modules/${moduleKey}/automation-runs`
+  ];
+
+  return `
+    <section class="module-rules-panel absence-panel" aria-labelledby="module-rules-title">
+      <div class="absence-panel__head">
+        <div>
+          <h2 id="module-rules-title">Seznam pravidel a automatizace</h2>
+          <p>Jednotný pilot pro evidenci pravidel a cloudových automatizací modulu ${escapeHtml(moduleName)}.</p>
+        </div>
+        <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+      </div>
+
+      <div class="module-rules-toolbar" aria-label="Filtry pravidel a automatizací">
+        <label class="module-rules-search">
+          <span>Vyhledávání</span>
+          <input type="search" placeholder="Název, popis, modul, typ, stav, autor nebo poznámka" disabled />
+        </label>
+        <label>
+          <span>Typ</span>
+          <select disabled>
+            <option>Vše</option>
+            <option>Pravidlo</option>
+            <option>Automatizace</option>
+          </select>
+        </label>
+        <label>
+          <span>Stav</span>
+          <select disabled>
+            <option>Vše</option>
+            <option>Aktivní</option>
+            <option>Neaktivní</option>
+            <option>Návrh</option>
+            <option>Chyba</option>
+          </select>
+        </label>
+      </div>
+
+      ${canManage ? `
+        <div class="module-rules-actions">
+          <button class="primary-action" type="button" disabled>Nové pravidlo</button>
+          <button class="secondary-link" type="button" disabled>Nová automatizace</button>
+        </div>
+      ` : ""}
+
+      <div class="module-rules-status-grid">
+        <article>
+          <span>Zdroj pravdy</span>
+          <strong>Cloud API / backend</strong>
+        </article>
+        <article>
+          <span>Pravidla</span>
+          <strong>0</strong>
+        </article>
+        <article>
+          <span>Automatizace</span>
+          <strong>0</strong>
+        </article>
+        <article>
+          <span>Audit</span>
+          <strong>Čeká na module_rule_audit_log</strong>
+        </article>
+      </div>
+
+      <div class="module-rules-empty" role="status">
+        <strong>Čeká na cloud API pro pravidla a automatizace.</strong>
+        <span>V pilotu nejsou vložená žádná mock ani runtime produkční pravidla. Stávající schvalování, notifikace a lékařské připomínky zůstávají beze změny, dokud neproběhne schválená migrace do jednotné evidence.</span>
+      </div>
+
+      <div class="module-rules-table-wrap" aria-label="Seznam pravidel a automatizací">
+        <table class="module-rules-table">
+          <thead>
+            <tr>
+              <th>Název</th>
+              <th>Typ</th>
+              <th>Modul</th>
+              <th>Stav</th>
+              <th>Spouštění</th>
+              <th>Poslední běh</th>
+              <th>Další běh</th>
+              <th>Vytvořil</th>
+              <th>Upravil</th>
+              <th>Dopad</th>
+              <th>Akce</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="11">Žádné položky. Čeká na backend endpointy a D1 model.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section class="module-rules-detail" aria-labelledby="module-rules-detail-title">
+        <div>
+          <h3 id="module-rules-detail-title">Detail pravidla / automatizace</h3>
+          <p>Detail bude načítaný z cloudu, včetně podmínek, akcí, oprávnění, historie změn a logu posledních běhů.</p>
+        </div>
+        <div class="module-rules-endpoints">
+          ${endpoints.map((endpoint) => `<code>${escapeHtml(endpoint)}</code>`).join("")}
+        </div>
+      </section>
+    </section>
+  `;
+}
+
+function absenceRulesAutomation(user) {
+  return moduleRulesAutomationPanel({
+    moduleKey: "absence",
+    moduleName: "Dovolená / Nemoc",
+    user
+  });
+}
+
 function absenceSettings(user) {
   if (!hasPermission(user, "absence", "manage")) {
     return permissionInlineNotice();
@@ -5408,6 +5538,10 @@ function absenceActiveContent(activeTab, user, context = {}) {
 
   if (safeTab === "reports") {
     return absenceReports(user);
+  }
+
+  if (safeTab === "rules-automation") {
+    return absenceRulesAutomation(user);
   }
 
   if (safeTab === "settings") {

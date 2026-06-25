@@ -6333,6 +6333,173 @@ body:has(.ai-assistant-promo-modal) {
   line-height: 1.45;
 }
 
+.module-rules-panel {
+  min-width: 0;
+}
+
+.module-rules-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(150px, 0.45fr) minmax(150px, 0.45fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.module-rules-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.module-rules-toolbar span,
+.module-rules-status-grid span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.module-rules-toolbar input,
+.module-rules-toolbar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+}
+
+.module-rules-toolbar input {
+  padding: 0 12px;
+}
+
+.module-rules-toolbar select {
+  padding: 0 10px;
+}
+
+.module-rules-toolbar input:disabled,
+.module-rules-toolbar select:disabled,
+.module-rules-actions button:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.module-rules-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.module-rules-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.module-rules-status-grid article,
+.module-rules-empty,
+.module-rules-detail {
+  border: 1px solid rgba(35, 40, 33, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.module-rules-status-grid article {
+  display: grid;
+  gap: 8px;
+  min-height: 96px;
+  padding: 14px;
+}
+
+.module-rules-status-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+}
+
+.module-rules-empty {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.module-rules-empty strong {
+  color: var(--ink);
+  font-size: 1.04rem;
+}
+
+.module-rules-table-wrap {
+  overflow-x: auto;
+}
+
+.module-rules-table {
+  width: 100%;
+  min-width: 1020px;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.module-rules-table th,
+.module-rules-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.module-rules-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.module-rules-table td {
+  color: var(--steel);
+  font-weight: 850;
+}
+
+.module-rules-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+  padding: 16px;
+}
+
+.module-rules-detail h3,
+.module-rules-detail p {
+  margin: 0;
+}
+
+.module-rules-detail p {
+  margin-top: 7px;
+  color: var(--muted);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.module-rules-endpoints {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.module-rules-endpoints code {
+  display: block;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: #f4f7f1;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
 .absence-table-wrap {
   overflow-x: auto;
 }
@@ -9265,10 +9432,78 @@ body:has(.ai-assistant-promo-modal) {
   .absence-doctor-time-fields,
   .absence-filters,
   .absence-report-grid,
+  .module-rules-toolbar,
+  .module-rules-status-grid,
+  .module-rules-detail,
   .feedback-ticket__meta,
   .feedback-ticket__management {
     grid-template-columns: 1fr;
   }
+
+  .module-rules-table-wrap {
+    overflow-x: hidden;
+  }
+
+  .module-rules-table,
+  .module-rules-table tbody,
+  .module-rules-table tr,
+  .module-rules-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .module-rules-table {
+    table-layout: fixed;
+  }
+
+  .module-rules-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .module-rules-table thead {
+    display: none;
+  }
+
+  .module-rules-table tr {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .module-rules-table td {
+    border-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .module-rules-table td:not([colspan]) {
+    display: grid;
+    gap: 4px;
+  }
+
+  .module-rules-table td:not([colspan])::before,
+  .module-rules-table td[colspan]::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .module-rules-table td:nth-child(1)::before { content: "Název"; }
+  .module-rules-table td:nth-child(2)::before { content: "Typ"; }
+  .module-rules-table td:nth-child(3)::before { content: "Modul"; }
+  .module-rules-table td:nth-child(4)::before { content: "Stav"; }
+  .module-rules-table td:nth-child(5)::before { content: "Spouštění"; }
+  .module-rules-table td:nth-child(6)::before { content: "Poslední běh"; }
+  .module-rules-table td:nth-child(7)::before { content: "Další běh"; }
+  .module-rules-table td:nth-child(8)::before { content: "Vytvořil"; }
+  .module-rules-table td:nth-child(9)::before { content: "Upravil"; }
+  .module-rules-table td:nth-child(10)::before { content: "Dopad"; }
+  .module-rules-table td:nth-child(11)::before { content: "Akce"; }
+  .module-rules-table td[colspan]::before { content: "Stav"; }
 
   .feedback-admin__head,
   .feedback-create__head,

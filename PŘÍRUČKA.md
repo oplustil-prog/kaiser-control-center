@@ -158,6 +158,180 @@ Zakázané:
 
 Provozní data musí jít přes API / backend / cloud databázi.
 
+## Povinná záložka v každém modulu: Seznam pravidel a automatizace
+
+Každý modul v Kaiser Smart / Smart odpady musí mít samostatnou záložku:
+
+```text
+Seznam pravidel a automatizace
+```
+
+Záložka musí obsahovat:
+- seznam pravidel platných pro daný modul,
+- seznam automatizací platných pro daný modul,
+- vyhledávací pole,
+- filtrování podle typu,
+- filtrování podle stavu,
+- informaci, zda je pravidlo nebo automatizace aktivní,
+- informaci, kdo pravidlo vytvořil,
+- informaci, kdy bylo pravidlo vytvořeno,
+- informaci, kdo pravidlo naposledy upravil,
+- informaci, kdy bylo pravidlo naposledy upraveno,
+- popis dopadu pravidla nebo automatizace,
+- audit změn.
+
+Admin / management / oprávněný správce modulu musí mít možnost:
+- pravidlo vytvořit,
+- pravidlo upravit,
+- pravidlo deaktivovat,
+- pravidlo znovu aktivovat,
+- automatizaci vytvořit,
+- automatizaci upravit,
+- automatizaci deaktivovat,
+- automatizaci znovu aktivovat,
+- zobrazit historii změn.
+
+Běžný uživatel může pravidla a automatizace pouze číst, pokud mu to dovoluje oprávnění modulu.
+
+Automatizace:
+- musí běžet v cloudu,
+- nesmí záviset na lokálním PC,
+- nesmí záviset na otevřeném prohlížeči,
+- nesmí záviset na lokálním běhu vývojáře,
+- nesmí záviset na `localStorage`, `sessionStorage` ani `IndexedDB`,
+- musí být spouštěna backendem, workerem, cronem, queue nebo jinou cloudovou službou,
+- musí být auditovatelná,
+- musí mít log posledního běhu,
+- musí mít stav posledního běhu,
+- musí mít čas dalšího běhu, pokud je plánovaná,
+- musí mít bezpečné ošetření chyb,
+- musí zabránit duplicitnímu spuštění, pokud by duplicitní běh mohl způsobit škodu.
+
+Zakázané:
+- automatizace spuštěné pouze ve frontendu,
+- automatizace závislé na lokálním PC,
+- automatizace závislé na otevřeném browseru,
+- ukládání pravidel nebo automatizací do `localStorage`, `sessionStorage` nebo `IndexedDB`,
+- mock/runtime produkční pravidla,
+- skryté automatizace bez záznamu v seznamu,
+- změny pravidel bez audit logu,
+- posílání e-mailů/SMS z frontendu,
+- provádění citlivých akcí bez backendového ověření oprávnění.
+
+Doporučené sloupce v seznamu:
+- Název,
+- Typ: pravidlo / automatizace,
+- Modul,
+- Stav: aktivní / neaktivní / návrh / chyba,
+- Spouštění: ručně / časově / událostí / webhookem,
+- Poslední běh,
+- Další běh,
+- Vytvořil,
+- Upravil,
+- Dopad,
+- Akce.
+
+Vyhledávání musí hledat minimálně v:
+- názvu,
+- popisu,
+- modulu,
+- typu,
+- stavu,
+- autorovi,
+- poznámce.
+
+Detail pravidla / automatizace musí obsahovat:
+- název,
+- modul,
+- typ,
+- popis,
+- podmínky,
+- akce,
+- oprávnění,
+- stav,
+- historii změn,
+- poslední běh,
+- další běh,
+- log posledních běhů,
+- poznámku,
+- bezpečnostní dopad.
+
+Doporučený jednotný datový model:
+
+```text
+module_rules
+- id
+- moduleKey
+- title
+- description
+- type
+- status
+- conditionsJson
+- actionsJson
+- isAutomation
+- triggerType
+- scheduleCron
+- eventName
+- cloudRunner
+- lastRunAt
+- nextRunAt
+- lastRunStatus
+- lastRunMessage
+- createdByUserId
+- createdAt
+- updatedByUserId
+- updatedAt
+
+module_rule_audit_log
+- id
+- ruleId
+- moduleKey
+- action
+- changedByUserId
+- changedAt
+- beforeJson
+- afterJson
+- note
+
+module_automation_runs
+- id
+- ruleId
+- moduleKey
+- startedAt
+- finishedAt
+- status
+- message
+- errorCode
+- triggeredBy
+- dedupeKey
+```
+
+Doporučené API:
+- `GET /api/modules/:moduleKey/rules`,
+- `GET /api/modules/:moduleKey/rules/:id`,
+- `POST /api/modules/:moduleKey/rules`,
+- `PATCH /api/modules/:moduleKey/rules/:id`,
+- `POST /api/modules/:moduleKey/rules/:id/activate`,
+- `POST /api/modules/:moduleKey/rules/:id/deactivate`,
+- `GET /api/modules/:moduleKey/rules/:id/audit`,
+- `GET /api/modules/:moduleKey/automation-runs`.
+
+Cloudové spouštění automatizací:
+- preferovat Cloudflare Workers,
+- Cloudflare Cron Triggers,
+- queue / scheduled worker,
+- backend job,
+- jinou cloudovou službu pouze pokud je schválená jako zdroj pravdy projektu.
+
+Automatizace nesmí být:
+- `setInterval` ve frontendu,
+- timeout v prohlížeči,
+- závislá na přihlášeném uživateli,
+- závislá na otevřeném PC,
+- závislá na lokálním běhu.
+
+Nejdřív vždy vytvořit společný komponent / pattern, společné API a pilotní modul. Neimplementovat záložku plošně do všech modulů bez schváleného pilotu.
+
 ## 3. Veřejná adresa aplikace
 
 Veřejná adresa aplikace je:
