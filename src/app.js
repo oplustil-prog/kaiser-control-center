@@ -210,6 +210,9 @@ const HOME_SUBTITLE = "Provozní systém pro odpady, vozidla a trasy";
 const LOGIN_SUBTITLE = "Přihlášení do interního provozního systému";
 const FEEDBACK_ROUTE = "/pripominky";
 const FLEET_ROUTE = "/vozovy-park";
+const COLLECTION_ROUTES_ROUTE = "/trasy-svozu";
+const COLLECTION_ROUTES_MODULE_KEY = "collection-routes";
+const COLLECTION_ROUTES_PHASE_NOTICE = "Fáze 1A nevytváří ostré trasy, neposílá SMS/e-maily a nespouští automatizace.";
 const DESIGN_NEUMORPHIC_ROUTE = "/design/neumorphic";
 const FLEET_ACTION_WAITING_MESSAGES = {
   addVehicle: "Čeká na API pro přidání vozidla.",
@@ -570,6 +573,19 @@ const moduleRulesState = {
   searchQuery: "",
   typeFilter: "all",
   statusFilter: "all"
+};
+const collectionRoutesPilotState = {
+  loaded: false,
+  loading: false,
+  importLoading: false,
+  apiStatus: "waiting",
+  batches: [],
+  sites: [],
+  issues: [],
+  selectedSiteId: "",
+  selectedSiteDetail: null,
+  message: "",
+  error: ""
 };
 const dataBoxState = {
   loaded: false,
@@ -5075,6 +5091,17 @@ function moduleRuleUserLabel(userId) {
   return user?.name || cleaned;
 }
 
+function moduleRuleModuleLabel(moduleKey) {
+  const key = String(moduleKey || "").trim();
+  if (key === "absence") {
+    return "Dovolená / Nemoc";
+  }
+  if (key === COLLECTION_ROUTES_MODULE_KEY) {
+    return "Trasy svozu";
+  }
+  return key || "-";
+}
+
 function moduleRuleJsonPreview(value) {
   if (!value) {
     return "{}";
@@ -5316,7 +5343,7 @@ function moduleRulesAutomationRow(item, canManage) {
         <small>${escapeHtml(item.description)}</small>
       </td>
       <td>${escapeHtml(moduleRuleTypeLabel(item.type))}</td>
-      <td>${escapeHtml(item.moduleKey === "absence" ? "Dovolená / Nemoc" : item.moduleKey)}</td>
+      <td>${escapeHtml(moduleRuleModuleLabel(item.moduleKey))}</td>
       <td><span class="module-rules-status-chip module-rules-status-chip--${escapeHtml(item.status)}">${escapeHtml(moduleRuleStatusLabel(item.status))}</span></td>
       <td>${escapeHtml(trigger || "-")}</td>
       <td>${escapeHtml(formatDateTime(item.lastRunAt) || "-")}</td>
@@ -5405,9 +5432,10 @@ function moduleRulesAutomationPanel({
   moduleName,
   user,
   description = "",
-  cloudNote = ""
+  cloudNote = "",
+  readOnly = false
 }) {
-  const canManage = hasPermission(user, moduleKey, "manage") || isFullAccessRole(user);
+  const canManage = !readOnly && (hasPermission(user, moduleKey, "manage") || isFullAccessRole(user));
   const statusLabel = moduleRulesState.loading
     ? "Načítám cloud API"
     : moduleRulesState.apiStatus === "ready"
@@ -5427,9 +5455,16 @@ function moduleRulesAutomationPanel({
   const runnerSummary = moduleAutomationRunnerRunSummary();
   const latestRunnerRun = runnerSummary.latestRun;
   const runnerStatusLabel = moduleAutomationRunnerRunStatusLabel(runnerSummary.latestStatus);
+  const loadingRulesText = readOnly ? "Načítám cloud data..." : "Načítám ostrá cloud data...";
+  const emptyRulesText = readOnly
+    ? "Žádná pravidla nejsou pro tento read-only pilot uložená v cloud DB."
+    : "Žádná ostrá pravidla nejsou uložená v cloud DB.";
+  const readyRulesText = readOnly
+    ? "Read-only evidence pravidel je načtená z cloud API."
+    : "Ostrá pravidla jsou načtená z cloud DB.";
   const rows = rules.length
     ? rules.map((item) => moduleRulesAutomationRow(item, canManage)).join("")
-    : `<tr><td colspan="11">${moduleRulesState.loading ? "Načítám ostrá cloud data..." : "Žádná ostrá pravidla nejsou uložená v cloud DB."}</td></tr>`;
+    : `<tr><td colspan="11">${moduleRulesState.loading ? loadingRulesText : emptyRulesText}</td></tr>`;
 
   return `
     <section class="module-rules-panel absence-panel" aria-labelledby="module-rules-title" data-module-rules-panel>
@@ -5530,7 +5565,7 @@ function moduleRulesAutomationPanel({
       </div>
 
       <div class="module-rules-empty module-rules-empty--cloud" role="status">
-        <strong>${moduleRulesState.apiStatus === "ready" ? "Ostrá pravidla jsou načtená z cloud DB." : "Cloud API pro pravidla není dostupné."}</strong>
+        <strong>${moduleRulesState.apiStatus === "ready" ? readyRulesText : "Cloud API pro pravidla není dostupné."}</strong>
         <span>${escapeHtml(cloudNote || "Cloudový runner spouští automatizace pouze v bezpečném režimu podle nastavení modulu. Ostré akce musí být výslovně povolené další fází.")}</span>
         ${latestRunnerRun ? `
           <small>
@@ -9655,6 +9690,323 @@ function vehicleTrackingPage(moduleItem, user, context = {}) {
   `;
 }
 
+function collectionRoutesCanViewPilot(user) {
+  const role = normalizeRole(user?.role);
+  return ["admin", "management", "dispecer", "readonly"].includes(role) &&
+    hasPermission(user, COLLECTION_ROUTES_MODULE_KEY, "view");
+}
+
+function collectionRoutesCanRunImportPreview(user) {
+  return normalizeRole(user?.role) === "admin";
+}
+
+function collectionRoutesApiStatusLabel(status) {
+  if (status === "ready") {
+    return "Cloud API aktivní";
+  }
+  if (status === "not_configured") {
+    return "Vistos API není nakonfigurováno";
+  }
+  return "Čeká na data";
+}
+
+function collectionRoutesLatestBatch() {
+  return collectionRoutesPilotState.batches[0] || null;
+}
+
+function collectionRoutesEmptyState(title, text) {
+  return `
+    <div class="collection-routes-empty" role="status">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(text)}</p>
+    </div>
+  `;
+}
+
+function collectionRoutesStatGrid() {
+  const latestBatch = collectionRoutesLatestBatch();
+  return `
+    <div class="collection-routes-stats" aria-label="Stav Fáze 1A">
+      <article><span>Stav</span><strong>Read-only pilot</strong></article>
+      <article><span>Stanoviště</span><strong>${collectionRoutesPilotState.sites.length}</strong></article>
+      <article><span>Problémy dat</span><strong>${collectionRoutesPilotState.issues.length}</strong></article>
+      <article><span>Poslední preview</span><strong>${escapeHtml(formatDateTime(latestBatch?.createdAt) || "čeká")}</strong></article>
+      <article><span>Ostré trasy</span><strong>NE</strong></article>
+      <article><span>Automatizace</span><strong>NE</strong></article>
+    </div>
+  `;
+}
+
+function collectionRoutesDashboardSection() {
+  return `
+    <section class="collection-routes-panel" id="collection-routes-dashboard" aria-labelledby="collection-routes-dashboard-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Dashboard</p>
+          <h2 id="collection-routes-dashboard-title">Dashboard Trasy svozu</h2>
+          <p>Bezpečný přehled Fáze 1A. Zatím nevznikají žádné denní trasy ani optimalizace.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">Read-only pilot</span>
+      </div>
+      ${collectionRoutesStatGrid()}
+      <div class="collection-routes-phase-note">
+        <strong>${COLLECTION_ROUTES_PHASE_NOTICE}</strong>
+        <span>Vistos/T-Cars/Google/SMS/e-mail se ve Fázi 1A nepoužívají k ostrým akcím.</span>
+      </div>
+    </section>
+  `;
+}
+
+function collectionRoutesImportBatchCards() {
+  const batches = collectionRoutesPilotState.batches;
+  if (!batches.length) {
+    return collectionRoutesEmptyState(
+      "Zatím není uložený žádný import preview.",
+      "Spuštění preview vytvoří pouze auditní záznam. Pokud Vistos API není nakonfigurované, uloží se bezpečný stav čeká na konfiguraci."
+    );
+  }
+
+  return `
+    <div class="collection-routes-list">
+      ${batches.map((batch) => `
+        <article class="collection-routes-list-item">
+          <div>
+            <strong>${escapeHtml(batch.sourceMode || "api-discovery")}</strong>
+            <span>${escapeHtml(formatDateTime(batch.createdAt) || "-")} · ${escapeHtml(batch.status || "-")}</span>
+          </div>
+          <p>${escapeHtml(batch.message || "Bez zprávy")}</p>
+          <dl>
+            <div><dt>Řádky</dt><dd>${escapeHtml(batch.rowCount ?? 0)}</dd></div>
+            <div><dt>Problémy</dt><dd>${escapeHtml(batch.issueCount ?? 0)}</dd></div>
+            <div><dt>API stav</dt><dd>${escapeHtml(batch.apiStatus || "-")}</dd></div>
+          </dl>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function collectionRoutesImportSection(user) {
+  const canImport = collectionRoutesCanRunImportPreview(user);
+  return `
+    <section class="collection-routes-panel" id="collection-routes-import" aria-labelledby="collection-routes-import-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Vistos</p>
+          <h2 id="collection-routes-import-title">Import / sync preview z Vistosu</h2>
+          <p>Discovery Fáze 1A pouze auditovatelně ověří stav konfigurace. Nevytváří zákazníky, stanoviště ani trasy.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">${escapeHtml(collectionRoutesApiStatusLabel(collectionRoutesPilotState.apiStatus))}</span>
+      </div>
+
+      ${canImport ? `
+        <form class="collection-routes-import-form" data-collection-routes-import-preview-form>
+          <button class="primary-action" type="submit" ${collectionRoutesPilotState.importLoading ? "disabled" : ""}>
+            ${collectionRoutesPilotState.importLoading ? "Spouštím preview..." : "Spustit bezpečný discovery preview"}
+          </button>
+        </form>
+      ` : `
+        <p class="module-feedback__notice">Import preview může spustit pouze admin. Tato role má v pilotu jen čtení.</p>
+      `}
+
+      ${collectionRoutesPilotState.message ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.message)}</p>` : ""}
+      ${collectionRoutesPilotState.error ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.error)}</p>` : ""}
+      ${collectionRoutesImportBatchCards()}
+    </section>
+  `;
+}
+
+function collectionRoutesSiteCards() {
+  const sites = collectionRoutesPilotState.sites;
+  if (!sites.length) {
+    return collectionRoutesEmptyState(
+      "Čeká na Vistos data.",
+      "V pilotu nejsou vložená žádná vymyšlená provozní data zákazníků. Stanoviště se zobrazí až po schváleném import preview z reálného zdroje."
+    );
+  }
+
+  return `
+    <div class="collection-routes-list collection-routes-list--sites">
+      ${sites.map((site) => `
+        <article class="collection-routes-list-item">
+          <div>
+            <strong>${escapeHtml(site.siteName || site.customerName || "Stanoviště")}</strong>
+            <span>${escapeHtml(site.addressText || "Adresa čeká na Vistos")} · ${escapeHtml(site.locationQuality || "missing")}</span>
+          </div>
+          <p>${escapeHtml(site.customerName || "Zákazník bude načtený z Vistos.")}</p>
+          <button class="secondary-link" type="button" data-collection-site-select="${escapeHtml(site.id)}">Detail stanoviště</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function collectionRoutesSitesSection() {
+  return `
+    <section class="collection-routes-panel" id="collection-routes-sites" aria-labelledby="collection-routes-sites-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Stanoviště</p>
+          <h2 id="collection-routes-sites-title">Seznam stanovišť</h2>
+          <p>1 položka = 1 svozové místo / stanoviště, ne zákazník a ne nádoba.</p>
+        </div>
+      </div>
+      ${collectionRoutesSiteCards()}
+    </section>
+  `;
+}
+
+function collectionRoutesLocationIssuesSection() {
+  const issues = collectionRoutesPilotState.issues;
+  return `
+    <section class="collection-routes-panel" id="collection-routes-location-issues" aria-labelledby="collection-routes-location-issues-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">K doplnění polohy</p>
+          <h2 id="collection-routes-location-issues-title">K doplnění polohy</h2>
+          <p>Nejasné adresy a chybějící GPS se nesmí vydávat za pravdivou polohu.</p>
+        </div>
+      </div>
+      ${issues.length ? `
+        <div class="collection-routes-list">
+          ${issues.map((issue) => `
+            <article class="collection-routes-list-item">
+              <div>
+                <strong>${escapeHtml(issue.issueType || "data-quality")}</strong>
+                <span>${escapeHtml(issue.severity || "info")} · ${escapeHtml(formatDateTime(issue.createdAt) || "-")}</span>
+              </div>
+              <p>${escapeHtml(issue.message || "Bez popisu problému.")}</p>
+            </article>
+          `).join("")}
+        </div>
+      ` : collectionRoutesEmptyState(
+        "Žádné položky k doplnění polohy.",
+        "Po reálném import preview se zde objeví nejasné adresy a stanoviště bez potvrzené polohy."
+      )}
+    </section>
+  `;
+}
+
+function collectionRoutesSelectedSitePayload() {
+  const detail = collectionRoutesPilotState.selectedSiteDetail;
+  if (detail?.site) {
+    return detail;
+  }
+
+  const site = collectionRoutesPilotState.sites.find((item) => item.id === collectionRoutesPilotState.selectedSiteId) ||
+    collectionRoutesPilotState.sites[0] ||
+    null;
+  return site ? { site, services: [], containers: [], issues: [] } : null;
+}
+
+function collectionRoutesSiteDetailSection() {
+  const payload = collectionRoutesSelectedSitePayload();
+  if (!payload?.site) {
+    return `
+      <section class="collection-routes-panel" id="collection-routes-site-detail" aria-labelledby="collection-routes-site-detail-title">
+        <div class="collection-routes-panel__head">
+          <div>
+            <p class="module-feedback__eyebrow">Detail</p>
+            <h2 id="collection-routes-site-detail-title">Detail stanoviště</h2>
+            <p>Detail se zobrazí po načtení reálného stanoviště z Vistos preview.</p>
+          </div>
+        </div>
+        ${collectionRoutesEmptyState("Čeká na data.", "Žádné stanoviště zatím není dostupné.")}
+      </section>
+    `;
+  }
+
+  const { site, services = [], containers = [], issues = [] } = payload;
+  return `
+    <section class="collection-routes-panel" id="collection-routes-site-detail" aria-labelledby="collection-routes-site-detail-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Detail</p>
+          <h2 id="collection-routes-site-detail-title">Detail stanoviště</h2>
+          <p>${escapeHtml(site.siteName || site.customerName || "Stanoviště")}</p>
+        </div>
+      </div>
+      <div class="collection-routes-detail-grid">
+        <article><span>Zákazník</span><strong>${escapeHtml(site.customerName || "-")}</strong></article>
+        <article><span>Adresa</span><strong>${escapeHtml(site.addressText || "-")}</strong></article>
+        <article><span>Kvalita polohy</span><strong>${escapeHtml(site.locationQuality || "missing")}</strong></article>
+        <article><span>Služby</span><strong>${services.length}</strong></article>
+        <article><span>Nádoby</span><strong>${containers.length}</strong></article>
+        <article><span>Problémy</span><strong>${issues.length}</strong></article>
+      </div>
+    </section>
+  `;
+}
+
+function collectionRoutesRulesSection(user) {
+  ensureModuleRulesData(COLLECTION_ROUTES_MODULE_KEY);
+  return moduleRulesAutomationPanel({
+    moduleKey: COLLECTION_ROUTES_MODULE_KEY,
+    moduleName: "Trasy svozu",
+    user,
+    description: "Read-only pilot pravidel a automatizací modulu Trasy svozu. Nejde o ostré cloud automatizace pro svoz.",
+    cloudNote: "Fáze 1A pouze čte evidenci pravidel. Nevzniká žádný runner, cron ani queue pro Trasy svozu.",
+    readOnly: true
+  });
+}
+
+function collectionRoutesModulePage(moduleItem, user, isDashboard = false) {
+  if (!collectionRoutesCanViewPilot(user)) {
+    return forbiddenPage(user);
+  }
+
+  const title = isDashboard ? "Dashboard Trasy svozu" : "Trasy svozu";
+  return `
+    <main class="app-shell module-page module-theme-scope collection-routes-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="module-detail collection-routes-hero" aria-labelledby="collection-routes-title">
+        <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
+        <div class="module-detail__body">
+          <div class="module-detail__eyebrow">SMART ODPADY / TRASY SVOZU</div>
+          <h1 id="collection-routes-title">${escapeHtml(title)}</h1>
+          <p>Bezpečný pilot pro Vistos discovery, import preview a kontrolu stanovišť v oblasti Brno / Blansko.</p>
+          <div class="module-detail__status">
+            <span>Stav</span>
+            <strong>Read-only pilot</strong>
+          </div>
+        </div>
+      </section>
+
+      <div class="collection-routes-warning" role="status">
+        <strong>${COLLECTION_ROUTES_PHASE_NOTICE}</strong>
+        <span>Žádná provozní data nejsou uložená v prohlížeči a žádná vymyšlená data nejsou zobrazena jako realita.</span>
+      </div>
+
+      <nav class="collection-routes-tabs" aria-label="Sekce Tras svozu">
+        <a href="#collection-routes-dashboard">Dashboard</a>
+        <a href="#collection-routes-import">Import preview</a>
+        <a href="#collection-routes-sites">Seznam stanovišť</a>
+        <a href="#collection-routes-location-issues">K doplnění polohy</a>
+        <a href="#collection-routes-site-detail">Detail stanoviště</a>
+        <a href="#module-rules-title">Seznam pravidel a automatizace</a>
+      </nav>
+
+      ${collectionRoutesPilotState.loading ? `<p class="module-feedback__notice">Načítám pilotní data z API...</p>` : ""}
+      ${collectionRoutesDashboardSection()}
+      ${collectionRoutesImportSection(user)}
+      ${collectionRoutesSitesSection()}
+      ${collectionRoutesLocationIssuesSection()}
+      ${collectionRoutesSiteDetailSection()}
+      ${collectionRoutesRulesSection(user)}
+      ${moduleFeedbackBoxFor(moduleItem, user, {
+        moduleId: "trasy-svozu",
+        moduleName: "Trasy svozu",
+        placeholder: "Např. chybí mapování Vistos polí, filtr stanovišť nebo pravidlo četnosti…"
+      })}
+    </main>
+  `;
+}
+
 function dataBoxStatusLabel(value) {
   const labels = {
     inactive: "neaktivni",
@@ -10013,6 +10365,10 @@ function modulePage(moduleItem, user, isDashboard = false) {
 
   if (moduleItem.id === "vehicle-tracking") {
     return vehicleTrackingPage(moduleItem, user);
+  }
+
+  if (moduleItem.id === COLLECTION_ROUTES_MODULE_KEY) {
+    return collectionRoutesModulePage(moduleItem, user, isDashboard);
   }
 
   if (moduleItem.id === DATA_BOX_MODULE_KEY) {
@@ -10840,6 +11196,100 @@ async function apiJson(path, options = {}) {
   }
 
   return payload;
+}
+
+async function loadCollectionRoutesPilot(options = {}) {
+  if (!authState.user || collectionRoutesPilotState.loading || !collectionRoutesCanViewPilot(currentUser())) {
+    return;
+  }
+
+  collectionRoutesPilotState.loading = true;
+  collectionRoutesPilotState.error = "";
+
+  try {
+    const [batchesResult, sitesResult, issuesResult] = await Promise.all([
+      apiJson("/api/collection-routes/import-batches?limit=20"),
+      apiJson("/api/collection-routes/sites?limit=100"),
+      apiJson("/api/collection-routes/location-issues?limit=100")
+    ]);
+    collectionRoutesPilotState.batches = Array.isArray(batchesResult.batches) ? batchesResult.batches : [];
+    collectionRoutesPilotState.sites = Array.isArray(sitesResult.sites) ? sitesResult.sites : [];
+    collectionRoutesPilotState.issues = Array.isArray(issuesResult.issues) ? issuesResult.issues : [];
+    collectionRoutesPilotState.apiStatus = batchesResult.apiStatus || sitesResult.apiStatus || issuesResult.apiStatus || "ready";
+    collectionRoutesPilotState.loaded = true;
+  } catch (error) {
+    collectionRoutesPilotState.batches = [];
+    collectionRoutesPilotState.sites = [];
+    collectionRoutesPilotState.issues = [];
+    collectionRoutesPilotState.apiStatus = error.payload?.apiStatus || "waiting";
+    collectionRoutesPilotState.error = error.payload?.error || "Pilotní data Tras svozu se teď nepodařilo načíst.";
+    collectionRoutesPilotState.loaded = false;
+  } finally {
+    collectionRoutesPilotState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
+async function submitCollectionRoutesImportPreview(form) {
+  const user = currentUser();
+
+  if (!collectionRoutesCanRunImportPreview(user)) {
+    collectionRoutesPilotState.error = "Import preview může spustit pouze admin.";
+    collectionRoutesPilotState.message = "";
+    render();
+    return;
+  }
+
+  collectionRoutesPilotState.importLoading = true;
+  collectionRoutesPilotState.error = "";
+  collectionRoutesPilotState.message = "";
+  render();
+
+  try {
+    const result = await apiJson("/api/collection-routes/import-preview", {
+      method: "POST",
+      body: JSON.stringify({ source: "vistos-api-discovery" })
+    });
+    const summary = result.preview?.summary || {};
+    collectionRoutesPilotState.message = summary.message || "Import preview bylo auditovaně spuštěné. Ostré trasy nebyly vytvořené.";
+    collectionRoutesPilotState.apiStatus = result.apiStatus || result.preview?.apiStatus || "waiting";
+    await loadCollectionRoutesPilot({ renderAfter: false });
+  } catch (error) {
+    collectionRoutesPilotState.error = error.payload?.error || error.message || "Import preview se nepodařilo spustit.";
+    collectionRoutesPilotState.message = "";
+  } finally {
+    collectionRoutesPilotState.importLoading = false;
+    render();
+  }
+}
+
+async function selectCollectionRouteSite(siteId) {
+  const id = String(siteId || "").trim();
+  if (!id) {
+    return;
+  }
+
+  collectionRoutesPilotState.selectedSiteId = id;
+  collectionRoutesPilotState.error = "";
+  render();
+
+  try {
+    const result = await apiJson(`/api/collection-routes/sites/${encodeURIComponent(id)}`);
+    collectionRoutesPilotState.selectedSiteDetail = {
+      site: result.site,
+      services: Array.isArray(result.services) ? result.services : [],
+      containers: Array.isArray(result.containers) ? result.containers : [],
+      issues: Array.isArray(result.issues) ? result.issues : []
+    };
+  } catch (error) {
+    collectionRoutesPilotState.error = error.payload?.error || "Detail stanoviště se teď nepodařilo načíst.";
+    collectionRoutesPilotState.selectedSiteDetail = null;
+  }
+
+  render();
 }
 
 function resetDataBoxState() {
@@ -12618,6 +13068,9 @@ function renderAuthenticatedApp(user) {
     if (moduleItem.id === "fleet") {
       loadFleetVehicles();
     }
+    if (moduleItem.id === COLLECTION_ROUTES_MODULE_KEY) {
+      void loadCollectionRoutesPilot();
+    }
     return;
   }
 
@@ -12632,6 +13085,9 @@ function renderAuthenticatedApp(user) {
     }
     if (moduleItem.id === "fleet") {
       loadFleetVehicles();
+    }
+    if (moduleItem.id === COLLECTION_ROUTES_MODULE_KEY) {
+      void loadCollectionRoutesPilot();
     }
     return;
   }
@@ -14331,6 +14787,13 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  const collectionRoutesImportForm = event.target.closest("[data-collection-routes-import-preview-form]");
+  if (collectionRoutesImportForm) {
+    event.preventDefault();
+    await submitCollectionRoutesImportPreview(collectionRoutesImportForm);
+    return;
+  }
+
   const absenceRequestForm = event.target.closest("[data-absence-request-form]");
   if (absenceRequestForm) {
     event.preventDefault();
@@ -14670,6 +15133,13 @@ document.addEventListener("click", async (event) => {
   }
 
   if (handleVehicleTrackingWimSelectEvent(event)) {
+    return;
+  }
+
+  const collectionSiteSelect = event.target.closest("[data-collection-site-select]");
+  if (collectionSiteSelect) {
+    event.preventDefault();
+    await selectCollectionRouteSite(collectionSiteSelect.dataset.collectionSiteSelect || "");
     return;
   }
 

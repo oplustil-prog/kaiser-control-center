@@ -21,6 +21,17 @@ function moduleRulesError(error) {
   return json({ error: "Pravidla a automatizace se teď nepodařilo načíst nebo uložit.", apiStatus: "waiting" }, 500);
 }
 
+function moduleRulesReadOnlyPilotResponse(key) {
+  if (key !== "collection-routes") {
+    return null;
+  }
+
+  return json({
+    error: "Trasy svozu jsou ve Fázi 1A pouze read-only pilot. Pravidla ani automatizace se teď nesmí měnit.",
+    apiStatus: "ready"
+  }, 403);
+}
+
 export async function onRequestGet({ request, env, params }) {
   let key = "";
   try {
@@ -53,6 +64,11 @@ export async function onRequestPost({ request, env, params }) {
   const { user, response } = await requireUserPermission(env, request, key, "manage");
   if (response) {
     return response;
+  }
+
+  const readOnlyPilotResponse = moduleRulesReadOnlyPilotResponse(key);
+  if (readOnlyPilotResponse) {
+    return readOnlyPilotResponse;
   }
 
   try {

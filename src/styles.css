@@ -1444,6 +1444,183 @@ h1 {
   color: var(--ink);
 }
 
+.collection-routes-page {
+  gap: 18px;
+}
+
+.collection-routes-hero {
+  border-color: rgba(117, 189, 37, 0.2);
+}
+
+.collection-routes-warning,
+.collection-routes-phase-note {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid rgba(117, 189, 37, 0.18);
+  border-radius: 16px;
+  background: #f7fbf2;
+  color: var(--steel);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.collection-routes-warning strong,
+.collection-routes-phase-note strong {
+  color: var(--ink);
+}
+
+.collection-routes-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.collection-routes-tabs a {
+  min-height: 38px;
+  padding: 10px 12px;
+  border: 1px solid rgba(66, 80, 74, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.collection-routes-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(66, 80, 74, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 48px rgba(37, 50, 39, 0.08);
+}
+
+.collection-routes-panel__head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.collection-routes-panel h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+}
+
+.collection-routes-panel p {
+  margin: 4px 0 0;
+  color: var(--steel);
+  line-height: 1.45;
+}
+
+.collection-routes-stats,
+.collection-routes-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.collection-routes-stats article,
+.collection-routes-detail-grid article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(117, 189, 37, 0.14);
+  border-radius: 14px;
+  background: #fbfdf8;
+}
+
+.collection-routes-stats span,
+.collection-routes-detail-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.collection-routes-stats strong,
+.collection-routes-detail-grid strong {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.collection-routes-import-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.collection-routes-list {
+  display: grid;
+  gap: 10px;
+}
+
+.collection-routes-list--sites {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.collection-routes-list-item,
+.collection-routes-empty {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(66, 80, 74, 0.1);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.collection-routes-list-item > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.collection-routes-list-item strong,
+.collection-routes-empty strong {
+  color: var(--ink);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.collection-routes-list-item span,
+.collection-routes-empty p {
+  color: var(--steel);
+  line-height: 1.4;
+}
+
+.collection-routes-list-item p {
+  margin: 0;
+}
+
+.collection-routes-list-item dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.collection-routes-list-item dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.collection-routes-list-item dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .tracking-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -7725,6 +7902,34 @@ body:has(.ai-assistant-promo-modal) {
 
   .fleet-import-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collection-routes-panel__head,
+  .collection-routes-import-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .collection-routes-stats,
+  .collection-routes-detail-grid,
+  .collection-routes-list--sites {
+    grid-template-columns: 1fr;
+  }
+
+  .collection-routes-list-item dl {
+    grid-template-columns: 1fr;
+  }
+
+  .collection-routes-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .collection-routes-tabs a,
+  .collection-routes-import-form .primary-action {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
   }
 
   .fleet-tabs {

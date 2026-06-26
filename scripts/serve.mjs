@@ -62,6 +62,9 @@ let mockAbsenceRequests = [];
 let mockModuleFeedback = [];
 let mockNotificationLogs = [];
 let mockAssistantDailyPromos = new Map();
+let mockCollectionRouteBatches = [];
+let mockCollectionRouteIssues = [];
+let mockCollectionRouteSites = [];
 
 const mockVehicleWimSites = [
   ["wim-d0-0781-modletice-jesenice", "D0", "km 78,1 / cca km 79", "mezi Modleticemi a Jesenici", "Cernosice", "vpravo + vlevo", "active", "v provozu", 49.9706, 14.5288, 2],
@@ -1532,6 +1535,194 @@ async function handleApi(request, response) {
         apiStatus: "waiting"
       });
     }
+    return true;
+  }
+
+  if (url.pathname === "/api/collection-routes/import-preview" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    if (normalizeRole(user.role) !== "admin") {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const batch = {
+      id: `collection-import-batch-${randomUUID()}`,
+      source: "vistos",
+      sourceMode: "api-discovery",
+      status: "waiting_configuration",
+      apiStatus: "not_configured",
+      message: "Vistos API není nakonfigurováno",
+      rowCount: 0,
+      issueCount: 1,
+      createdByUserId: user.id,
+      createdAt: now,
+      finishedAt: now,
+      metadata: {
+        phase: "1A",
+        mode: "read-only-pilot",
+        createsOperationalRoutes: false,
+        sendsEmailOrSms: false,
+        startsAutomation: false
+      }
+    };
+    const issue = {
+      id: `collection-data-issue-${randomUUID()}`,
+      batchId: batch.id,
+      siteId: "",
+      issueType: "vistos-api",
+      severity: "warning",
+      message: "Vistos API není nakonfigurováno",
+      status: "open",
+      createdAt: now,
+      resolvedAt: ""
+    };
+    mockCollectionRouteBatches.unshift(batch);
+    mockCollectionRouteIssues.unshift(issue);
+    sendJson(response, 200, {
+      preview: {
+        batch,
+        summary: {
+          status: batch.status,
+          message: batch.message,
+          rowCount: 0,
+          issueCount: 1,
+          createsOperationalRoutes: false,
+          sendsEmailOrSms: false,
+          startsAutomation: false
+        },
+        apiStatus: "not_configured"
+      },
+      apiStatus: "not_configured"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/collection-routes/import-batches" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { batches: mockCollectionRouteBatches.slice(0, 20), apiStatus: "ready" });
+    return true;
+  }
+
+  const collectionBatchMatch = url.pathname.match(/^\/api\/collection-routes\/import-batches\/([^/]+)$/);
+  if (collectionBatchMatch && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    const batch = mockCollectionRouteBatches.find((item) => item.id === decodeURIComponent(collectionBatchMatch[1]));
+    if (!batch) {
+      sendJson(response, 404, { error: "Importní batch nebyl nalezen." });
+      return true;
+    }
+    sendJson(response, 200, { batch, rows: [], apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/collection-routes/sites" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { sites: mockCollectionRouteSites, apiStatus: "ready" });
+    return true;
+  }
+
+  const collectionSiteMatch = url.pathname.match(/^\/api\/collection-routes\/sites\/([^/]+)$/);
+  if (collectionSiteMatch && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    const site = mockCollectionRouteSites.find((item) => item.id === decodeURIComponent(collectionSiteMatch[1]));
+    if (!site) {
+      sendJson(response, 404, { error: "Stanoviště nebylo nalezeno." });
+      return true;
+    }
+    sendJson(response, 200, { site, services: [], containers: [], issues: [], apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/collection-routes/location-issues" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { issues: mockCollectionRouteIssues, apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/modules/collection-routes/rules" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { rules: [], apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/modules/collection-routes/rules" && request.method !== "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    sendJson(response, 403, {
+      error: "Trasy svozu jsou ve Fázi 1A pouze read-only pilot. Pravidla ani automatizace se teď nesmí měnit.",
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/modules/collection-routes/automation-runs" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    sendJson(response, 200, { runs: [], runnerRuns: [], apiStatus: "ready" });
     return true;
   }
 

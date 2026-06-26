@@ -117,7 +117,6 @@ export const ROLE_PERMISSIONS = {
     ...actions("fleet", ["view"]),
     ...actions("vehicle-tracking", ["view"]),
     ...actions("driver-reports", ["view", "create"]),
-    ...actions("collection-routes", ["view"]),
     ...actions("absence", ["view", "create"]),
     ...actions("feedback", ["view", "create"])
   ],

@@ -22,6 +22,17 @@ function moduleRulesError(error) {
   return json({ error: "Pravidlo nebo automatizace se teď nepodařilo aktivovat.", apiStatus: "waiting" }, 500);
 }
 
+function moduleRulesReadOnlyPilotResponse(route) {
+  if (route.moduleKey !== "collection-routes") {
+    return null;
+  }
+
+  return json({
+    error: "Trasy svozu jsou ve Fázi 1A pouze read-only pilot. Pravidla ani automatizace se teď nesmí aktivovat.",
+    apiStatus: "ready"
+  }, 403);
+}
+
 export async function onRequestPost({ request, env, params }) {
   let route = null;
   try {
@@ -33,6 +44,11 @@ export async function onRequestPost({ request, env, params }) {
   const { user, response } = await requireUserPermission(env, request, route.moduleKey, "manage");
   if (response) {
     return response;
+  }
+
+  const readOnlyPilotResponse = moduleRulesReadOnlyPilotResponse(route);
+  if (readOnlyPilotResponse) {
+    return readOnlyPilotResponse;
   }
 
   try {
