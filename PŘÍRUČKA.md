@@ -142,6 +142,169 @@ Musí rozlišovat:
 - neověřeno
 - domněnka
 
+### 9. Povinná kontrola provozní reality
+
+Před každou implementací musí Codex/vývojář jasně rozlišit:
+- UI / vzhled
+- data
+- backend/API
+- databázi
+- cloud běh / worker / cron
+- oprávnění
+- audit/log
+- notifikace
+- produkční nasazení
+- co bez další fáze nebude fungovat
+
+Codex/vývojář nesmí vytvořit dojem, že funkce funguje, pokud existuje pouze UI.
+
+Před implementací musí v návrhu vždy odpovědět na otázky:
+- Je to jen UI, nebo skutečně funkční proces?
+- Kde budou data uložená?
+- Existuje pro to DB tabulka?
+- Existuje pro to API?
+- Existuje backendová logika?
+- Pokud je to automatizace, kde se spouští?
+- Běží to v cloudu nezávisle na lokálním PC?
+- Má to worker/cron/queue?
+- Má to audit log?
+- Má to log posledního běhu?
+- Má to oprávnění ověřené backendem?
+- Co se stane, když nikdo neotevře aplikaci?
+- Co se stane, když frontend neběží?
+- Co se stane, když API selže?
+- Co bude fungovat po této fázi?
+- Co nebude fungovat po této fázi?
+- Jaká další fáze je nutná, aby to bylo opravdu ostré?
+
+Každá nová funkce musí být v návrhu označená jedním z těchto stavů:
+
+1. `UI návrh`
+   - pouze vzhled
+   - bez ostrých dat
+   - bez backendu
+   - bez produkční funkčnosti
+
+2. `Read-only pilot`
+   - zobrazuje data nebo návrhy
+   - nic nemění
+   - může být bez ostrého backendu
+   - musí být jasně označený v UI
+
+3. `Funkční přes API`
+   - čte/zapisuje přes backend/API
+   - data jsou v cloud DB
+   - oprávnění ověřuje backend
+
+4. `Cloud automatizace`
+   - běží sama v cloudu
+   - má worker/cron/queue
+   - má log běhů
+   - nezávisí na lokálním PC ani browseru
+
+5. `Produkčně ověřeno`
+   - nasazeno
+   - ověřeno na produkci
+   - jasně uvedená URL/verze/commit/buildMeta
+
+Zakázané formulace bez upřesnění:
+- `hotovo`
+- `automatizace hotová`
+- `funguje`
+- `napojeno`
+- `připraveno`
+- `běží`
+
+Pokud Codex/vývojář tyto formulace použije, musí vždy dodat:
+- v jakém rozsahu
+- zda jde o UI, API, DB, cloud runner nebo produkční stav
+- co ještě nefunguje
+- co je neověřené
+
+Povinný závěrečný report musí obsahovat:
+
+#### Stav funkce
+- UI návrh: ANO/NE
+- Read-only pilot: ANO/NE
+- Funkční přes API: ANO/NE
+- Cloud automatizace: ANO/NE
+- Produkčně ověřeno: ANO/NE
+
+#### Co opravdu funguje
+Konkrétní seznam ověřených částí.
+
+#### Co zatím nefunguje
+Konkrétní seznam chybějících nebo neověřených částí.
+
+#### Na čem je to závislé
+Například:
+- cloud DB
+- API
+- worker
+- cron
+- secrets
+- oprávnění
+- ruční spuštění
+- OTP
+- produkční binding
+
+#### Riziko falešného dojmu
+Codex/vývojář musí výslovně napsat, zda hrozí, že UI vypadá jako hotová funkce, ale ve skutečnosti ještě nemá backend/cloud část.
+
+Příklad správného reportu:
+
+```text
+Záložka je hotová pouze jako read-only pilot. Nejde o ostré automatizace. Automatizace se zatím nikde nespouští. Neexistuje cloud runner ani cron. Pro produkční funkčnost je potřeba Fáze 2.
+```
+
+Příklad špatného reportu:
+
+```text
+Automatizace hotové.
+```
+
+### 10. Povinná otázka u automatizací
+
+Kdykoli zadání obsahuje slovo nebo význam:
+- automatizace
+- automaticky
+- hlídat
+- upozornit
+- připomenout
+- poslat e-mail
+- poslat SMS
+- pravidelně
+- denně
+- po termínu
+- za 24 hodin
+
+Codex/vývojář musí před implementací odpovědět:
+
+1. Kde přesně se to bude spouštět?
+2. Je to cloud, backend, worker, cron, queue, nebo frontend?
+3. Poběží to bez otevřeného PC / bez otevřené aplikace / bez lokálního běhu vývojáře?
+4. Poběží to, když nikdo nemá otevřenou aplikaci?
+5. Kde se uloží výsledek běhu?
+6. Jak zabrání duplicitám?
+7. Jak pozná poslední běh?
+8. Kde je audit/log?
+9. Kdo má oprávnění to měnit?
+10. Co se stane při chybě?
+11. Co je pouze návrh a co je ostrá automatizace?
+
+Pokud automatizace neběží v cloudu, nesmí se označit jako hotová automatizace.
+
+Pokud chybí worker/cron/queue nebo jiný cloudový runner, musí být funkce označená jako nehotová, `UI návrh`, `Read-only pilot` nebo návrh další fáze.
+
+Zakázané:
+- neoznačit UI pilot jako nehotovou nebo omezenou funkci
+- nazvat automatizací něco, co běží jen ve frontendu
+- tvrdit `funguje`, pokud funguje jen vizuální část
+- tvrdit `hotovo`, pokud chybí DB/API/cloud runner
+- skrýt omezení do poznámky na konec
+- nechat Radima/Martina domýšlet technické dopady
+- implementovat bez vysvětlení, co nebude fungovat
+
 ## 2. Ukládání dat
 
 Aplikace běží a ukládá data pouze přes cloud / API.
