@@ -7380,14 +7380,14 @@ function vehicleTrackingDemoMarker(vehicle, selectedVehicle, elapsedMs) {
     <button
       class="tracking-demo-marker tracking-demo-marker--${escapeHtml(summary.tone)} ${summary.isOffRoute ? "tracking-demo-marker--alert" : ""} ${isSelected ? "tracking-demo-marker--selected" : ""}"
       type="button"
-      style="--x: ${position.x.toFixed(2)}%; --y: ${position.y.toFixed(2)}%; --heading: ${position.heading.toFixed(2)}deg;"
+      style="--x: ${position.x.toFixed(2)}%; --y: ${position.y.toFixed(2)}%; --heading: 0deg;"
       data-tracking-demo-marker="${escapeHtml(vehicle.id)}"
       data-tracking-demo-select="${escapeHtml(vehicle.id)}"
       data-tracking-demo-marker-status="${escapeHtml(vehicle.id)}"
       aria-label="${escapeHtml(`${vehicle.internalNumber} ${summary.statusLabel} Demo data`)}"
     >
       ${vehicleTrackingMarkerContent(vehicle, {
-        heading: position.heading,
+        heading: 0,
         imageSrc: vehicle.imageSrc,
         isAlert: summary.isOffRoute,
         label: vehicle.shortLabel,
@@ -8794,7 +8794,7 @@ function createVehicleTrackingGoogleMarker(maps, map, vehicle) {
       this.div.className = "tracking-google-marker";
       this.div.dataset.trackingDemoSelect = vehicle.id;
       this.div.innerHTML = vehicleTrackingMarkerContent(vehicle, {
-        heading: this.heading,
+        heading: 0,
         imageSrc: vehicle.imageSrc,
         label: vehicle.shortLabel,
         selected: this.selected,
@@ -8813,7 +8813,7 @@ function createVehicleTrackingGoogleMarker(maps, map, vehicle) {
       const point = projection.fromLatLngToDivPixel(new maps.LatLng(this.position.lat, this.position.lng));
       this.div.style.left = `${point.x}px`;
       this.div.style.top = `${point.y}px`;
-      this.div.style.setProperty("--heading", `${this.heading.toFixed(2)}deg`);
+      this.div.style.setProperty("--heading", "0deg");
       this.div.className = [
         "tracking-google-marker",
         `tracking-google-marker--${this.tone}`,
@@ -8834,7 +8834,7 @@ function createVehicleTrackingGoogleMarker(maps, map, vehicle) {
       this.heading = position.heading || 0;
       if (this.div) {
         this.div.innerHTML = vehicleTrackingMarkerContent(vehicle, {
-          heading: this.heading,
+          heading: 0,
           imageSrc: vehicle.imageSrc,
           isAlert: tone === "off-route",
           label: vehicle.shortLabel,
@@ -9319,7 +9319,7 @@ function applyVehicleTrackingDemoFrame(elapsedMs) {
     if (marker) {
       marker.style.setProperty("--x", `${position.x.toFixed(2)}%`);
       marker.style.setProperty("--y", `${position.y.toFixed(2)}%`);
-      marker.style.setProperty("--heading", `${position.heading.toFixed(2)}deg`);
+      marker.style.setProperty("--heading", "0deg");
       marker.className = [
         "tracking-demo-marker",
         `tracking-demo-marker--${summary.tone}`,
@@ -9327,7 +9327,7 @@ function applyVehicleTrackingDemoFrame(elapsedMs) {
         vehicleTrackingDemoState.selectedVehicleId === vehicle.id ? "tracking-demo-marker--selected" : ""
       ].filter(Boolean).join(" ");
       marker.innerHTML = vehicleTrackingMarkerContent(vehicle, {
-        heading: position.heading,
+        heading: 0,
         imageSrc: vehicle.imageSrc,
         isAlert: summary.isOffRoute,
         label: vehicle.shortLabel,
