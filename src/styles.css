@@ -1501,6 +1501,11 @@ h1 {
   grid-column: 1 / -1;
 }
 
+.tracking-layout > #tracking-rules {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .tracking-section__head {
   display: flex;
   gap: 16px;
