@@ -1,5 +1,8 @@
 const COLLECTION_ROUTES_DB_BINDING = "SMART_ODPADY_DB";
 const VISTOS_NOT_CONFIGURED_MESSAGE = "Vistos API není nakonfigurováno";
+export const COLLECTION_ROUTES_MANUAL_IMPORT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
+const MANUAL_IMPORT_PHASE = "1C";
+const MANUAL_IMPORT_MESSAGE = "Import preview – nevytváří ostré trasy.";
 
 export class CollectionRoutesStoreError extends Error {
   constructor(message, status = 400, code = "collection_routes_error") {
@@ -86,6 +89,603 @@ export function isVistosApiConfigured(env) {
       cleanString(env?.VISTOS_API_CLIENT_ID)
     )
   );
+}
+
+function normalizeLookupKey(value) {
+  return cleanString(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeValueKey(value) {
+  return cleanString(value)
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const COLLECTION_FIELD_ALIASES = {
+  customerName: ["zakaznik", "customer", "customerName", "nazevZakaznika", "firma", "odberatel", "subjekt"],
+  addressRaw: ["adresa", "address", "addressRaw", "stanovisteAdresa", "misto", "ulice", "svozoveMisto"],
+  siteName: ["stanoviste", "site", "siteName", "nazevStanoviste", "svoziste", "mistonazev"],
+  wasteType: ["typOdpadu", "odpad", "wasteType", "komodita", "druhOdpadu", "slozka"],
+  wasteCode: ["kodOdpadu", "wasteCode", "kod", "catalogCode", "cisloOdpadu"],
+  frequency: ["cetnost", "frequency", "frekvence", "interval", "svoz"],
+  containerVolume: ["objemNadoby", "containerVolume", "volume", "objem", "nadoba", "litry"],
+  containerCount: ["pocetNadob", "containerCount", "count", "pocet", "ks", "mnozstvi"],
+  note: ["poznamka", "note", "pozn", "komentar"],
+  contact: ["kontakt", "contact", "kontaktniOsoba", "osoba"],
+  phone: ["telefon", "phone", "tel", "mobil"],
+  email: ["email", "e-mail", "mail", "kontaktEmail"]
+};
+
+const NORMALIZED_FIELD_ALIASES = Object.fromEntries(Object.entries(COLLECTION_FIELD_ALIASES)
+  .map(([field, aliases]) => [field, aliases.map(normalizeLookupKey)]));
+
+const WASTE_TYPE_MAP = new Map([
+  ["SKO", { wasteType: "SKO", wasteCode: "200301" }],
+  ["200301", { wasteType: "SKO", wasteCode: "200301" }],
+  ["PAPIR", { wasteType: "PAPIR", wasteCode: "200101" }],
+  ["PAP", { wasteType: "PAPIR", wasteCode: "200101" }],
+  ["200101", { wasteType: "PAPIR", wasteCode: "200101" }],
+  ["150101", { wasteType: "PAPIR", wasteCode: "150101" }],
+  ["PLAST", { wasteType: "PLAST", wasteCode: "200139" }],
+  ["PL", { wasteType: "PLAST", wasteCode: "200139" }],
+  ["200139", { wasteType: "PLAST", wasteCode: "200139" }],
+  ["150102", { wasteType: "PLAST", wasteCode: "150102" }],
+  ["SKLO", { wasteType: "SKLO", wasteCode: "200102" }],
+  ["200102", { wasteType: "SKLO", wasteCode: "200102" }],
+  ["BIO", { wasteType: "BIO", wasteCode: "200201" }],
+  ["200201", { wasteType: "BIO", wasteCode: "200201" }],
+  ["SMESNE OBALY", { wasteType: "SMESNE OBALY", wasteCode: "150106" }],
+  ["SMESNEOBALY", { wasteType: "SMESNE OBALY", wasteCode: "150106" }],
+  ["150106", { wasteType: "SMESNE OBALY", wasteCode: "150106" }]
+]);
+
+const ALLOWED_FREQUENCIES = new Set(["1x7", "2x7", "3x7", "5x7", "1x14", "1x30"]);
+const ALLOWED_CONTAINER_VOLUMES = new Set([60, 80, 120, 240, 360, 660, 770, 1100]);
+
+function parseCsvRows(source) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+  const headerLine = String(source || "").split(/\r?\n/, 1)[0] || "";
+  const delimiter = (headerLine.match(/;/g) || []).length >= (headerLine.match(/,/g) || []).length
+    ? ";"
+    : ",";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (quoted) {
+      if (char === "\"" && next === "\"") {
+        value += "\"";
+        index += 1;
+      } else if (char === "\"") {
+        quoted = false;
+      } else {
+        value += char;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      quoted = true;
+    } else if (char === delimiter) {
+      row.push(value);
+      value = "";
+    } else if (char === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else if (char !== "\r") {
+      value += char;
+    }
+  }
+
+  row.push(value);
+  rows.push(row);
+  return rows.filter((item) => item.some((cell) => cleanString(cell)));
+}
+
+function parseManualImportRows({ text, filename }) {
+  const content = cleanString(text);
+  const lowerName = cleanString(filename).toLowerCase();
+
+  if (!content) {
+    throw new CollectionRoutesStoreError("Soubor je prázdný.", 400, "collection_routes_manual_import_empty");
+  }
+
+  if (lowerName.endsWith(".json")) {
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new CollectionRoutesStoreError("JSON soubor se nepodařilo načíst.", 400, "collection_routes_manual_import_invalid_json");
+    }
+
+    const rows = Array.isArray(parsed)
+      ? parsed
+      : (Array.isArray(parsed?.rows)
+        ? parsed.rows
+        : (Array.isArray(parsed?.data)
+          ? parsed.data
+          : (Array.isArray(parsed?.items) ? parsed.items : [])));
+
+    if (!rows.length || !rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
+      throw new CollectionRoutesStoreError("JSON musí obsahovat pole objektů nebo vlastnost rows/data/items.", 400, "collection_routes_manual_import_invalid_json_rows");
+    }
+
+    return rows;
+  }
+
+  if (lowerName.endsWith(".csv")) {
+    const csvRows = parseCsvRows(content);
+    if (csvRows.length < 2) {
+      throw new CollectionRoutesStoreError("CSV musí obsahovat hlavičku a alespoň jeden datový řádek.", 400, "collection_routes_manual_import_invalid_csv");
+    }
+    const headers = csvRows[0].map(cleanString);
+    return csvRows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])));
+  }
+
+  throw new CollectionRoutesStoreError("Podporované jsou pouze soubory .json a .csv.", 400, "collection_routes_manual_import_unsupported_file");
+}
+
+function readMappedField(rawRow, field) {
+  const aliases = NORMALIZED_FIELD_ALIASES[field] || [];
+  for (const [key, value] of Object.entries(rawRow || {})) {
+    if (aliases.includes(normalizeLookupKey(key))) {
+      return cleanString(value);
+    }
+  }
+  return "";
+}
+
+function normalizeWaste(rawWasteType, rawWasteCode) {
+  const candidates = [rawWasteCode, rawWasteType].map(normalizeValueKey).filter(Boolean);
+  for (const candidate of candidates) {
+    const compact = candidate.replace(/\s+/g, "");
+    if (WASTE_TYPE_MAP.has(candidate)) {
+      return { ...WASTE_TYPE_MAP.get(candidate), known: true };
+    }
+    if (WASTE_TYPE_MAP.has(compact)) {
+      return { ...WASTE_TYPE_MAP.get(compact), known: true };
+    }
+  }
+  return {
+    wasteType: cleanString(rawWasteType),
+    wasteCode: cleanString(rawWasteCode),
+    known: false
+  };
+}
+
+function normalizeFrequency(value) {
+  const normalized = cleanString(value).toLowerCase().replace(/\s+/g, "").replace("×", "x");
+  return {
+    frequency: normalized,
+    known: ALLOWED_FREQUENCIES.has(normalized)
+  };
+}
+
+function normalizeContainerVolume(value) {
+  const raw = cleanString(value);
+  const match = raw.match(/\d+/);
+  const volume = match ? Number(match[0]) : 0;
+  return {
+    volume,
+    known: Number.isFinite(volume) && ALLOWED_CONTAINER_VOLUMES.has(volume)
+  };
+}
+
+function normalizeContainerCount(value) {
+  const count = Math.max(0, Math.round(numericValue(cleanString(value).replace(",", "."), 0)));
+  return count || 1;
+}
+
+function mappedManualRow(rawRow, rowNumber) {
+  const customerName = readMappedField(rawRow, "customerName");
+  const addressRaw = readMappedField(rawRow, "addressRaw");
+  const siteName = readMappedField(rawRow, "siteName");
+  const rawWasteType = readMappedField(rawRow, "wasteType");
+  const rawWasteCode = readMappedField(rawRow, "wasteCode");
+  const rawFrequency = readMappedField(rawRow, "frequency");
+  const rawVolume = readMappedField(rawRow, "containerVolume");
+  const rawCount = readMappedField(rawRow, "containerCount");
+  const waste = normalizeWaste(rawWasteType, rawWasteCode);
+  const frequency = normalizeFrequency(rawFrequency);
+  const container = normalizeContainerVolume(rawVolume);
+  const issues = [];
+
+  if (!customerName) {
+    issues.push({ type: "missing-customer", severity: "error", message: "Chybí zákazník." });
+  }
+  if (!addressRaw) {
+    issues.push({ type: "missing-address", severity: "error", message: "Chybí adresa." });
+  }
+  if (!waste.known) {
+    issues.push({ type: "unknown-waste-type", severity: "warning", message: "Neznámý typ odpadu." });
+  }
+  if (!frequency.known) {
+    issues.push({ type: "unknown-frequency", severity: "warning", message: "Neznámá četnost." });
+  }
+  if (!container.known) {
+    issues.push({ type: "unknown-container-volume", severity: "warning", message: "Neznámý objem nádoby." });
+  }
+  if (!addressRaw || normalizeLookupKey(addressRaw).length < 8) {
+    issues.push({ type: "unclear-location", severity: "warning", message: "Nejasná poloha." });
+  }
+
+  return {
+    rowNumber,
+    customerName,
+    addressRaw,
+    siteName,
+    wasteType: waste.wasteType,
+    wasteCode: waste.wasteCode,
+    frequency: frequency.frequency,
+    containerVolume: container.volume,
+    containerCount: normalizeContainerCount(rawCount),
+    note: readMappedField(rawRow, "note"),
+    contact: readMappedField(rawRow, "contact"),
+    phone: readMappedField(rawRow, "phone"),
+    email: readMappedField(rawRow, "email"),
+    issues,
+    rowKey: normalizeLookupKey(`${customerName}|${addressRaw}|${waste.wasteType}|${frequency.frequency}|${container.volume}`),
+    siteKey: normalizeLookupKey(`${customerName}|${siteName}|${addressRaw}`)
+  };
+}
+
+export function buildCollectionRoutesManualImportPreview({ text, filename = "", contentType = "" }) {
+  const sourceRows = parseManualImportRows({ text, filename });
+  if (sourceRows.length > 1000) {
+    throw new CollectionRoutesStoreError("Import preview může mít maximálně 1000 řádků.", 400, "collection_routes_manual_import_too_many_rows");
+  }
+  const mappedRows = sourceRows.map((row, index) => mappedManualRow(row, index + 1));
+  const rowKeys = new Map();
+  const siteKeys = new Map();
+
+  for (const row of mappedRows) {
+    if (row.rowKey) {
+      rowKeys.set(row.rowKey, (rowKeys.get(row.rowKey) || 0) + 1);
+    }
+    if (row.siteKey) {
+      siteKeys.set(row.siteKey, (siteKeys.get(row.siteKey) || 0) + 1);
+    }
+  }
+
+  for (const row of mappedRows) {
+    if (row.rowKey && rowKeys.get(row.rowKey) > 1) {
+      row.issues.push({ type: "duplicate-row", severity: "warning", message: "Duplicita řádku." });
+    }
+    if (row.siteKey && siteKeys.get(row.siteKey) > 1) {
+      row.issues.push({ type: "possible-site-duplicate", severity: "info", message: "Možná duplicita stanoviště." });
+    }
+  }
+
+  const uniqueCustomers = new Set(mappedRows.map((row) => normalizeLookupKey(row.customerName)).filter(Boolean));
+  const uniqueSites = new Set(mappedRows.map((row) => row.siteKey).filter(Boolean));
+  const containerCount = mappedRows.reduce((sum, row) => sum + (row.containerVolume ? row.containerCount : 0), 0);
+  const issueCount = mappedRows.reduce((sum, row) => sum + row.issues.length, 0);
+  const previewRows = mappedRows.slice(0, 10).map((row) => ({
+    rowNumber: row.rowNumber,
+    customerName: row.customerName,
+    addressRaw: row.addressRaw,
+    siteName: row.siteName,
+    wasteType: row.wasteType,
+    wasteCode: row.wasteCode,
+    frequency: row.frequency,
+    containerVolume: row.containerVolume,
+    containerCount: row.containerCount,
+    note: row.note,
+    issueCount: row.issues.length
+  }));
+
+  return {
+    filename: cleanString(filename),
+    contentType: cleanString(contentType),
+    rows: mappedRows,
+    summary: {
+      status: "preview",
+      message: MANUAL_IMPORT_MESSAGE,
+      rowCount: mappedRows.length,
+      customerCount: uniqueCustomers.size,
+      siteCount: uniqueSites.size,
+      containerCount,
+      issueCount,
+      createsOperationalRoutes: false,
+      sendsEmailOrSms: false,
+      startsAutomation: false
+    },
+    previewRows
+  };
+}
+
+function siteLocationQuality(row) {
+  return row.issues.some((issue) => issue.type === "missing-address" || issue.type === "unclear-location")
+    ? "missing"
+    : "approximate";
+}
+
+function manualRowSummary(row) {
+  return {
+    customerName: row.customerName,
+    addressRaw: row.addressRaw,
+    siteName: row.siteName,
+    wasteType: row.wasteType,
+    wasteCode: row.wasteCode,
+    frequency: row.frequency,
+    containerVolume: row.containerVolume,
+    containerCount: row.containerCount,
+    note: row.note,
+    contact: row.contact,
+    phone: row.phone,
+    email: row.email,
+    createsOperationalRoutes: false
+  };
+}
+
+export async function createCollectionRoutesManualImportPreview(env, user, { text, filename = "", contentType = "" } = {}) {
+  const db = collectionRoutesDatabase(env, true);
+  const preview = buildCollectionRoutesManualImportPreview({ text, filename, contentType });
+  const createdAt = nowIso();
+  const batchId = randomId("collection-import-batch");
+  const siteIds = new Map();
+  const metadata = {
+    phase: MANUAL_IMPORT_PHASE,
+    mode: "manual-import-preview",
+    source: "manual-upload",
+    filename: preview.filename,
+    contentType: preview.contentType,
+    customerCount: preview.summary.customerCount,
+    siteCount: preview.summary.siteCount,
+    containerCount: preview.summary.containerCount,
+    previewRows: preview.previewRows,
+    createsOperationalRoutes: false,
+    sendsEmailOrSms: false,
+    startsAutomation: false
+  };
+
+  try {
+    await db
+      .prepare(`
+        INSERT INTO collection_import_batches (
+          id,
+          source,
+          source_mode,
+          status,
+          api_status,
+          message,
+          row_count,
+          issue_count,
+          created_by_user_id,
+          created_at,
+          finished_at,
+          metadata_json
+        )
+        VALUES (?, 'manual-upload', 'manual-import-preview', 'preview', 'ready', ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bind(
+        batchId,
+        MANUAL_IMPORT_MESSAGE,
+        preview.summary.rowCount,
+        preview.summary.issueCount,
+        cleanString(user?.id),
+        createdAt,
+        createdAt,
+        jsonString(metadata)
+      )
+      .run();
+
+    for (const row of preview.rows) {
+      const rowId = randomId("collection-import-row");
+      const importSourceId = row.rowKey || `manual-row-${row.rowNumber}`;
+      let siteId = "";
+
+      if (row.siteKey && !siteIds.has(row.siteKey)) {
+        siteId = randomId("collection-site");
+        siteIds.set(row.siteKey, siteId);
+        const locationQuality = siteLocationQuality(row);
+
+        await db
+          .prepare(`
+            INSERT INTO collection_customer_sites (
+              id,
+              source_system,
+              source_customer_id,
+              source_site_id,
+              customer_name,
+              site_name,
+              address_text,
+              status,
+              active,
+              location_quality,
+              last_import_batch_id,
+              created_at,
+              updated_at
+            )
+            VALUES (?, 'manual-upload', ?, ?, ?, ?, ?, 'preview', 1, ?, ?, ?, ?)
+          `)
+          .bind(
+            siteId,
+            normalizeLookupKey(row.customerName),
+            row.siteKey,
+            row.customerName,
+            row.siteName,
+            row.addressRaw,
+            locationQuality,
+            batchId,
+            createdAt,
+            createdAt
+          )
+          .run();
+
+        await db
+          .prepare(`
+            INSERT INTO collection_site_locations (
+              id,
+              site_id,
+              quality,
+              status,
+              source,
+              note,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, 'needs-review', 'manual-import-preview', ?, ?, ?)
+          `)
+          .bind(
+            randomId("collection-site-location"),
+            siteId,
+            locationQuality,
+            "Ruční import preview bez geokódování.",
+            createdAt,
+            createdAt
+          )
+          .run();
+      } else {
+        siteId = siteIds.get(row.siteKey) || "";
+      }
+
+      await db
+        .prepare(`
+          INSERT INTO collection_import_rows (
+            id,
+            batch_id,
+            row_number,
+            source_entity,
+            source_id,
+            status,
+            summary_json,
+            issues_json,
+            created_at
+          )
+          VALUES (?, ?, ?, 'manual-upload-row', ?, 'preview', ?, ?, ?)
+        `)
+        .bind(
+          rowId,
+          batchId,
+          row.rowNumber,
+          importSourceId,
+          jsonString(manualRowSummary(row)),
+          jsonString(row.issues),
+          createdAt
+        )
+        .run();
+
+      let serviceId = "";
+      if (siteId && row.wasteType) {
+        serviceId = randomId("collection-service");
+        await db
+          .prepare(`
+            INSERT INTO collection_contract_services (
+              id,
+              site_id,
+              source_contract_id,
+              waste_type,
+              waste_code,
+              frequency_code,
+              stable_pattern,
+              status,
+              last_import_batch_id,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, '', 'preview', ?, ?, ?)
+          `)
+          .bind(
+            serviceId,
+            siteId,
+            importSourceId,
+            row.wasteType,
+            row.wasteCode,
+            row.frequency,
+            batchId,
+            createdAt,
+            createdAt
+          )
+          .run();
+      }
+
+      if (siteId && row.containerVolume) {
+        await db
+          .prepare(`
+            INSERT INTO collection_containers (
+              id,
+              site_id,
+              service_id,
+              container_type,
+              volume_liters,
+              quantity,
+              waste_type,
+              status,
+              last_import_batch_id,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, 'container', ?, ?, ?, 'preview', ?, ?, ?)
+          `)
+          .bind(
+            randomId("collection-container"),
+            siteId,
+            serviceId,
+            row.containerVolume,
+            row.containerCount,
+            row.wasteType,
+            batchId,
+            createdAt,
+            createdAt
+          )
+          .run();
+      }
+
+      for (const issue of row.issues) {
+        await db
+          .prepare(`
+            INSERT INTO collection_data_issues (
+              id,
+              batch_id,
+              site_id,
+              issue_type,
+              severity,
+              message,
+              status,
+              created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+          `)
+          .bind(
+            randomId("collection-data-issue"),
+            batchId,
+            siteId,
+            issue.type,
+            issue.severity,
+            issue.message,
+            createdAt
+          )
+          .run();
+      }
+    }
+
+    const { batch } = await getCollectionImportBatch(env, batchId);
+    return {
+      batch,
+      summary: preview.summary,
+      previewRows: preview.previewRows,
+      apiStatus: "ready"
+    };
+  } catch (error) {
+    if (error instanceof CollectionRoutesStoreError) {
+      throw error;
+    }
+    throw collectionRoutesDbError(error);
+  }
 }
 
 export function collectionRoutesDbError(error) {
@@ -347,7 +947,6 @@ export async function listCollectionLocationIssues(env, limit = 100) {
         SELECT *
         FROM collection_data_issues
         WHERE status = 'open'
-          AND (issue_type LIKE '%location%' OR issue_type LIKE '%address%' OR issue_type = 'vistos-api')
         ORDER BY created_at DESC
         LIMIT ?
       `)

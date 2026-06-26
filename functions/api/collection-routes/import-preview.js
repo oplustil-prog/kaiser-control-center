@@ -1,8 +1,10 @@
 import { currentUser, json } from "../../_lib/auth.js";
 import { normalizeRole } from "../../../src/permissions.js";
 import {
+  COLLECTION_ROUTES_MANUAL_IMPORT_MAX_FILE_SIZE_BYTES,
   CollectionRoutesStoreError,
-  createCollectionRoutesImportPreview
+  createCollectionRoutesImportPreview,
+  createCollectionRoutesManualImportPreview
 } from "../../_lib/collection-routes-store.js";
 
 function collectionRoutesError(error) {
@@ -36,6 +38,28 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
+    const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      const file = formData.get("file");
+
+      if (!file || typeof file.text !== "function") {
+        return json({ error: "Nahrajte soubor .json nebo .csv.", apiStatus: "ready" }, 400);
+      }
+
+      if (file.size > COLLECTION_ROUTES_MANUAL_IMPORT_MAX_FILE_SIZE_BYTES) {
+        return json({ error: "Soubor je příliš velký. Maximum je 1 MB.", apiStatus: "ready" }, 400);
+      }
+
+      const preview = await createCollectionRoutesManualImportPreview(env, user, {
+        text: await file.text(),
+        filename: file.name,
+        contentType: file.type
+      });
+
+      return json({ preview, apiStatus: "ready" });
+    }
+
     const preview = await createCollectionRoutesImportPreview(env, user);
     return json({ preview, apiStatus: preview.apiStatus || "waiting" });
   } catch (error) {

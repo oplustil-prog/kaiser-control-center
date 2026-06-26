@@ -578,6 +578,7 @@ const collectionRoutesPilotState = {
   loaded: false,
   loading: false,
   importLoading: false,
+  manualImportLoading: false,
   apiStatus: "waiting",
   batches: [],
   sites: [],
@@ -9777,12 +9778,80 @@ function collectionRoutesImportBatchCards() {
           <p>${escapeHtml(batch.message || "Bez zprávy")}</p>
           <dl>
             <div><dt>Řádky</dt><dd>${escapeHtml(batch.rowCount ?? 0)}</dd></div>
+            <div><dt>Zákazníci</dt><dd>${escapeHtml(batch.metadata?.customerCount ?? 0)}</dd></div>
+            <div><dt>Stanoviště</dt><dd>${escapeHtml(batch.metadata?.siteCount ?? 0)}</dd></div>
+            <div><dt>Nádoby</dt><dd>${escapeHtml(batch.metadata?.containerCount ?? 0)}</dd></div>
             <div><dt>Problémy</dt><dd>${escapeHtml(batch.issueCount ?? 0)}</dd></div>
             <div><dt>API stav</dt><dd>${escapeHtml(batch.apiStatus || "-")}</dd></div>
           </dl>
+          ${Array.isArray(batch.metadata?.previewRows) && batch.metadata.previewRows.length ? `
+            <div class="collection-routes-preview-table" role="region" aria-label="Náhled prvních řádků">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ř.</th>
+                    <th>Zákazník</th>
+                    <th>Adresa</th>
+                    <th>Odpad</th>
+                    <th>Četnost</th>
+                    <th>Nádoby</th>
+                    <th>Problémy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${batch.metadata.previewRows.map((row) => `
+                    <tr>
+                      <td>${escapeHtml(row.rowNumber || "-")}</td>
+                      <td>${escapeHtml(row.customerName || "-")}</td>
+                      <td>${escapeHtml(row.addressRaw || "-")}</td>
+                      <td>${escapeHtml(row.wasteType || "-")}</td>
+                      <td>${escapeHtml(row.frequency || "-")}</td>
+                      <td>${escapeHtml(row.containerVolume ? `${row.containerCount || 1}× ${row.containerVolume} l` : "-")}</td>
+                      <td>${escapeHtml(row.issueCount ?? 0)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          ` : ""}
         </article>
       `).join("")}
     </div>
+  `;
+}
+
+function collectionRoutesManualImportSection(user) {
+  const canImport = collectionRoutesCanRunImportPreview(user);
+  return `
+    <section class="collection-routes-panel" id="collection-routes-manual-import" aria-labelledby="collection-routes-manual-import-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Ruční upload</p>
+          <h2 id="collection-routes-manual-import-title">Ruční import preview</h2>
+          <p>JSON/CSV se zpracuje přes backend API, uloží pouze read-only preview a nevytváří ostré trasy.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">Read-only import preview</span>
+      </div>
+
+      <div class="collection-routes-phase-note">
+        <strong>Import preview – nevytváří ostré trasy.</strong>
+        <span>Neposílá SMS/e-maily, nespouští automatizace a neprovádí optimalizaci.</span>
+      </div>
+
+      ${canImport ? `
+        <form class="collection-routes-import-form collection-routes-import-form--file" data-collection-routes-manual-import-form>
+          <label>
+            <span>Soubor JSON nebo CSV</span>
+            <input type="file" name="file" accept=".json,.csv,application/json,text/csv" required>
+          </label>
+          <button class="primary-action" type="submit" ${collectionRoutesPilotState.manualImportLoading ? "disabled" : ""}>
+            ${collectionRoutesPilotState.manualImportLoading ? "Nahrávám preview..." : "Nahrát import preview"}
+          </button>
+        </form>
+      ` : `
+        <p class="module-feedback__notice">Ruční import preview může spustit pouze admin.</p>
+      `}
+    </section>
   `;
 }
 
@@ -9984,6 +10053,7 @@ function collectionRoutesModulePage(moduleItem, user, isDashboard = false) {
 
       <nav class="collection-routes-tabs" aria-label="Sekce Tras svozu">
         <a href="#collection-routes-dashboard">Dashboard</a>
+        <a href="#collection-routes-manual-import">Ruční import preview</a>
         <a href="#collection-routes-import">Import preview</a>
         <a href="#collection-routes-sites">Seznam stanovišť</a>
         <a href="#collection-routes-location-issues">K doplnění polohy</a>
@@ -9993,6 +10063,7 @@ function collectionRoutesModulePage(moduleItem, user, isDashboard = false) {
 
       ${collectionRoutesPilotState.loading ? `<p class="module-feedback__notice">Načítám pilotní data z API...</p>` : ""}
       ${collectionRoutesDashboardSection()}
+      ${collectionRoutesManualImportSection(user)}
       ${collectionRoutesImportSection(user)}
       ${collectionRoutesSitesSection()}
       ${collectionRoutesLocationIssuesSection()}
@@ -11262,6 +11333,51 @@ async function submitCollectionRoutesImportPreview(form) {
     collectionRoutesPilotState.message = "";
   } finally {
     collectionRoutesPilotState.importLoading = false;
+    render();
+  }
+}
+
+async function submitCollectionRoutesManualImportPreview(form) {
+  const user = currentUser();
+
+  if (!collectionRoutesCanRunImportPreview(user)) {
+    collectionRoutesPilotState.error = "Ruční import preview může spustit pouze admin.";
+    collectionRoutesPilotState.message = "";
+    render();
+    return;
+  }
+
+  const fileInput = form.querySelector("input[type='file'][name='file']");
+  const file = fileInput?.files?.[0] || null;
+  if (!file) {
+    collectionRoutesPilotState.error = "Vyberte soubor .json nebo .csv.";
+    collectionRoutesPilotState.message = "";
+    render();
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  collectionRoutesPilotState.manualImportLoading = true;
+  collectionRoutesPilotState.error = "";
+  collectionRoutesPilotState.message = "";
+  render();
+
+  try {
+    const result = await apiJson("/api/collection-routes/import-preview", {
+      method: "POST",
+      body: formData
+    });
+    const summary = result.preview?.summary || {};
+    collectionRoutesPilotState.message = summary.message ||
+      `Import preview načetl ${summary.rowCount || 0} řádků a našel ${summary.issueCount || 0} problémů. Ostré trasy nebyly vytvořené.`;
+    collectionRoutesPilotState.apiStatus = result.apiStatus || result.preview?.apiStatus || "ready";
+    await loadCollectionRoutesPilot({ renderAfter: false });
+  } catch (error) {
+    collectionRoutesPilotState.error = error.payload?.error || error.message || "Ruční import preview se nepodařilo zpracovat.";
+    collectionRoutesPilotState.message = "";
+  } finally {
+    collectionRoutesPilotState.manualImportLoading = false;
     render();
   }
 }
@@ -14791,6 +14907,13 @@ document.addEventListener("submit", async (event) => {
   if (collectionRoutesImportForm) {
     event.preventDefault();
     await submitCollectionRoutesImportPreview(collectionRoutesImportForm);
+    return;
+  }
+
+  const collectionRoutesManualImportForm = event.target.closest("[data-collection-routes-manual-import-form]");
+  if (collectionRoutesManualImportForm) {
+    event.preventDefault();
+    await submitCollectionRoutesManualImportPreview(collectionRoutesManualImportForm);
     return;
   }
 
