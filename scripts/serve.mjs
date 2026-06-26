@@ -27,6 +27,10 @@ import {
   buildFleetVistosImportPreview
 } from "../functions/_lib/fleet-vistos-import-preview.js";
 import {
+  COLLECTION_ROUTES_MANUAL_IMPORT_MAX_FILE_SIZE_BYTES,
+  buildCollectionRoutesManualImportPreview
+} from "../functions/_lib/collection-routes-store.js";
+import {
   TcarsClientError,
   loadFleetVehiclesPayload,
   loadTcarsStatusPayload,
@@ -65,6 +69,9 @@ let mockAssistantDailyPromos = new Map();
 let mockCollectionRouteBatches = [];
 let mockCollectionRouteIssues = [];
 let mockCollectionRouteSites = [];
+let mockCollectionRouteImportRows = [];
+let mockCollectionRouteServices = [];
+let mockCollectionRouteContainers = [];
 
 const mockVehicleWimSites = [
   ["wim-d0-0781-modletice-jesenice", "D0", "km 78,1 / cca km 79", "mezi Modleticemi a Jesenici", "Cernosice", "vpravo + vlevo", "active", "v provozu", 49.9706, 14.5288, 2],
@@ -321,6 +328,161 @@ async function readMultipartFormData(request) {
   }
 
   return { fields, files };
+}
+
+function mockCollectionRouteSiteQuality(row) {
+  return row.issues.some((issue) => issue.type === "missing-address" || issue.type === "unclear-location")
+    ? "missing"
+    : "approximate";
+}
+
+function createMockCollectionRoutesManualImportPreview(user, file) {
+  const preview = buildCollectionRoutesManualImportPreview({
+    text: file.buffer.toString("utf8"),
+    filename: file.name,
+    contentType: file.type
+  });
+  const now = new Date().toISOString();
+  const batch = {
+    id: `collection-import-batch-${randomUUID()}`,
+    source: "manual-upload",
+    sourceMode: "manual-import-preview",
+    status: "preview",
+    apiStatus: "ready",
+    message: "Import preview – nevytváří ostré trasy.",
+    rowCount: preview.summary.rowCount,
+    issueCount: preview.summary.issueCount,
+    createdByUserId: user.id,
+    createdAt: now,
+    finishedAt: now,
+    metadata: {
+      phase: "1C",
+      mode: "manual-import-preview",
+      source: "manual-upload",
+      filename: preview.filename,
+      contentType: preview.contentType,
+      customerCount: preview.summary.customerCount,
+      siteCount: preview.summary.siteCount,
+      containerCount: preview.summary.containerCount,
+      previewRows: preview.previewRows,
+      createsOperationalRoutes: false,
+      sendsEmailOrSms: false,
+      startsAutomation: false
+    }
+  };
+  const siteIds = new Map();
+
+  mockCollectionRouteBatches.unshift(batch);
+
+  for (const row of preview.rows) {
+    let siteId = "";
+    if (row.siteKey && !siteIds.has(row.siteKey)) {
+      siteId = `collection-site-${randomUUID()}`;
+      siteIds.set(row.siteKey, siteId);
+      mockCollectionRouteSites.unshift({
+        id: siteId,
+        sourceSystem: "manual-upload",
+        sourceCustomerId: row.customerName,
+        sourceSiteId: row.siteKey,
+        customerName: row.customerName,
+        siteName: row.siteName,
+        addressText: row.addressRaw,
+        city: "",
+        postalCode: "",
+        status: "preview",
+        active: true,
+        locationQuality: mockCollectionRouteSiteQuality(row),
+        lastImportBatchId: batch.id,
+        createdAt: now,
+        updatedAt: now,
+        location: {
+          id: `collection-site-location-${randomUUID()}`,
+          latitude: null,
+          longitude: null,
+          quality: mockCollectionRouteSiteQuality(row),
+          status: "needs-review",
+          source: "manual-import-preview",
+          note: "Ruční import preview bez geokódování.",
+          confirmedAt: ""
+        }
+      });
+    } else {
+      siteId = siteIds.get(row.siteKey) || "";
+    }
+
+    mockCollectionRouteImportRows.push({
+      id: `collection-import-row-${randomUUID()}`,
+      batchId: batch.id,
+      rowNumber: row.rowNumber,
+      sourceEntity: "manual-upload-row",
+      sourceId: row.rowKey || `manual-row-${row.rowNumber}`,
+      status: "preview",
+      summary: {
+        customerName: row.customerName,
+        addressRaw: row.addressRaw,
+        siteName: row.siteName,
+        wasteType: row.wasteType,
+        wasteCode: row.wasteCode,
+        frequency: row.frequency,
+        containerVolume: row.containerVolume,
+        containerCount: row.containerCount,
+        note: row.note
+      },
+      issues: row.issues,
+      createdAt: now
+    });
+
+    let serviceId = "";
+    if (siteId && row.wasteType) {
+      serviceId = `collection-service-${randomUUID()}`;
+      mockCollectionRouteServices.push({
+        id: serviceId,
+        siteId,
+        sourceContractId: row.rowKey || `manual-row-${row.rowNumber}`,
+        wasteType: row.wasteType,
+        wasteCode: row.wasteCode,
+        frequencyCode: row.frequency,
+        stablePattern: "",
+        validFrom: "",
+        validTo: "",
+        status: "preview"
+      });
+    }
+
+    if (siteId && row.containerVolume) {
+      mockCollectionRouteContainers.push({
+        id: `collection-container-${randomUUID()}`,
+        siteId,
+        serviceId,
+        containerType: "container",
+        volumeLiters: row.containerVolume,
+        quantity: row.containerCount,
+        wasteType: row.wasteType,
+        status: "preview"
+      });
+    }
+
+    for (const issue of row.issues) {
+      mockCollectionRouteIssues.unshift({
+        id: `collection-data-issue-${randomUUID()}`,
+        batchId: batch.id,
+        siteId,
+        issueType: issue.type,
+        severity: issue.severity,
+        message: issue.message,
+        status: "open",
+        createdAt: now,
+        resolvedAt: ""
+      });
+    }
+  }
+
+  return {
+    batch,
+    summary: preview.summary,
+    previewRows: preview.previewRows,
+    apiStatus: "ready"
+  };
 }
 
 function cookieValue(request, name) {
@@ -1550,6 +1712,29 @@ async function handleApi(request, response) {
       return true;
     }
 
+    if ((request.headers["content-type"] || "").includes("multipart/form-data")) {
+      try {
+        const { files } = await readMultipartFormData(request);
+        const file = files.get("file");
+        if (!file) {
+          sendJson(response, 400, { error: "Nahrajte soubor .json nebo .csv.", apiStatus: "ready" });
+          return true;
+        }
+        if (file.buffer.length > COLLECTION_ROUTES_MANUAL_IMPORT_MAX_FILE_SIZE_BYTES) {
+          sendJson(response, 400, { error: "Soubor je příliš velký. Maximum je 1 MB.", apiStatus: "ready" });
+          return true;
+        }
+        const preview = createMockCollectionRoutesManualImportPreview(user, file);
+        sendJson(response, 200, { preview, apiStatus: "ready" });
+      } catch (error) {
+        sendJson(response, error.status || 400, {
+          error: error.message || "Ruční import preview se nepodařilo zpracovat.",
+          apiStatus: "ready"
+        });
+      }
+      return true;
+    }
+
     const now = new Date().toISOString();
     const batch = {
       id: `collection-import-batch-${randomUUID()}`,
@@ -1633,7 +1818,11 @@ async function handleApi(request, response) {
       sendJson(response, 404, { error: "Importní batch nebyl nalezen." });
       return true;
     }
-    sendJson(response, 200, { batch, rows: [], apiStatus: "ready" });
+    sendJson(response, 200, {
+      batch,
+      rows: mockCollectionRouteImportRows.filter((item) => item.batchId === batch.id),
+      apiStatus: "ready"
+    });
     return true;
   }
 
@@ -1667,7 +1856,13 @@ async function handleApi(request, response) {
       sendJson(response, 404, { error: "Stanoviště nebylo nalezeno." });
       return true;
     }
-    sendJson(response, 200, { site, services: [], containers: [], issues: [], apiStatus: "ready" });
+    sendJson(response, 200, {
+      site,
+      services: mockCollectionRouteServices.filter((item) => item.siteId === site.id),
+      containers: mockCollectionRouteContainers.filter((item) => item.siteId === site.id),
+      issues: mockCollectionRouteIssues.filter((item) => item.siteId === site.id),
+      apiStatus: "ready"
+    });
     return true;
   }
 
