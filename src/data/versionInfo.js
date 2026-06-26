@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.106"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.107"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Design: čitelnější neumorphic preview",
+    text: "Oddělený neumorphic návrh má kovově šedé plochy, jemný obrys panelů a výraznější ikony; firemní barva zůstává hlavně jako akční akcent."
+  },
   {
     title: "Design: přímý neumorphic odkaz",
     text: "Produkce má Pages fallback pro /design/neumorphic, aby samostatná URL otevírala přímo oddělený designový náhled."

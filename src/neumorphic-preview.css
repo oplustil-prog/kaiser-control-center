@@ -1,20 +1,25 @@
 .neumorphic-preview-page {
-  --neo-page: #edf2f6;
-  --neo-surface: #edf2f6;
-  --neo-surface-light: #f8fbfd;
-  --neo-surface-muted: #dfe7ef;
+  --neo-page: #f0f3f7;
+  --neo-surface: #eef2f6;
+  --neo-surface-light: #fbfcfe;
+  --neo-surface-muted: #e4eaf1;
+  --neo-metal: #e9eef4;
+  --neo-metal-deep: #cdd7e1;
   --neo-ink: #26313b;
   --neo-muted: #6f7f8e;
-  --neo-line: rgba(104, 122, 139, 0.18);
-  --neo-shadow-raised: 16px 16px 32px rgba(145, 160, 174, 0.36), -16px -16px 32px rgba(255, 255, 255, 0.92);
-  --neo-shadow-soft: 10px 10px 22px rgba(145, 160, 174, 0.28), -10px -10px 22px rgba(255, 255, 255, 0.86);
-  --neo-shadow-inset: inset 7px 7px 14px rgba(145, 160, 174, 0.28), inset -7px -7px 14px rgba(255, 255, 255, 0.9);
+  --neo-line: rgba(92, 108, 126, 0.2);
+  --neo-border: rgba(92, 108, 126, 0.24);
+  --neo-accent-soft: color-mix(in srgb, var(--neo-accent) 8%, var(--neo-surface-light));
+  --neo-shadow-raised: 18px 18px 38px rgba(136, 151, 166, 0.28), -18px -18px 38px rgba(255, 255, 255, 0.95);
+  --neo-shadow-soft: 9px 9px 20px rgba(136, 151, 166, 0.24), -9px -9px 20px rgba(255, 255, 255, 0.92);
+  --neo-shadow-inset: inset 7px 7px 14px rgba(136, 151, 166, 0.24), inset -7px -7px 14px rgba(255, 255, 255, 0.95);
   min-height: 100vh;
   padding: 28px;
   color: var(--neo-ink);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--neo-accent) 11%, transparent) 0%, transparent 32%),
-    linear-gradient(225deg, rgba(38, 49, 59, 0.08) 0%, transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.52) 0%, transparent 34%),
+    linear-gradient(225deg, rgba(116, 132, 148, 0.12) 0%, transparent 30%),
+    linear-gradient(180deg, #f7f9fc 0%, var(--neo-page) 48%, var(--neo-metal) 100%),
     var(--neo-page);
 }
 
@@ -80,7 +85,8 @@
   min-height: 42px;
   padding: 0 16px;
   border-radius: 8px;
-  background: var(--neo-surface);
+  border: 1px solid var(--neo-border);
+  background: linear-gradient(145deg, var(--neo-surface-light), var(--neo-surface));
   box-shadow: var(--neo-shadow-soft);
   color: var(--neo-ink);
   font-size: 0.92rem;
@@ -99,13 +105,28 @@
 
 .neo-hero__copy,
 .neo-accent-picker {
+  border: 1px solid var(--neo-border);
   border-radius: 8px;
-  background: var(--neo-surface);
+  background: linear-gradient(145deg, #ffffff 0%, var(--neo-surface-light) 42%, var(--neo-metal) 100%);
   box-shadow: var(--neo-shadow-raised);
 }
 
 .neo-hero__copy {
+  position: relative;
   padding: 32px;
+  overflow: hidden;
+}
+
+.neo-hero__copy::after {
+  content: "";
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  width: 74px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--neo-accent);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--neo-accent) 22%, transparent);
 }
 
 .neo-hero h2 {
@@ -127,10 +148,10 @@
   gap: 12px;
   min-height: 48px;
   padding: 0 14px;
-  border: 0;
+  border: 1px solid rgba(92, 108, 126, 0.16);
   border-radius: 8px;
   color: var(--neo-ink);
-  background: var(--neo-surface);
+  background: linear-gradient(145deg, var(--neo-surface-light), var(--neo-surface));
   box-shadow: var(--neo-shadow-soft);
   font: inherit;
   font-weight: 800;
@@ -138,8 +159,8 @@
 }
 
 .neo-accent-button--active {
-  color: var(--neo-accent-contrast);
-  background: var(--neo-accent);
+  color: var(--neo-ink);
+  background: linear-gradient(145deg, var(--neo-surface), var(--neo-surface-light));
   box-shadow: var(--neo-shadow-inset);
 }
 
@@ -148,7 +169,7 @@
   height: 22px;
   border-radius: 50%;
   background: var(--neo-swatch);
-  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.74);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--neo-swatch) 12%, transparent), inset 0 0 0 3px rgba(255, 255, 255, 0.8);
 }
 
 .neo-comparison {
@@ -173,8 +194,9 @@
 .neo-classic-dashboard,
 .neo-soft-dashboard {
   min-width: 0;
+  border: 1px solid var(--neo-border);
   border-radius: 8px;
-  background: var(--neo-surface);
+  background: linear-gradient(145deg, #ffffff 0%, var(--neo-surface-light) 38%, var(--neo-metal) 100%);
   box-shadow: var(--neo-shadow-raised);
 }
 
@@ -260,9 +282,9 @@
 
 .neo-classic-module__icon {
   display: grid;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   border-radius: 8px;
   color: var(--kaiser-green-dark);
@@ -271,8 +293,9 @@
 
 .neo-classic-module__icon svg,
 .neo-module__icon svg {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.4;
 }
 
 .neo-soft-dashboard {
@@ -287,17 +310,32 @@
 .neo-icon-button,
 .neo-pill-button,
 .neo-soft-toggle {
+  border: 1px solid rgba(92, 108, 126, 0.18);
   border-radius: 8px;
-  background: var(--neo-surface);
+  background: linear-gradient(145deg, #ffffff, var(--neo-surface-light) 46%, var(--neo-surface));
   box-shadow: var(--neo-shadow-soft);
 }
 
 .neo-soft-status-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 18px;
   min-height: 128px;
   padding: 18px;
+  overflow: hidden;
+}
+
+.neo-soft-status-card::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--neo-accent);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--neo-accent) 10%, transparent);
 }
 
 .neo-soft-status-card strong {
@@ -315,27 +353,27 @@
 
 .neo-soft-ring {
   display: grid;
-  flex: 0 0 94px;
-  width: 94px;
-  height: 94px;
+  flex: 0 0 108px;
+  width: 108px;
+  height: 108px;
   place-items: center;
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, var(--neo-surface) 0 48%, transparent 50%),
-    conic-gradient(var(--neo-accent) 0 72%, var(--neo-surface-muted) 72% 100%);
+    radial-gradient(circle at center, var(--neo-surface) 0 47%, transparent 49%),
+    conic-gradient(from 238deg, var(--neo-metal-deep) 0 54%, var(--neo-accent) 54% 72%, var(--neo-metal-deep) 72% 100%);
   box-shadow: var(--neo-shadow-inset);
 }
 
 .neo-soft-ring span {
   display: grid;
-  width: 58px;
-  height: 58px;
+  width: 66px;
+  height: 66px;
   place-items: center;
   border-radius: 50%;
   color: var(--neo-accent);
-  background: var(--neo-surface);
+  background: linear-gradient(145deg, #ffffff, var(--neo-surface));
   box-shadow: var(--neo-shadow-soft);
-  font-size: 1.35rem;
+  font-size: 1.48rem;
   font-weight: 800;
 }
 
@@ -346,25 +384,38 @@
 }
 
 .neo-module {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
-  min-height: 78px;
-  padding: 14px;
+  min-height: 88px;
+  padding: 16px;
   text-decoration: none;
+  overflow: hidden;
+}
+
+.neo-module::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neo-accent) 82%, #ffffff);
 }
 
 .neo-module__icon {
   display: grid;
-  flex: 0 0 44px;
-  width: 44px;
-  height: 44px;
+  flex: 0 0 58px;
+  width: 58px;
+  height: 58px;
   place-items: center;
   border-radius: 8px;
   color: var(--neo-accent);
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-inset);
+  background: linear-gradient(145deg, #ffffff, var(--neo-accent-soft) 52%, var(--neo-surface));
+  box-shadow: var(--neo-shadow-soft);
 }
 
 .neo-module__text {
@@ -390,7 +441,7 @@
 .neo-pill-button,
 .neo-icon-button {
   min-height: 44px;
-  border: 0;
+  border: 1px solid rgba(92, 108, 126, 0.16);
   color: var(--neo-ink);
   font: inherit;
   font-weight: 800;
@@ -402,16 +453,20 @@
 }
 
 .neo-pill-button--active {
-  color: var(--neo-accent-contrast);
-  background: var(--neo-accent);
+  color: var(--neo-ink);
+  background:
+    linear-gradient(90deg, var(--neo-accent) 0 5px, transparent 5px),
+    linear-gradient(145deg, var(--neo-surface), var(--neo-surface-light));
   box-shadow: var(--neo-shadow-inset);
 }
 
 .neo-icon-button {
   display: grid;
-  width: 44px;
+  width: 52px;
+  min-height: 52px;
   place-items: center;
   color: var(--neo-accent);
+  font-size: 1.2rem;
 }
 
 .neo-soft-toggle {
@@ -439,10 +494,10 @@
 }
 
 .neo-soft-progress {
-  height: 14px;
+  height: 12px;
   overflow: hidden;
   border-radius: 8px;
-  background: var(--neo-surface);
+  background: linear-gradient(180deg, var(--neo-surface-muted), var(--neo-surface-light));
   box-shadow: var(--neo-shadow-inset);
 }
 
@@ -451,7 +506,7 @@
   width: var(--neo-progress);
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--neo-accent), color-mix(in srgb, var(--neo-accent) 55%, #ffffff));
+  background: linear-gradient(90deg, var(--neo-accent) 0%, color-mix(in srgb, var(--neo-accent) 86%, #ffffff) 100%);
 }
 
 .neo-soft-row {
