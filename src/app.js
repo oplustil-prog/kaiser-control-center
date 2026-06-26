@@ -172,6 +172,16 @@ import {
   vehicleTrackingStatusLabel,
   vehicleTrackingStatusTone
 } from "./data/vehicleTracking.js";
+import {
+  DATA_BOX_EMPTY_MESSAGE_COLUMNS,
+  DATA_BOX_INTEGRATION_POINTS,
+  DATA_BOX_MODULE_KEY,
+  DATA_BOX_PHASES,
+  DATA_BOX_PLANNED_ENDPOINTS,
+  DATA_BOX_ROUTE,
+  DATA_BOX_STATUS_CARDS,
+  DATA_BOX_TABS
+} from "./data/dataBox.js";
 
 const app = document.querySelector("#app");
 const orderedModules = [...modules].sort((a, b) => a.order - b.order);
@@ -5087,7 +5097,7 @@ function moduleRulesAutomationRow(item, canManage) {
     item.scheduleCron || item.eventName || item.cloudRunner
   ].filter(Boolean).join(" / ");
   const impact = item.isAutomation
-    ? "Fáze 2A: cloud dry-run bez e-mailu/SMS"
+    ? "Cloud dry-run bez ostrých akcí"
     : "Backend/cloud pravidlo";
   const actionCell = canManage
     ? `
@@ -5195,7 +5205,9 @@ function moduleRuleDetail() {
 function moduleRulesAutomationPanel({
   moduleKey,
   moduleName,
-  user
+  user,
+  description = "",
+  cloudNote = ""
 }) {
   const canManage = hasPermission(user, moduleKey, "manage") || isFullAccessRole(user);
   const statusLabel = moduleRulesState.loading
@@ -5226,7 +5238,7 @@ function moduleRulesAutomationPanel({
       <div class="absence-panel__head">
         <div>
           <h2 id="module-rules-title">Seznam pravidel a automatizace</h2>
-          <p>Ostrá cloud evidence pravidel a automatizací modulu ${escapeHtml(moduleName)}.</p>
+          <p>${escapeHtml(description || `Ostrá cloud evidence pravidel a automatizací modulu ${moduleName}.`)}</p>
         </div>
         <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
@@ -5321,7 +5333,7 @@ function moduleRulesAutomationPanel({
 
       <div class="module-rules-empty module-rules-empty--cloud" role="status">
         <strong>${moduleRulesState.apiStatus === "ready" ? "Ostrá pravidla jsou načtená z cloud DB." : "Cloud API pro pravidla není dostupné."}</strong>
-        <span>Fáze 2A spouští cloudový runner pouze v režimu dry-run. Ostré notifikace, e-mail/SMS a reálné akce nad absencemi jsou vypnuté.</span>
+        <span>${escapeHtml(cloudNote || "Cloudový runner spouští automatizace pouze v bezpečném režimu podle nastavení modulu. Ostré akce musí být výslovně povolené další fází.")}</span>
         ${latestRunnerRun ? `
           <small>
             Poslední audit runneru: ${escapeHtml(runnerStatusLabel)}
@@ -9102,6 +9114,191 @@ function vehicleTrackingPage(moduleItem, user, context = {}) {
   `;
 }
 
+function dataBoxStatusCards() {
+  return `
+    <div class="data-box-status-grid" aria-label="Stav modulu Datová schránka">
+      ${DATA_BOX_STATUS_CARDS.map((item) => `
+        <article>
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(item.value)}</strong>
+          <small>${escapeHtml(item.note)}</small>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function dataBoxTabs() {
+  return `
+    <nav class="data-box-tabs" aria-label="Menu modulu Datová schránka">
+      ${DATA_BOX_TABS.map((tab) => `
+        <a class="data-box-tab" href="${routeHref(`${DATA_BOX_ROUTE}#${tab.id}`)}">${escapeHtml(tab.label)}</a>
+      `).join("")}
+    </nav>
+  `;
+}
+
+function dataBoxMessageTable(title, direction) {
+  return `
+    <section class="data-box-panel" id="${escapeHtml(direction)}" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+      <div class="data-box-panel__head">
+        <div>
+          <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(title)}</h2>
+          <p>Seznam zůstává prázdný, dokud nebude hotový backend adapter a ověřené ISDS připojení.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">čeká na API</span>
+      </div>
+      <div class="data-box-table-wrap">
+        <table class="data-box-table">
+          <thead>
+            <tr>${DATA_BOX_EMPTY_MESSAGE_COLUMNS.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">
+                Žádné ostré zprávy nejsou načtené. Frontend nevolá ISDS a neobsahuje provozní data.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function dataBoxAiPanel() {
+  return `
+    <section class="data-box-panel" id="ai" aria-labelledby="data-box-ai-title">
+      <div class="data-box-panel__head">
+        <div>
+          <h2 id="data-box-ai-title">AI vyhodnocení</h2>
+          <p>Budoucí backendové vyhodnocení obsahu zprávy, příloh a doporučeného postupu s lidským potvrzením.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">návrh</span>
+      </div>
+      <div class="data-box-ai-grid">
+        <article>
+          <span>Vstup</span>
+          <strong>metadata + text + přílohy</strong>
+          <small>Po extrakci v backendu, bez posílání secrets do frontendu.</small>
+        </article>
+        <article>
+          <span>Výstup</span>
+          <strong>štítek, priorita, návrh akce</strong>
+          <small>Výsledek se uloží s confidence a audit stopou.</small>
+        </article>
+        <article>
+          <span>Bezpečnost</span>
+          <strong>ruční potvrzení</strong>
+          <small>AI nesmí samo odeslat odpověď ani měnit stav zprávy.</small>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function dataBoxArchitecturePanel() {
+  return `
+    <section class="data-box-panel" id="overview" aria-labelledby="data-box-overview-title">
+      <div class="data-box-panel__head">
+        <div>
+          <h2 id="data-box-overview-title">Provozní realita</h2>
+          <p>Rozpad na fáze a cílové cloudové části, aby UI nevypadalo jako ostré ISDS napojení.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">ISDS neaktivní</span>
+      </div>
+      <div class="data-box-phase-grid">
+        ${DATA_BOX_PHASES.map((phase) => `
+          <article>
+            <span>${escapeHtml(phase.title)}</span>
+            <strong>${escapeHtml(phase.status)}</strong>
+            <p>${escapeHtml(phase.description)}</p>
+          </article>
+        `).join("")}
+      </div>
+      <div class="data-box-architecture-grid">
+        <section>
+          <h3>Cloud části</h3>
+          <dl>
+            ${DATA_BOX_INTEGRATION_POINTS.map(([label, value]) => `
+              <div>
+                <dt>${escapeHtml(label)}</dt>
+                <dd>${escapeHtml(value)}</dd>
+              </div>
+            `).join("")}
+          </dl>
+        </section>
+        <section>
+          <h3>Plánované API</h3>
+          <ul>
+            ${DATA_BOX_PLANNED_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
+          </ul>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function dataBoxRulesAutomation(user) {
+  ensureModuleRulesData(DATA_BOX_MODULE_KEY);
+  return moduleRulesAutomationPanel({
+    moduleKey: DATA_BOX_MODULE_KEY,
+    moduleName: "Datová schránka",
+    user,
+    description: "Cloud evidence pravidel a automatizací pro budoucí synchronizaci, třídění a notifikace Datové schránky.",
+    cloudNote: "V této fázi se žádná ISDS automatizace nespouští. Pravidla jsou jen evidence a příprava pro budoucí cloud runner."
+  });
+}
+
+function dataBoxPage(moduleItem, user) {
+  return `
+    <main class="app-shell module-page module-theme-scope data-box-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="module-detail data-box-hero" aria-labelledby="module-title">
+        <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
+        <div class="module-detail__body">
+          <div class="module-detail__eyebrow">SMART ODPADY / DATOVÁ SCHRÁNKA</div>
+          <h1 id="module-title">Datová schránka</h1>
+          <p>Pilotní rozhraní pro budoucí ISDS integraci. Teď je to bezpečný UI návrh bez ostrého čtení, zápisu, odesílání a bez uložených přístupových údajů.</p>
+          <div class="module-detail__status">
+            <span>Stav</span>
+            <strong>UI návrh</strong>
+          </div>
+          <div class="module-actions">
+            <button class="primary-action" type="button" disabled title="Čeká na backend ISDS adapter">Synchronizovat</button>
+            <button class="secondary-link" type="button" disabled title="Odesílání bude až po samostatném potvrzení">Nová odpověď</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="data-box-warning" role="status">
+        <strong>ISDS integrace není aktivní.</strong>
+        <span>Frontend nevolá datové schránky, neukládá provozní data lokálně a neobsahuje žádné certifikáty, hesla ani tokeny.</span>
+      </section>
+
+      ${dataBoxStatusCards()}
+      ${dataBoxTabs()}
+      ${dataBoxArchitecturePanel()}
+      ${dataBoxMessageTable("Přijaté zprávy", "received")}
+      ${dataBoxMessageTable("Odeslané zprávy", "sent")}
+      ${dataBoxAiPanel()}
+      <div id="rules">
+        ${dataBoxRulesAutomation(user)}
+      </div>
+      ${moduleFeedbackBoxFor(moduleItem, user, {
+        moduleId: DATA_BOX_MODULE_KEY,
+        moduleName: "Datová schránka",
+        placeholder: "Např. chybí filtr podle odesílatele, priorita, vazba na zákazníka nebo typ AI vyhodnocení..."
+      })}
+    </main>
+  `;
+}
+
 function modulePage(moduleItem, user, isDashboard = false) {
   if (moduleItem.id === "absence") {
     return absenceModulePage(moduleItem, user, isDashboard);
@@ -9113,6 +9310,10 @@ function modulePage(moduleItem, user, isDashboard = false) {
 
   if (moduleItem.id === "vehicle-tracking") {
     return vehicleTrackingPage(moduleItem, user);
+  }
+
+  if (moduleItem.id === DATA_BOX_MODULE_KEY) {
+    return dataBoxPage(moduleItem, user);
   }
 
   const isTyres = moduleItem.id === "tyres";

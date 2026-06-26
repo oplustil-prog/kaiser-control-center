@@ -3,6 +3,7 @@ export const PERMISSION_MODULES = [
   "dashboard",
   "fleet",
   "vehicle-tracking",
+  "data-box",
   "driver-reports",
   "service-maintenance",
   "tyres",
@@ -53,6 +54,7 @@ const ROLE_ALIASES = {
 const MODULE_ALIASES = {
   "vozovy-park": "fleet",
   "sledovani-vozidel": "vehicle-tracking",
+  "datova-schranka": "data-box",
   "hlaseni-ridicu": "driver-reports",
   "servis-udrzba": "service-maintenance",
   pneumatiky: "tyres",
@@ -236,6 +238,11 @@ export function hasPermission(user, moduleId, action = "view") {
 
   const normalizedModuleId = normalizeModuleId(moduleId);
   const normalizedAction = String(action || "view").trim();
+  const role = normalizeRole(user?.role);
+
+  if (normalizedModuleId === "data-box" && !["admin", "management"].includes(role)) {
+    return false;
+  }
 
   if (isFullAccessRole(user)) {
     return true;
