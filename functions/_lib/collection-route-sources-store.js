@@ -10,6 +10,8 @@ export const COLLECTION_ROUTE_SOURCE_MAX_FILES = 20;
 export const COLLECTION_ROUTE_SOURCE_MAX_ROWS = 5000;
 const VISTOS_SOURCE_MATCH_MAX_ROWS = 5000;
 const VISTOS_SOURCE_MATCH_MAX_CANDIDATES = 10000;
+const VISTOS_SOURCE_MATCH_MAX_CANDIDATE_POOL = 220;
+const VISTOS_SOURCE_MATCH_COMMON_TOKEN_LIMIT = 550;
 const VISTOS_MATCH_STOP_WORDS = new Set([
   "A",
   "I",
@@ -161,9 +163,7 @@ function tokenOverlapScore(sourceTokens, candidateTokens) {
   };
 }
 
-function textContainmentScore(sourceText, candidateText) {
-  const source = compactText(sourceText);
-  const candidate = compactText(candidateText);
+function compactContainmentScore(source, candidate) {
   if (source.length < 4 || candidate.length < 4) {
     return 0;
   }
@@ -239,8 +239,9 @@ function vistosCandidateFromRow(row) {
     ...candidate,
     allText,
     allTokens: tokenSet(allText),
-    nameText: [candidate.customerName, candidate.branchName, candidate.siteName].join(" "),
-    addressTokens: tokenSet([candidate.addressText, candidate.siteName].join(" ")),
+    compactAllText: compactText(allText),
+    compactNameText: compactText([candidate.customerName, candidate.branchName, candidate.siteName].join(" ")),
+    compactAddressText: compactText([candidate.addressText, candidate.siteName].join(" ")),
     wasteKey: normalizeMatchWaste(`${candidate.wasteType} ${candidate.wasteCode} ${candidate.productName}`),
     frequencyKey: normalizeMatchFrequency(candidate.frequency)
   };
@@ -290,60 +291,88 @@ async function loadPersistedVistosKommunalCandidates(db) {
 }
 
 function buildVistosCandidateIndex(candidates) {
-  const index = new Map();
+  const tokenCandidates = new Map();
   for (const candidate of candidates) {
     for (const token of candidate.allTokens) {
       if (token.length < 3) {
         continue;
       }
-      if (!index.has(token)) {
-        index.set(token, []);
+      if (!tokenCandidates.has(token)) {
+        tokenCandidates.set(token, []);
       }
-      index.get(token).push(candidate);
+      tokenCandidates.get(token).push(candidate);
     }
   }
-  return index;
+  return { tokenCandidates };
 }
 
-function candidatePoolForSourceRow(sourceRow, candidateIndex) {
-  const tokens = textTokens([
-    sourceRow.customer_name,
-    sourceRow.address_text,
-    sourceRow.original_text
-  ].join(" ")).filter((token) => token.length >= 3);
-  const pool = new Set();
-  for (const token of tokens) {
-    for (const candidate of candidateIndex.get(token) || []) {
-      pool.add(candidate);
-    }
-  }
-  return [...pool];
-}
-
-function scoreVistosCandidate(sourceRow, candidate) {
+function sourceMatchContext(sourceRow) {
   const sourceName = cleanString(sourceRow.customer_name);
   const sourceAddress = cleanString(sourceRow.address_text);
   const sourceOriginal = cleanString(sourceRow.original_text);
-  const sourceAll = [sourceName, sourceAddress, sourceOriginal, sourceRow.waste_type, sourceRow.waste_code, sourceRow.frequency].join(" ");
-  const nameOverlap = tokenOverlapScore(tokenSet(sourceName), candidate.allTokens);
-  const addressOverlap = tokenOverlapScore(tokenSet(sourceAddress), candidate.allTokens);
-  const originalOverlap = tokenOverlapScore(tokenSet(sourceOriginal), candidate.allTokens);
+  const sourceAll = [
+    sourceName,
+    sourceAddress,
+    sourceOriginal,
+    sourceRow.waste_type,
+    sourceRow.waste_code,
+    sourceRow.frequency
+  ].join(" ");
+
+  return {
+    nameTokens: tokenSet(sourceName),
+    addressTokens: tokenSet(sourceAddress),
+    originalTokens: tokenSet(sourceOriginal),
+    poolTokens: [
+      ...textTokens(sourceName).map((token) => ({ token, weight: 5 })),
+      ...textTokens(sourceAddress).map((token) => ({ token, weight: 4 })),
+      ...textTokens(sourceOriginal).map((token) => ({ token, weight: 1 }))
+    ].filter((item) => item.token.length >= 3),
+    compactName: compactText(sourceName),
+    compactAddress: compactText(sourceAddress),
+    compactAll: compactText(sourceAll),
+    sourceWaste: normalizeMatchWaste(`${sourceRow.waste_type} ${sourceRow.waste_code}`),
+    sourceFrequency: normalizeMatchFrequency(sourceRow.frequency),
+    sourceContainerVolume: numericValue(sourceRow.container_volume)
+  };
+}
+
+function candidatePoolForSourceRow(context, candidateIndex) {
+  const scores = new Map();
+  for (const { token, weight } of context.poolTokens) {
+    const candidates = candidateIndex.tokenCandidates.get(token) || [];
+    if (!candidates.length || candidates.length > VISTOS_SOURCE_MATCH_COMMON_TOKEN_LIMIT) {
+      continue;
+    }
+    const tokenWeight = weight + Math.max(0, 6 - Math.log10(Math.max(candidates.length, 1) + 1) * 2);
+    for (const candidate of candidates) {
+      scores.set(candidate, (scores.get(candidate) || 0) + tokenWeight);
+    }
+  }
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, VISTOS_SOURCE_MATCH_MAX_CANDIDATE_POOL)
+    .map(([candidate]) => candidate);
+}
+
+function scoreVistosCandidate(candidate, context) {
+  const nameOverlap = tokenOverlapScore(context.nameTokens, candidate.allTokens);
+  const addressOverlap = tokenOverlapScore(context.addressTokens, candidate.allTokens);
+  const originalOverlap = tokenOverlapScore(context.originalTokens, candidate.allTokens);
   const exactName = Math.max(
-    textContainmentScore(sourceName, candidate.nameText),
-    textContainmentScore(sourceName, candidate.allText)
+    compactContainmentScore(context.compactName, candidate.compactNameText),
+    compactContainmentScore(context.compactName, candidate.compactAllText)
   );
   const exactAddress = Math.max(
-    textContainmentScore(sourceAddress, candidate.addressText),
-    textContainmentScore(sourceAddress, candidate.allText)
+    compactContainmentScore(context.compactAddress, candidate.compactAddressText),
+    compactContainmentScore(context.compactAddress, candidate.compactAllText)
   );
-  const sourceWaste = normalizeMatchWaste(`${sourceRow.waste_type} ${sourceRow.waste_code}`);
-  const wasteMatches = Boolean(sourceWaste && candidate.wasteKey && (sourceWaste === candidate.wasteKey || candidate.wasteKey.includes(sourceWaste) || sourceWaste.includes(candidate.wasteKey)));
-  const sourceFrequency = normalizeMatchFrequency(sourceRow.frequency);
-  const frequencyMatches = Boolean(sourceFrequency && candidate.frequencyKey && sourceFrequency === candidate.frequencyKey);
-  const volumeMatches = numericValue(sourceRow.container_volume) > 0 &&
+  const wasteMatches = Boolean(context.sourceWaste && candidate.wasteKey && (context.sourceWaste === candidate.wasteKey || candidate.wasteKey.includes(context.sourceWaste) || context.sourceWaste.includes(candidate.wasteKey)));
+  const frequencyMatches = Boolean(context.sourceFrequency && candidate.frequencyKey && context.sourceFrequency === candidate.frequencyKey);
+  const volumeMatches = context.sourceContainerVolume > 0 &&
     numericValue(candidate.containerVolume) > 0 &&
-    numericValue(sourceRow.container_volume) === numericValue(candidate.containerVolume);
-  const allContainment = textContainmentScore(sourceAll, candidate.allText);
+    context.sourceContainerVolume === numericValue(candidate.containerVolume);
+  const allContainment = compactContainmentScore(context.compactAll, candidate.compactAllText);
 
   let score = 0;
   score += nameOverlap.score * 38;
@@ -368,7 +397,7 @@ function scoreVistosCandidate(sourceRow, candidate) {
   };
 }
 
-function buildVistosSourceMatch(sourceRow, candidates, createdAt) {
+function buildVistosSourceMatch(sourceRow, candidates, createdAt, context = sourceMatchContext(sourceRow)) {
   const sourceIssueStatus = issueStatusFromSourceRow(sourceRow);
   if (!cleanString(sourceRow.customer_name) || !cleanString(sourceRow.address_text)) {
     return {
@@ -384,12 +413,21 @@ function buildVistosSourceMatch(sourceRow, candidates, createdAt) {
     };
   }
 
-  const ranked = candidates
-    .map((candidate) => ({ candidate, details: scoreVistosCandidate(sourceRow, candidate) }))
-    .filter((item) => item.details.score > 0)
-    .sort((a, b) => b.details.score - a.details.score);
-  const best = ranked[0] || null;
-  const second = ranked[1] || null;
+  let best = null;
+  let second = null;
+  for (const candidate of candidates) {
+    const details = scoreVistosCandidate(candidate, context);
+    if (details.score <= 0) {
+      continue;
+    }
+    const item = { candidate, details };
+    if (!best || details.score > best.details.score) {
+      second = best;
+      best = item;
+    } else if (!second || details.score > second.details.score) {
+      second = item;
+    }
+  }
   const score = best?.details?.score || 0;
   const secondScore = second?.details?.score || 0;
   const ambiguous = Boolean(best && second && score - secondScore < 8 && secondScore >= 48);
@@ -956,7 +994,13 @@ export async function listCollectionRouteSourceRows(env, {
           vm.issue AS vistos_issue,
           vm.metadata_json AS vistos_match_metadata_json
         FROM collection_route_source_rows r
-        LEFT JOIN collection_route_vistos_matches vm ON vm.source_row_id = r.id
+        LEFT JOIN collection_route_vistos_matches vm ON vm.id = (
+          SELECT latest_vm.id
+          FROM collection_route_vistos_matches latest_vm
+          WHERE latest_vm.source_row_id = r.id
+          ORDER BY latest_vm.created_at DESC, latest_vm.id DESC
+          LIMIT 1
+        )
         WHERE ${clauses.join(" AND ")}
         ORDER BY r.route_order ASC
         LIMIT ?
@@ -1070,14 +1114,10 @@ export async function matchCollectionRouteSourceRowsWithVistos(env, user, {
     const candidates = candidateSource.candidates;
     const candidateIndex = buildVistosCandidateIndex(candidates);
 
-    await db.prepare(`
-      DELETE FROM collection_route_vistos_matches
-      WHERE source_row_id IN (
-        SELECT id FROM collection_route_source_rows WHERE batch_id = ?
-      )
-    `).bind(resolvedBatchId).run();
-
-    const matches = sourceRows.map((row) => buildVistosSourceMatch(row, candidatePoolForSourceRow(row, candidateIndex), createdAt));
+    const matches = sourceRows.map((row) => {
+      const context = sourceMatchContext(row);
+      return buildVistosSourceMatch(row, candidatePoolForSourceRow(context, candidateIndex), createdAt, context);
+    });
 
     for (let index = 0; index < matches.length; index += 100) {
       const chunk = matches.slice(index, index + 100);
@@ -1114,6 +1154,14 @@ export async function matchCollectionRouteSourceRowsWithVistos(env, user, {
       }));
     }
 
+    await db.prepare(`
+      DELETE FROM collection_route_vistos_matches
+      WHERE created_at <> ?
+        AND source_row_id IN (
+          SELECT id FROM collection_route_source_rows WHERE batch_id = ?
+        )
+    `).bind(createdAt, resolvedBatchId).run();
+
     const summary = {
       batchId: resolvedBatchId,
       sourceRowCount: sourceRows.length,
@@ -1131,6 +1179,8 @@ export async function matchCollectionRouteSourceRowsWithVistos(env, user, {
       candidateBatchId: cleanString(candidateSource.batch?.id),
       candidateBatchCreatedAt: cleanString(candidateSource.batch?.created_at),
       candidateBatchRowCount: numericValue(candidateSource.batch?.row_count),
+      candidatePoolLimit: VISTOS_SOURCE_MATCH_MAX_CANDIDATE_POOL,
+      commonTokenLimit: VISTOS_SOURCE_MATCH_COMMON_TOKEN_LIMIT,
       createdAt,
       createdByUserId: cleanString(user?.id),
       source: "13-excel",
