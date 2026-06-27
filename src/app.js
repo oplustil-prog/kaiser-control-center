@@ -9869,6 +9869,42 @@ function collectionRoutesMetricValue(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function collectionRoutesKommunalPreviewHasData(batch, contractRows, siteRows, issueRows, stats) {
+  return Boolean(batch && (
+    contractRows.length ||
+    siteRows.length ||
+    issueRows.length ||
+    collectionRoutesMetricValue(stats?.contracts || batch?.metadata?.contractCount) > 0 ||
+    collectionRoutesMetricValue(stats?.mappedItems || batch?.rowCount) > 0
+  ));
+}
+
+function collectionRoutesIsGenericKommunalPreviewError(errorMessage) {
+  return /Vistos Komun.l preview se.*nepoda.ilo spustit/i.test(String(errorMessage || ""));
+}
+
+function collectionRoutesKommunalPreviewLoadedMessage(issueCount, mappedItems = 0) {
+  if (collectionRoutesMetricValue(issueCount) > 0 && collectionRoutesMetricValue(mappedItems) > 0) {
+    return "Preview načteno částečně – některé položky vyžadují kontrolu.";
+  }
+  if (collectionRoutesMetricValue(issueCount) > 0) {
+    return "Preview načteno. Byly nalezeny datové problémy k vyřešení.";
+  }
+  return "Preview načteno.";
+}
+
+function collectionRoutesKommunalPreviewSubmitMessage(summary = {}, apiStatus = "ready") {
+  if (apiStatus === "not_configured" || summary.apiStatus === "not_configured") {
+    return "Vistos API není nakonfigurováno.";
+  }
+
+  const contractCount = collectionRoutesMetricValue(summary.contractCount);
+  const itemCount = collectionRoutesMetricValue(summary.itemCount);
+  const issueCount = collectionRoutesMetricValue(summary.issueCount);
+  const baseMessage = collectionRoutesKommunalPreviewLoadedMessage(issueCount, itemCount);
+  return `${baseMessage} Smlouvy: ${contractCount}, položky: ${itemCount}, problémy: ${issueCount}. Ostré trasy nebyly vytvořené.`;
+}
+
 function collectionRoutesEmptyState(title, text) {
   return `
     <div class="collection-routes-empty" role="status">
@@ -10011,7 +10047,14 @@ function collectionRoutesVistosKommunalSection(user) {
   const firstContract = contractRows[0] || null;
   const apiStatus = batch?.apiStatus || collectionRoutesPilotState.apiStatus;
   const issueCount = collectionRoutesMetricValue(stats.issues || batch?.issueCount);
+  const mappedItems = collectionRoutesMetricValue(stats.mappedItems);
   const issueToneClass = issueCount > 0 ? "collection-routes-stats__item--danger" : "collection-routes-stats__item--ok";
+  const hasPreviewData = collectionRoutesKommunalPreviewHasData(batch, contractRows, siteRows, issueRows, stats);
+  const suppressGenericError = hasPreviewData && collectionRoutesIsGenericKommunalPreviewError(collectionRoutesPilotState.error);
+  const previewMessage = suppressGenericError
+    ? collectionRoutesKommunalPreviewLoadedMessage(issueCount, mappedItems)
+    : collectionRoutesPilotState.message;
+  const previewError = suppressGenericError ? "" : collectionRoutesPilotState.error;
 
   return `
     <section class="collection-routes-panel" id="collection-routes-vistos-komunal" aria-labelledby="collection-routes-vistos-komunal-title">
@@ -10048,8 +10091,8 @@ function collectionRoutesVistosKommunalSection(user) {
         <p class="module-feedback__notice">Vistos Komunál preview může spustit pouze admin.</p>
       `}
 
-      ${collectionRoutesPilotState.message ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.message)}</p>` : ""}
-      ${collectionRoutesPilotState.error ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.error)}</p>` : ""}
+      ${previewMessage ? `<p class="module-feedback__notice">${escapeHtml(previewMessage)}</p>` : ""}
+      ${previewError ? `<p class="module-feedback__error">${escapeHtml(previewError)}</p>` : ""}
       ${collectionRoutesPilotState.kommunalPreviewDetailError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.kommunalPreviewDetailError)}</p>` : ""}
 
       ${firstContract ? `
@@ -11677,6 +11720,7 @@ async function submitCollectionRoutesKommunalPreview(form) {
   collectionRoutesPilotState.kommunalPreviewLoading = true;
   collectionRoutesPilotState.error = "";
   collectionRoutesPilotState.message = "";
+  collectionRoutesPilotState.kommunalPreviewDetailError = "";
   render();
 
   try {
@@ -11685,14 +11729,18 @@ async function submitCollectionRoutesKommunalPreview(form) {
       body: JSON.stringify({ source: "vistos-komunal-preview" })
     });
     const summary = result.preview?.summary || {};
-    collectionRoutesPilotState.message = summary.message ||
-      `Vistos Komunál preview načetl ${summary.contractCount || 0} smluv, ${summary.itemCount || 0} položek a ${summary.issueCount || 0} problémů. Ostré trasy nebyly vytvořené.`;
     collectionRoutesPilotState.apiStatus = result.apiStatus || result.preview?.apiStatus || "ready";
+    collectionRoutesPilotState.message = summary.message ||
+      collectionRoutesKommunalPreviewSubmitMessage(summary, collectionRoutesPilotState.apiStatus);
+    collectionRoutesPilotState.error = "";
     collectionRoutesPilotState.activeTab = "vistos-komunal";
     await loadCollectionRoutesPilot({ renderAfter: false, force: true });
   } catch (error) {
-    collectionRoutesPilotState.error = error.payload?.error || error.message || "Vistos Komunál preview se nepodařilo spustit.";
     collectionRoutesPilotState.message = "";
+    collectionRoutesPilotState.error = error.payload?.error || error.message || "Vistos Komunál preview se nepodařilo spustit.";
+    if (error.payload?.apiStatus === "not_configured") {
+      collectionRoutesPilotState.error = "Vistos API není nakonfigurováno.";
+    }
   } finally {
     collectionRoutesPilotState.kommunalPreviewLoading = false;
     render();
