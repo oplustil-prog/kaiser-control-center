@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.152"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.153"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: kontrola kvality importu tras",
+    text: "Optimalizační read-only náhled rozpozná zápisy kont.1100/kont.240, nepočítá falešné minuty z neznámých objemů a označuje řádky čekající na Vistos nebo ruční kontrolu."
+  },
   {
     title: "Trasy svozu: přímé čtení starých .xls tras",
     text: "Optimalizační read-only náhled umí zpracovat i staré binární .xls soubory dispečinku a vícelistové workbooky bez ruční konverze."

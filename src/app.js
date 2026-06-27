@@ -10506,10 +10506,14 @@ function collectionRoutesRouteOptimizationSummaryCards(preview) {
   }
   const summary = preview.summary;
   const unsupported = Array.isArray(preview.unsupportedFiles) ? preview.unsupportedFiles : [];
+  const qualityCounts = summary.qualityCounts || {};
   return `
     <div class="collection-routes-stats" aria-label="Stav optimalizačního preview">
       <article><span>Načtené soubory</span><strong>${collectionRoutesMetricValue(summary.parsedFileCount)}</strong></article>
       <article><span>Řádky návrhu</span><strong>${collectionRoutesMetricValue(summary.rowCount)}</strong></article>
+      <article><span>OK řádky</span><strong>${collectionRoutesMetricValue(qualityCounts.ok)}</strong></article>
+      <article><span>Čeká na Vistos</span><strong>${collectionRoutesMetricValue(qualityCounts.needs_vistos_mapping)}</strong></article>
+      <article><span>Podezřelé</span><strong>${collectionRoutesMetricValue(qualityCounts.suspect)}</strong></article>
       <article><span>Nepodporované soubory</span><strong>${collectionRoutesMetricValue(summary.unsupportedFileCount)}</strong></article>
       <article><span>Ostré trasy</span><strong>NE</strong></article>
     </div>
@@ -10927,6 +10931,7 @@ function collectionRoutesVistosKommunalSection(user) {
         { label: "Min", value: (row) => row.estimatedServiceMinutes },
         { label: "t", value: (row) => row.estimatedWeightTons },
         { label: "Vykládka", value: (row) => row.disposalSite },
+        { label: "Kontrola", value: (row) => `${row.qualityStatus || "-"}${Array.isArray(row.qualityIssues) && row.qualityIssues.length ? ` · ${row.qualityIssues.join(", ")}` : ""}` },
         { label: "Vistos", value: (row) => `${row.vistosMatchStatus || "-"} · ${row.vistosMatchDetail || "-"}` },
         { label: "Jistota", value: (row) => `${row.confidence || "-"} / ${row.vistosMatchConfidence || "-"}` }
       ], routeOptimizationRows, "Nahrajte dispečerské trasy jako .xls, .xlsx nebo CSV. Náhled zůstane pouze read-only a nevytvoří ostré trasy.", `
@@ -15063,6 +15068,8 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
     "Odhad minut",
     "Odhad tun",
     "Vykládka",
+    "Stav kontroly",
+    "Problémy kontroly",
     "Vistos stav",
     "Vistos detail",
     "Vistos smlouva",
@@ -15095,6 +15102,8 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
       row.estimatedServiceMinutes,
       row.estimatedWeightTons,
       row.disposalSite,
+      row.qualityStatus,
+      Array.isArray(row.qualityIssues) ? row.qualityIssues.join(", ") : "",
       row.vistosMatchStatus,
       row.vistosMatchDetail,
       row.vistosMatchContract,

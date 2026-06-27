@@ -51,6 +51,8 @@ const WASTE_WEIGHTS_TONS = {
   BIO: { 1100: 0.02, 240: 0.004, 120: 0.002, 30: 0.001 }
 };
 const SERVICE_MINUTES_BY_VOLUME = { 120: 3, 240: 3, 1100: 5 };
+const CONTAINER_VOLUME_PATTERN = "(30|60|80|120|240|360|660|770|1100|1500|2500|5000)";
+const MAX_REASONABLE_CONTAINER_COUNT = 20;
 
 function cleanValue(value) {
   return String(value ?? "")
@@ -855,14 +857,77 @@ function inferFrequency(text, routeMeta) {
   return "";
 }
 
-function inferContainer(text) {
-  const normalized = normalizeKey(text).replace(",", ".");
-  const counted = normalized.match(/(\d+)\s*[X]\s*(30|60|80|120|240|360|660|770|1100|1500|2500|5000)\s*(?:L|LT|LTR)?/);
-  if (counted) {
-    return { containerCount: Math.max(1, Number(counted[1]) || 1), containerVolume: Number(counted[2]) || 0 };
+function parseSafeContainerCount(value) {
+  const text = cleanValue(value);
+  if (!/^[1-9]\d?$/.test(text)) {
+    return 0;
   }
-  const volume = normalized.match(/\b(30|60|80|120|240|360|660|770|1100|1500|2500|5000)\s*(?:L|LT|LTR)\b/);
-  return { containerCount: 1, containerVolume: volume ? Number(volume[1]) || 0 : 0 };
+  const count = Number(text);
+  return count <= MAX_REASONABLE_CONTAINER_COUNT ? count : 0;
+}
+
+function normalizeContainerCount(count) {
+  const numeric = Number(count) || 0;
+  if (!numeric) {
+    return { containerCount: 0, issue: "missing-container-count" };
+  }
+  if (numeric > MAX_REASONABLE_CONTAINER_COUNT) {
+    return { containerCount: 0, issue: "suspicious-container-count" };
+  }
+  return { containerCount: Math.max(1, numeric), issue: "" };
+}
+
+function containerResult(volume, count = 1, source = "") {
+  const normalizedCount = normalizeContainerCount(count);
+  return {
+    containerCount: normalizedCount.containerCount,
+    containerVolume: Number(volume) || 0,
+    containerIssue: normalizedCount.issue,
+    containerSource: source
+  };
+}
+
+function containerVolumeFromText(value) {
+  const normalized = normalizeKey(value).replace("×", "X");
+  const counted = normalized.match(new RegExp(`\\b([1-9]\\d?)\\s*X\\s*${CONTAINER_VOLUME_PATTERN}\\b`));
+  if (counted) {
+    return { volume: Number(counted[2]) || 0, count: Number(counted[1]) || 1, source: "counted-text" };
+  }
+  const prefixed = normalized.match(new RegExp(`\\b(?:KONT|KONTEJNER|NADOBA|NADOBY|P)\\s*${CONTAINER_VOLUME_PATTERN}\\b`));
+  if (prefixed) {
+    return { volume: Number(prefixed[1]) || 0, count: 1, source: "prefixed-volume" };
+  }
+  const suffixed = normalized.match(new RegExp(`\\b${CONTAINER_VOLUME_PATTERN}\\s*(?:L|LT|LTR|LITR|LITRU)\\b`));
+  if (suffixed) {
+    return { volume: Number(suffixed[1]) || 0, count: 1, source: "literal-volume" };
+  }
+  return { volume: 0, count: 0, source: "" };
+}
+
+function inferContainer(text, cells = []) {
+  for (let index = 0; index < cells.length; index += 1) {
+    const parsed = containerVolumeFromText(cells[index]);
+    if (!parsed.volume) {
+      continue;
+    }
+    const nextCount = parseSafeContainerCount(cells[index + 1]);
+    return containerResult(parsed.volume, nextCount || parsed.count || 1, nextCount ? "cell-next-count" : parsed.source);
+  }
+
+  const normalized = normalizeKey(text).replace("×", "X");
+  const counted = normalized.match(new RegExp(`\\b([1-9]\\d?)\\s*X\\s*${CONTAINER_VOLUME_PATTERN}\\b`));
+  if (counted) {
+    return containerResult(counted[2], counted[1], "counted-text");
+  }
+  const prefixedWithCount = normalized.match(new RegExp(`\\b(?:KONT|KONTEJNER|NADOBA|NADOBY|P)\\s*${CONTAINER_VOLUME_PATTERN}\\s+([1-9]\\d?)\\b`));
+  if (prefixedWithCount) {
+    return containerResult(prefixedWithCount[1], prefixedWithCount[2], "prefixed-volume-next-count");
+  }
+  const parsed = containerVolumeFromText(text);
+  if (parsed.volume) {
+    return containerResult(parsed.volume, parsed.count || 1, parsed.source);
+  }
+  return { containerCount: 0, containerVolume: 0, containerIssue: "missing-container-volume", containerSource: "" };
 }
 
 function inferRegion(text, waste) {
@@ -912,12 +977,45 @@ function disposalSiteFor({ wasteType, region }) {
 }
 
 function estimatedServiceMinutes(volume, count) {
+  if (!Number(volume) || !Number(count)) {
+    return 0;
+  }
   return (SERVICE_MINUTES_BY_VOLUME[volume] || (volume >= 1000 ? 5 : 3)) * Math.max(1, Number(count) || 1);
 }
 
 function estimatedWeightTons(wasteType, volume, count) {
+  if (!Number(volume) || !Number(count)) {
+    return 0;
+  }
   const weight = WASTE_WEIGHTS_TONS[wasteType]?.[volume] || 0;
   return Math.round(weight * Math.max(1, Number(count) || 1) * 1000) / 1000;
+}
+
+function routeQuality({ waste, container, text, cells }) {
+  const issues = [];
+  const normalized = normalizeKey(text);
+  if (!waste.wasteType || !waste.wasteCode) {
+    issues.push("needs-vistos-waste-type");
+  }
+  if (!container.containerVolume) {
+    issues.push("missing-container-volume");
+  }
+  if (!container.containerCount) {
+    issues.push(container.containerIssue || "missing-container-count");
+  } else if (container.containerIssue) {
+    issues.push(container.containerIssue);
+  }
+  if (cells.length <= 2 && text.length > 300) {
+    issues.push("suspicious-source-row");
+  }
+  if (/\b(UKONCENO|UKONENO|VYMAZAT|NEPLATI|STOP)\b/.test(normalized)) {
+    issues.push("source-note-cancelled-or-stopped");
+  }
+  const qualityIssues = [...new Set(issues)];
+  const qualityStatus = qualityIssues.some((issue) => issue.startsWith("suspicious") || issue.includes("cancelled"))
+    ? "suspect"
+    : qualityIssues.length ? "needs_vistos_mapping" : "ok";
+  return { qualityStatus, qualityIssues };
 }
 
 function sourceRouteName(filename) {
@@ -937,9 +1035,10 @@ function buildRowsFromSheet({ rows, filename, sheetName }) {
     }
     const waste = inferWaste(text);
     const frequency = inferFrequency(text, routeMeta) || "1x7";
-    const container = inferContainer(text);
+    const container = inferContainer(text, cleanedCells);
     const region = inferRegion(text, waste);
     const days = suggestedDays(frequency, routeMeta.day);
+    const quality = routeQuality({ waste, container, text, cells: cleanedCells });
     for (const day of days) {
       const vehicle = vehicleFor({ day, ...waste, region, text });
       output.push({
@@ -965,7 +1064,10 @@ function buildRowsFromSheet({ rows, filename, sheetName }) {
         disposalSite: disposalSiteFor({ wasteType: waste.wasteType, region }),
         optimizationGroup: `${day}-${vehicle.code}-${waste.wasteType || "ODPAD"}-${frequency}`,
         reason: "Read-only návrh: drží stabilní četnost, všední dny PO-PÁ a přiřazení vozidla podle odpadu/oblasti.",
-        confidence: waste.wasteType && container.containerVolume ? "střední" : "nízká",
+        confidence: quality.qualityStatus === "ok" ? "střední" : "nízká",
+        qualityStatus: quality.qualityStatus,
+        qualityIssues: quality.qualityIssues,
+        containerSource: container.containerSource,
         createsOperationalRoutes: false
       });
     }
@@ -1017,9 +1119,15 @@ export async function buildCollectionRouteOptimizationPreview({ files = [] } = {
   const limitedRows = rows.slice(0, COLLECTION_ROUTE_OPTIMIZATION_MAX_ROWS);
   const dayCounts = new Map();
   const vehicleCounts = new Map();
+  const qualityCounts = new Map();
+  const qualityIssueCounts = new Map();
   for (const row of limitedRows) {
     dayCounts.set(row.suggestedDay, (dayCounts.get(row.suggestedDay) || 0) + 1);
     vehicleCounts.set(row.vehicleCode, (vehicleCounts.get(row.vehicleCode) || 0) + 1);
+    qualityCounts.set(row.qualityStatus || "unknown", (qualityCounts.get(row.qualityStatus || "unknown") || 0) + 1);
+    for (const issue of row.qualityIssues || []) {
+      qualityIssueCounts.set(issue, (qualityIssueCounts.get(issue) || 0) + 1);
+    }
   }
 
   return {
@@ -1039,6 +1147,8 @@ export async function buildCollectionRouteOptimizationPreview({ files = [] } = {
       rowCount: limitedRows.length,
       dayCounts: Object.fromEntries(dayCounts),
       vehicleCounts: Object.fromEntries(vehicleCounts),
+      qualityCounts: Object.fromEntries(qualityCounts),
+      qualityIssueCounts: Object.fromEntries(qualityIssueCounts),
       createsOperationalRoutes: false,
       sendsEmailOrSms: false,
       startsAutomation: false
