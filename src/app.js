@@ -11317,8 +11317,12 @@ function collectionRoutesVistosKommunalSection(user) {
       </div>
 
       <div class="collection-routes-source-switch" aria-label="Oddělení zdrojových podkladů a návrhu AI">
-        <a class="secondary-link collection-routes-source-switch__link" href="#collection-routes-excel-source">13 Excelů</a>
-        <a class="primary-action collection-routes-source-switch__link" href="#collection-routes-ai-draft">Návrh AI</a>
+        <button class="secondary-link collection-routes-source-switch__link" type="button" data-collection-routes-export-optimization>
+          13 Excelů do Excelu
+        </button>
+        <button class="primary-action collection-routes-source-switch__link" type="button" data-collection-routes-export-daily-draft>
+          Návrh AI do Excelu
+        </button>
       </div>
 
       <div class="collection-routes-stats" aria-label="Stav Vistos Komunál preview">
