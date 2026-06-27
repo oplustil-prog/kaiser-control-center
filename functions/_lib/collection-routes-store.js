@@ -1480,7 +1480,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
         )
         .run();
 
-      let serviceId = "";
+      let serviceId = null;
       if (siteId && row.wasteType) {
         serviceId = randomId("collection-service");
         await db
@@ -1569,7 +1569,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
           .bind(
             randomId("collection-data-issue"),
             batchId,
-            siteId,
+            siteId || null,
             issue.type,
             issue.severity,
             issue.message,
