@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.119"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.120"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: vycisteni Vistos error stavu",
+    text: "Po nacteni pouzitelneho Vistos Komunal batche se sdileny chybovy stav cisti a UI ukazuje varovani k datum problemum misto chyby spusteni."
+  },
   {
     title: "Trasy svozu: jasnejsi stav Vistos preview",
     text: "UI uz nerozlisuje datove problemy Vistos Komunal preview jako chybu spusteni. Pri nactenych datech ukazuje varovny stav a problemy zustavaji v tabulce."
