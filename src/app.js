@@ -9869,6 +9869,78 @@ function collectionRoutesMetricValue(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function collectionRoutesKommunalFilterDiagnosticRows(metadata = {}) {
+  const diagnostics = metadata.filterDiagnostics || {};
+  const totals = metadata.vistosTotals || {};
+  const contractTotals = totals.contracts || {};
+  const contractRowTotals = totals.contractRows || {};
+  const productTotals = totals.products || {};
+  const rows = [
+    {
+      label: "Contract celkem ve Vistos",
+      value: diagnostics.contractsBeforeVistosFilter ?? contractTotals.total,
+      note: "Hodnota z Vistos total před kombinovaným Contract filtrem."
+    },
+    {
+      label: "Contract po Status + Typ",
+      value: diagnostics.contractsAfterStatusAndTypeFilter ?? contractTotals.filtered,
+      note: "Status_FK = 74 a Typsmlouvy_FK = [14735]."
+    },
+    {
+      label: "Contract načtené pro preview",
+      value: diagnostics.contractsLoadedAfterStatusAndTypeFilter ?? contractTotals.loaded,
+      note: "Reálně stažené smlouvy po Vistos filtru."
+    },
+    {
+      label: "Contract s napárovanou položkou",
+      value: diagnostics.contractsWithMatchedContractRows ?? contractTotals.withMatchedContractRows,
+      note: "Smlouvy, ke kterým se našla ContractRow."
+    },
+    {
+      label: "ContractRow celkem načtené",
+      value: diagnostics.contractRowsLoaded ?? contractRowTotals.loaded,
+      note: "Řádky ContractRow načtené z Vistosu."
+    },
+    {
+      label: "ContractRow napárované na Contract",
+      value: diagnostics.contractRowsMatchedToContracts ?? contractRowTotals.matchedToContracts,
+      note: "Položky patřící ke Komunál smlouvám."
+    },
+    {
+      label: "ContractRow podle IsActive",
+      value: diagnostics.contractRowsPassingIsActiveFlag ?? contractRowTotals.passingIsActiveFlag,
+      note: "Diagnostika; není tvrdý filtr preview."
+    },
+    {
+      label: "ContractRow podle datumu",
+      value: diagnostics.contractRowsPassingDateRange ?? contractRowTotals.passingDateRange,
+      note: "Diagnostika StartDate/EndDate; není tvrdý filtr preview."
+    },
+    {
+      label: "ContractRow striktní filtr",
+      value: diagnostics.contractRowsPassingStrictActiveDateRange ?? contractRowTotals.passingStrictActiveDateRange,
+      note: "Kolik by prošlo IsActive + datum současně."
+    },
+    {
+      label: "ContractRow použité v preview",
+      value: diagnostics.contractRowsUsedForPreview ?? contractRowTotals.usedForPreview,
+      note: "Řádky ponechané v read-only preview a označené datovými problémy."
+    },
+    {
+      label: "Product napárované",
+      value: diagnostics.productsMatchedToRows ?? productTotals.relevant,
+      note: "Produkty napárované k použitým položkám."
+    }
+  ];
+
+  return rows
+    .filter((row) => row.value !== undefined && row.value !== null && row.value !== "")
+    .map((row) => ({
+      ...row,
+      value: collectionRoutesMetricValue(row.value)
+    }));
+}
+
 function collectionRoutesKommunalPreviewHasData(batch, contractRows, siteRows, issueRows, stats) {
   return Boolean(batch && (
     contractRows.length ||
@@ -10079,6 +10151,7 @@ function collectionRoutesVistosKommunalSection(user) {
   const contractRows = collectionRoutesKommunalContractRows(metadata);
   const siteRows = collectionRoutesKommunalSiteRows(metadata);
   const issueRows = collectionRoutesKommunalIssueRows(metadata);
+  const diagnosticRows = collectionRoutesKommunalFilterDiagnosticRows(metadata);
   const firstContract = contractRows[0] || null;
   const apiStatus = batch?.apiStatus || collectionRoutesPilotState.apiStatus;
   const issueCount = collectionRoutesMetricValue(stats.issues || batch?.issueCount);
@@ -10104,7 +10177,7 @@ function collectionRoutesVistosKommunalSection(user) {
 
       <div class="collection-routes-phase-note">
         <strong>Tento náhled nevytváří ostré trasy, neposílá SMS/e-maily a nespouští automatizace.</strong>
-        <span>Filtr: Contract.Status_FK = 74, Contract.Typsmlouvy_FK = [14735], ContractRow.IsActive a ContractRow.EndDate prázdné nebo >= dnes. Chybějící ContractRow.StartDate zůstane jako datový problém.</span>
+        <span>Filtr: Contract.Status_FK = 74, Contract.Typsmlouvy_FK = [14735]. ContractRow.IsActive/StartDate/EndDate se ve Fázi 1E vyhodnocují jako datové problémy, ne jako tvrdé vyřazení preview.</span>
       </div>
 
       <div class="collection-routes-stats" aria-label="Stav Vistos Komunál preview">
@@ -10129,6 +10202,12 @@ function collectionRoutesVistosKommunalSection(user) {
       ${previewMessage ? `<p class="module-feedback__notice">${escapeHtml(previewMessage)}</p>` : ""}
       ${previewError ? `<p class="module-feedback__error">${escapeHtml(previewError)}</p>` : ""}
       ${collectionRoutesPilotState.kommunalPreviewDetailError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.kommunalPreviewDetailError)}</p>` : ""}
+
+      ${collectionRoutesPreviewTable("Diagnostika filtrů", [
+        { label: "Krok", value: (row) => row.label },
+        { label: "Počet", value: (row) => row.value },
+        { label: "Poznámka", value: (row) => row.note }
+      ], diagnosticRows, "Po načtení Vistos Komunál preview se zde zobrazí diagnostika filtrů.")}
 
       ${firstContract ? `
         <div class="collection-routes-detail-grid" aria-label="Detail jedné smlouvy">

@@ -820,6 +820,39 @@ function contractRowInActiveRange(row, today = new Date()) {
   return dateInActiveRange(row?.StartDate, row?.EndDate, today);
 }
 
+function contractRowValidityIssues(row, today = new Date()) {
+  const issues = [];
+  const todayIso = today.toISOString().slice(0, 10);
+  const start = isoDateValue(row?.StartDate);
+  const end = isoDateValue(row?.EndDate);
+
+  if (!booleanValue(row?.IsActive, true)) {
+    issues.push({
+      type: "inactive-contract-row-flag",
+      severity: "warning",
+      message: "Položka smlouvy má ve Vistosu příznak neaktivní. Zůstává v read-only preview k ověření."
+    });
+  }
+
+  if (start && start > todayIso) {
+    issues.push({
+      type: "future-contract-row-start-date",
+      severity: "warning",
+      message: "Položka smlouvy má začátek platnosti v budoucnu."
+    });
+  }
+
+  if (end && end < todayIso) {
+    issues.push({
+      type: "expired-contract-row-end-date",
+      severity: "warning",
+      message: "Položka smlouvy má konec platnosti v minulosti."
+    });
+  }
+
+  return issues;
+}
+
 function productSearchText(contractRow, product) {
   return [
     product?.Kod_druhotnych_surovin,
@@ -978,7 +1011,7 @@ function vistosSiteKey(contract) {
   ].join("|"));
 }
 
-function buildVistosKommunalPreview({ contracts, contractRows, products, totals = {} }) {
+function buildVistosKommunalPreview({ contracts, contractRows, products, totals = {}, today = new Date(), filterDiagnostics = {} }) {
   const productsById = new Map(products.map((product) => [cleanString(product?.Id), product]));
   const contractIds = new Set(contracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
   const rowsByContractId = new Map();
@@ -1039,6 +1072,7 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
       if (!isoDateValue(contractRow?.StartDate)) {
         issues.push({ type: "missing-contract-row-start-date", severity: "warning", message: "Položka smlouvy zatím nemá začátek platnosti z Vistosu." });
       }
+      issues.push(...contractRowValidityIssues(contractRow, today));
 
       if (!looksLikeCollection) {
         issues.push({ type: "item-not-collection-mappable", severity: "info", message: "Položka podle dostupných polí nevypadá jako svoz odpadu." });
@@ -1197,6 +1231,7 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     issuePreviewRows,
     metadata: {
       filter: VISTOS_KOMUNAL_CONTRACT_FILTER,
+      filterDiagnostics,
       vistosTotals: totals,
       mappingStats: {
         contracts: contracts.length,
@@ -1695,16 +1730,33 @@ async function loadVistosKommunalPreviewData(env) {
   const today = new Date();
   const kommunalContracts = contractsPage.rows;
   const contractIds = new Set(kommunalContracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
-  const relevantContractRows = contractRowsPage.rows.filter((row) => (
-    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK)) &&
-    contractRowInActiveRange(row, today)
+  const contractRowsForKommunalContracts = contractRowsPage.rows.filter((row) => (
+    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
   ));
+  const contractRowsWithActiveFlag = contractRowsForKommunalContracts.filter((row) => booleanValue(row?.IsActive, true));
+  const contractRowsInDateRange = contractRowsForKommunalContracts.filter((row) => dateInActiveRange(row?.StartDate, row?.EndDate, today));
+  const contractRowsInStrictActiveDateRange = contractRowsForKommunalContracts.filter((row) => contractRowInActiveRange(row, today));
+  const relevantContractRows = contractRowsForKommunalContracts;
   const contractsWithActiveRows = new Set(relevantContractRows
     .map((row) => cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
     .filter(Boolean));
   const activeContracts = kommunalContracts.filter((contract) => contractsWithActiveRows.has(cleanString(contract?.Id)));
   const productIds = new Set(relevantContractRows.map((row) => cleanString(row?.Product_FK_RecordId || row?.Product_FK)).filter(Boolean));
   const relevantProducts = productsPage.rows.filter((product) => productIds.has(cleanString(product?.Id)));
+  const filterDiagnostics = {
+    contractsBeforeVistosFilter: contractsPage.total,
+    contractsAfterStatusAndTypeFilter: contractsPage.filtered || contractsPage.rows.length,
+    contractsLoadedAfterStatusAndTypeFilter: contractsPage.rows.length,
+    contractsWithMatchedContractRows: activeContracts.length,
+    contractRowsLoaded: contractRowsPage.rows.length,
+    contractRowsMatchedToContracts: contractRowsForKommunalContracts.length,
+    contractRowsPassingIsActiveFlag: contractRowsWithActiveFlag.length,
+    contractRowsPassingDateRange: contractRowsInDateRange.length,
+    contractRowsPassingStrictActiveDateRange: contractRowsInStrictActiveDateRange.length,
+    contractRowsUsedForPreview: relevantContractRows.length,
+    productsLoaded: productsPage.rows.length,
+    productsMatchedToRows: relevantProducts.length
+  };
 
   return {
     configured: true,
@@ -1713,12 +1765,14 @@ async function loadVistosKommunalPreviewData(env) {
       contracts: activeContracts,
       contractRows: relevantContractRows,
       products: relevantProducts,
+      today,
+      filterDiagnostics,
       totals: {
         contracts: {
           total: contractsPage.total,
           filtered: contractsPage.filtered,
           loaded: contractsPage.rows.length,
-          dateValid: activeContracts.length,
+          withMatchedContractRows: activeContracts.length,
           dateExcluded: Math.max(0, kommunalContracts.length - activeContracts.length),
           capped: contractsPage.capped
         },
@@ -1726,8 +1780,11 @@ async function loadVistosKommunalPreviewData(env) {
           total: contractRowsPage.total,
           filtered: contractRowsPage.filtered,
           loaded: contractRowsPage.rows.length,
-          dateValid: relevantContractRows.length,
-          dateExcluded: Math.max(0, contractRowsPage.rows.length - relevantContractRows.length),
+          matchedToContracts: contractRowsForKommunalContracts.length,
+          passingIsActiveFlag: contractRowsWithActiveFlag.length,
+          passingDateRange: contractRowsInDateRange.length,
+          passingStrictActiveDateRange: contractRowsInStrictActiveDateRange.length,
+          usedForPreview: relevantContractRows.length,
           relevant: relevantContractRows.length,
           capped: contractRowsPage.capped
         },
