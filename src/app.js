@@ -10539,7 +10539,18 @@ function collectionRoutesImportBatchCards() {
 
 function collectionRoutesPreviewTable(title, columns, rows, emptyText, actionsHtml = "") {
   if (!Array.isArray(rows) || !rows.length) {
-    return collectionRoutesEmptyState(title, emptyText);
+    if (!actionsHtml) {
+      return collectionRoutesEmptyState(title, emptyText);
+    }
+    return `
+      <div class="collection-routes-preview-block">
+        <div class="collection-routes-preview-block__head">
+          <h3>${escapeHtml(title)}</h3>
+          <div class="collection-routes-preview-block__actions">${actionsHtml}</div>
+        </div>
+        ${collectionRoutesEmptyState(title, emptyText)}
+      </div>
+    `;
   }
 
   return `
@@ -14643,7 +14654,7 @@ function exportCollectionRoutesKommunalMappingGaps() {
   const rows = collectionRoutesKommunalMappingGapRows(batch?.metadata || {});
   if (!rows.length) {
     collectionRoutesPilotState.message = "";
-    collectionRoutesPilotState.error = "Není co exportovat. Nejdřív načtěte Vistos Komunál preview.";
+    collectionRoutesPilotState.error = "Není co exportovat. Nejdřív klikněte na Načíst aktivní Komunál smlouvy z Vistosu.";
     render();
     return;
   }
