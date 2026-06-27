@@ -1056,6 +1056,41 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     }
 
     if (!contractRowsForContract.length) {
+      mappedRows.push({
+        rowNumber: mappedRows.length + 1,
+        sourceEntity: "Contract",
+        sourceId: `Contract:${contractId}`,
+        sourceContractId: contractId,
+        sourceCustomerId,
+        sourceSiteId,
+        contractId,
+        contractNumber: cleanString(contract?.ContractNumber),
+        validFrom: "",
+        validTo: "",
+        customerName,
+        branchName,
+        addressRaw,
+        siteName,
+        wasteType: "",
+        wasteCode: "",
+        frequency: "",
+        containerVolume: 0,
+        containerCount: 0,
+        productName: "",
+        productId: "",
+        contractRowId: "",
+        mappingStatus: "needs_review",
+        rowKey: `vistos-contract-${contractId}`,
+        siteKey: vistosSiteKey(contract),
+        locationQuality: sourceSiteId ? "vistos_unverified" : "missing",
+        latitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Lat),
+        longitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Long),
+        issues: [
+          ...baseIssues,
+          { type: "missing-contract-items", severity: "warning", message: "Chybí napárované položky smlouvy ContractRow." },
+          { type: "item-not-collection-mappable", severity: "warning", message: "Položka není mapovatelná na svoz bez ContractRow." }
+        ]
+      });
       continue;
     }
 
@@ -1730,17 +1765,18 @@ async function loadVistosKommunalPreviewData(env) {
   const today = new Date();
   const kommunalContracts = contractsPage.rows;
   const contractIds = new Set(kommunalContracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
-  const contractRowsForKommunalContracts = contractRowsPage.rows.filter((row) => (
-    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
-  ));
+  const rowContractId = (row) => cleanString(row?.Contract_FK_RecordId || row?.Contract_FK || row?.Contract_FK_Id || row?.ContractId);
+  const contractRowsForKommunalContracts = contractRowsPage.rows.filter((row) => contractIds.has(rowContractId(row)));
   const contractRowsWithActiveFlag = contractRowsForKommunalContracts.filter((row) => booleanValue(row?.IsActive, true));
   const contractRowsInDateRange = contractRowsForKommunalContracts.filter((row) => dateInActiveRange(row?.StartDate, row?.EndDate, today));
   const contractRowsInStrictActiveDateRange = contractRowsForKommunalContracts.filter((row) => contractRowInActiveRange(row, today));
   const relevantContractRows = contractRowsForKommunalContracts;
   const contractsWithActiveRows = new Set(relevantContractRows
-    .map((row) => cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
+    .map((row) => rowContractId(row))
     .filter(Boolean));
-  const activeContracts = kommunalContracts.filter((contract) => contractsWithActiveRows.has(cleanString(contract?.Id)));
+  const activeContracts = contractsWithActiveRows.size
+    ? kommunalContracts.filter((contract) => contractsWithActiveRows.has(cleanString(contract?.Id)))
+    : kommunalContracts;
   const productIds = new Set(relevantContractRows.map((row) => cleanString(row?.Product_FK_RecordId || row?.Product_FK)).filter(Boolean));
   const relevantProducts = productsPage.rows.filter((product) => productIds.has(cleanString(product?.Id)));
   const filterDiagnostics = {
@@ -1755,7 +1791,12 @@ async function loadVistosKommunalPreviewData(env) {
     contractRowsPassingStrictActiveDateRange: contractRowsInStrictActiveDateRange.length,
     contractRowsUsedForPreview: relevantContractRows.length,
     productsLoaded: productsPage.rows.length,
-    productsMatchedToRows: relevantProducts.length
+    productsMatchedToRows: relevantProducts.length,
+    zeroResultReason: !kommunalContracts.length
+      ? "Vistos nevrátil žádné Contract pro filtr Status_FK = 74 a Typsmlouvy_FK = [14735]."
+      : !contractRowsForKommunalContracts.length
+        ? "ContractRow se nepodařilo napárovat na načtené Komunál smlouvy. Preview zobrazuje smlouvy jako needs_review."
+        : ""
   };
 
   return {
@@ -1843,20 +1884,18 @@ export async function createCollectionRoutesVistosKommunalPreview(env, user) {
   }
 
   if (!loaded.preview.summary.contractCount) {
-    return createCollectionRoutesStatusBatch(env, user, {
-      status: "waiting_mapping",
-      apiStatus: "waiting",
-      message: "Vistos Komunál preview nenašlo žádné aktivní Komunál smlouvy.",
-      issueType: "vistos-komunal-preview",
-      severity: "info",
-      phase: VISTOS_KOMUNAL_PHASE,
-      mode: "vistos-komunal-preview",
-      source: "vistos",
-      sourceMode: "vistos-komunal-preview",
-      metadata: {
-        filter: VISTOS_KOMUNAL_CONTRACT_FILTER
-      }
-    });
+    loaded.preview.summary.status = "empty";
+    loaded.preview.summary.message = "Preview nenačetlo žádné smlouvy. Zkontrolujte diagnostiku filtrů.";
+    loaded.preview.rows = [];
+    loaded.preview.issuePreviewRows = [{
+      contractNumber: "-",
+      siteName: "-",
+      issueType: "vistos-komunal-empty-preview",
+      severity: "warning",
+      message: loaded.preview.metadata?.filterDiagnostics?.zeroResultReason || "Vistos Komunál preview skončilo bez smluv."
+    }];
+    loaded.preview.metadata.mappingStats.issues = loaded.preview.issuePreviewRows.length;
+    loaded.preview.summary.issueCount = loaded.preview.issuePreviewRows.length;
   }
 
   return persistCollectionRoutesImportPreview(env, user, loaded.preview, {
