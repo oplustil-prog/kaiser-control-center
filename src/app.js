@@ -597,6 +597,11 @@ const collectionRoutesPilotState = {
   issues: [],
   kommunalPreviewRows: [],
   kommunalPreviewIssues: [],
+  kommunalPairingRows: [],
+  kommunalPairingLoading: false,
+  kommunalPairingError: "",
+  kommunalPairingLoadedAt: "",
+  kommunalPairingSource: "",
   kommunalPreviewDetailError: "",
   routeOptimizationPreview: null,
   routeOptimizationError: "",
@@ -10404,6 +10409,20 @@ function collectionRoutesRouteOptimizationKey(value = "") {
     .trim();
 }
 
+function collectionRoutesRouteOptimizationValue(value = "") {
+  const text = String(value ?? "").trim();
+  return text && text !== "-" ? text : "";
+}
+
+function collectionRoutesRouteOptimizationNumber(value = 0) {
+  const number = collectionRoutesMetricValue(value, 0);
+  return number > 0 ? number : 0;
+}
+
+function collectionRoutesRouteOptimizationCompact(value = "") {
+  return collectionRoutesRouteOptimizationKey(value).replace(/\s+/g, "");
+}
+
 function collectionRoutesRouteOptimizationTokens(value = "") {
   const ignored = new Set(["brno", "blansko", "trasa", "svoz", "sko", "bio", "plast", "papir", "sklo", "komunal"]);
   return collectionRoutesRouteOptimizationKey(value)
@@ -10411,27 +10430,48 @@ function collectionRoutesRouteOptimizationTokens(value = "") {
     .filter((token) => token.length >= 4 && !ignored.has(token));
 }
 
+function collectionRoutesRouteOptimizationCandidateRows() {
+  return collectionRoutesPilotState.kommunalPairingRows.length
+    ? collectionRoutesPilotState.kommunalPairingRows
+    : collectionRoutesPilotState.kommunalPreviewRows;
+}
+
 function collectionRoutesRouteOptimizationVistosCandidates() {
-  return collectionRoutesPilotState.kommunalPreviewRows.map((row) => {
+  return collectionRoutesRouteOptimizationCandidateRows().map((row) => {
     const summary = collectionRoutesImportRowSummary(row);
+    const keySource = [
+      summary.contractNumber,
+      summary.customerName,
+      summary.branchName,
+      summary.siteName,
+      summary.addressRaw,
+      summary.productName,
+      summary.rowName,
+      summary.note,
+      summary.wasteType,
+      summary.wasteCode,
+      summary.frequency,
+      summary.containerVolume
+    ].join(" ");
+    const key = collectionRoutesRouteOptimizationKey(keySource);
     return {
-      contractNumber: summary.contractNumber || "-",
-      customerName: summary.customerName || "-",
-      siteName: summary.siteName || summary.addressRaw || "-",
-      addressRaw: summary.addressRaw || "-",
-      wasteType: summary.wasteType || "",
-      wasteCode: summary.wasteCode || "",
-      frequency: summary.frequency || "",
-      containerVolume: collectionRoutesMetricValue(summary.containerVolume, 0),
-      key: collectionRoutesRouteOptimizationKey([
-        summary.contractNumber,
-        summary.customerName,
-        summary.siteName,
-        summary.addressRaw,
-        summary.productName,
-        summary.rowName,
-        summary.note
-      ].join(" "))
+      sourceId: summary.sourceId || summary.contractRowId || summary.rowKey || "",
+      contractNumber: collectionRoutesRouteOptimizationValue(summary.contractNumber) || "-",
+      customerName: collectionRoutesRouteOptimizationValue(summary.customerName) || "-",
+      branchName: collectionRoutesRouteOptimizationValue(summary.branchName),
+      siteName: collectionRoutesRouteOptimizationValue(summary.siteName || summary.addressRaw) || "-",
+      addressRaw: collectionRoutesRouteOptimizationValue(summary.addressRaw) || "-",
+      productName: collectionRoutesRouteOptimizationValue(summary.productName),
+      rowName: collectionRoutesRouteOptimizationValue(summary.rowName),
+      note: collectionRoutesRouteOptimizationValue(summary.note),
+      wasteType: collectionRoutesRouteOptimizationValue(summary.wasteType),
+      wasteCode: collectionRoutesRouteOptimizationValue(summary.wasteCode),
+      frequency: collectionRoutesRouteOptimizationValue(summary.frequency),
+      containerVolume: collectionRoutesRouteOptimizationNumber(summary.containerVolume),
+      containerCount: collectionRoutesRouteOptimizationNumber(summary.containerCount),
+      key,
+      tokens: collectionRoutesRouteOptimizationTokens(key),
+      contractKey: collectionRoutesRouteOptimizationCompact(summary.contractNumber)
     };
   });
 }
@@ -10439,47 +10479,170 @@ function collectionRoutesRouteOptimizationVistosCandidates() {
 function collectionRoutesRouteOptimizationMatch(row, candidates = []) {
   if (!candidates.length) {
     return {
-      status: "Čeká na Vistos",
-      detail: "Nejdřív načíst Vistos Komunál preview",
+      matched: false,
+      status: collectionRoutesPilotState.kommunalPairingLoading ? "Načítám Vistos" : "Čeká na Vistos",
+      detail: collectionRoutesPilotState.kommunalPairingLoading
+        ? "Načítám read-only Vistos řádky pro párování"
+        : "Nejdřív načíst Vistos Komunál preview",
       contractNumber: "-",
-      confidence: "-"
+      confidence: "-",
+      score: 0,
+      signals: []
     };
   }
 
   const rowText = [row.originalText, row.sourceRoute, row.sourceFile].join(" ");
+  const rowKey = collectionRoutesRouteOptimizationKey(rowText);
+  const rowCompact = rowKey.replace(/\s+/g, "");
   const rowTokens = new Set(collectionRoutesRouteOptimizationTokens(rowText));
+  const rowWasteType = collectionRoutesRouteOptimizationValue(row.wasteType).toUpperCase();
+  const rowWasteCode = collectionRoutesRouteOptimizationCompact(row.wasteCode);
+  const rowFrequency = collectionRoutesRouteOptimizationValue(row.frequency);
+  const rowVolume = collectionRoutesRouteOptimizationNumber(row.containerVolume);
   let best = null;
-  let bestScore = 0;
+  let secondBest = null;
 
   candidates.forEach((candidate) => {
-    const candidateTokens = collectionRoutesRouteOptimizationTokens(candidate.key);
-    const tokenHits = candidateTokens.reduce((count, token) => count + (rowTokens.has(token) ? 1 : 0), 0);
-    const wasteMatch = row.wasteType && candidate.wasteType && String(row.wasteType).toUpperCase() === String(candidate.wasteType).toUpperCase();
-    const codeMatch = row.wasteCode && candidate.wasteCode && String(row.wasteCode) === String(candidate.wasteCode);
-    const frequencyMatch = row.frequency && candidate.frequency && String(row.frequency) === String(candidate.frequency);
-    const volumeMatch = Number(row.containerVolume) > 0 && Number(row.containerVolume) === Number(candidate.containerVolume);
-    const score = tokenHits * 3 + (wasteMatch ? 2 : 0) + (codeMatch ? 2 : 0) + (frequencyMatch ? 2 : 0) + (volumeMatch ? 1 : 0);
+    const tokenHits = candidate.tokens.reduce((count, token) => count + (rowTokens.has(token) ? 1 : 0), 0);
+    const contractMatch = candidate.contractKey.length >= 5 && rowCompact.includes(candidate.contractKey);
+    const wasteMatch = rowWasteType && candidate.wasteType && rowWasteType === String(candidate.wasteType).toUpperCase();
+    const codeMatch = rowWasteCode && candidate.wasteCode && rowWasteCode === collectionRoutesRouteOptimizationCompact(candidate.wasteCode);
+    const frequencyMatch = rowFrequency && candidate.frequency && rowFrequency === candidate.frequency;
+    const volumeMatch = rowVolume > 0 && candidate.containerVolume > 0 && rowVolume === candidate.containerVolume;
+    const hasTextEvidence = contractMatch || tokenHits >= 2 || (tokenHits >= 1 && (wasteMatch || codeMatch || volumeMatch));
 
-    if (tokenHits > 0 && score > bestScore) {
-      best = candidate;
-      bestScore = score;
+    if (!hasTextEvidence) {
+      return;
+    }
+
+    const signals = [];
+    if (contractMatch) signals.push("číslo smlouvy");
+    if (tokenHits) signals.push(`${tokenHits} text. shoda`);
+    if (codeMatch) signals.push("kód odpadu");
+    if (wasteMatch) signals.push("odpad");
+    if (frequencyMatch) signals.push("četnost");
+    if (volumeMatch) signals.push("objem");
+
+    const score = tokenHits * 3 +
+      (contractMatch ? 12 : 0) +
+      (codeMatch ? 3 : 0) +
+      (wasteMatch ? 2 : 0) +
+      (frequencyMatch ? 1 : 0) +
+      (volumeMatch ? 2 : 0);
+    const match = { candidate, score, tokenHits, contractMatch, signals };
+
+    if (!best || score > best.score) {
+      secondBest = best;
+      best = match;
+    } else if (!secondBest || score > secondBest.score) {
+      secondBest = match;
     }
   });
 
-  if (!best || bestScore < 4) {
+  if (!best || best.score < (best.contractMatch ? 8 : 6)) {
     return {
+      matched: false,
       status: "Nespárováno",
       detail: "V Excel řádku není dost společného textu s Vistosem",
       contractNumber: "-",
-      confidence: "nízká"
+      confidence: "nízká",
+      score: best?.score || 0,
+      signals: best?.signals || []
     };
   }
 
+  const secondCandidate = secondBest?.candidate || null;
+  const ambiguous = secondBest &&
+    secondBest.score >= best.score - 1 &&
+    secondCandidate?.contractNumber !== best.candidate.contractNumber &&
+    secondCandidate?.siteName !== best.candidate.siteName;
+
+  if (ambiguous) {
+    return {
+      matched: false,
+      status: "Nejisté párování",
+      detail: `${best.candidate.contractNumber} nebo ${secondCandidate.contractNumber}; ručně ověřit`,
+      contractNumber: best.candidate.contractNumber,
+      confidence: "nízká",
+      score: best.score,
+      signals: best.signals
+    };
+  }
+
+  const detailParts = [
+    best.candidate.contractNumber,
+    best.candidate.siteName || best.candidate.customerName || "-",
+    best.signals.join(", ")
+  ].filter(Boolean);
+
   return {
-    status: "Možné párování",
-    detail: `${best.contractNumber} · ${best.siteName || best.customerName || "-"}`,
-    contractNumber: best.contractNumber,
-    confidence: bestScore >= 10 ? "vyšší" : "střední"
+    matched: true,
+    status: "Spárováno",
+    detail: detailParts.join(" · "),
+    contractNumber: best.candidate.contractNumber,
+    confidence: best.score >= 14 ? "vyšší" : "střední",
+    score: best.score,
+    signals: best.signals,
+    candidate: best.candidate
+  };
+}
+
+function collectionRoutesRouteOptimizationEnrichment(row, match) {
+  const candidate = match?.matched ? match.candidate || {} : {};
+  const originalWasteType = collectionRoutesRouteOptimizationValue(row.wasteType);
+  const originalWasteCode = collectionRoutesRouteOptimizationValue(row.wasteCode);
+  const originalFrequency = collectionRoutesRouteOptimizationValue(row.frequency);
+  const originalVolume = collectionRoutesRouteOptimizationNumber(row.containerVolume);
+  const originalCount = collectionRoutesRouteOptimizationNumber(row.containerCount);
+  const vistosWasteType = collectionRoutesRouteOptimizationValue(candidate.wasteType);
+  const vistosWasteCode = collectionRoutesRouteOptimizationValue(candidate.wasteCode);
+  const vistosFrequency = collectionRoutesRouteOptimizationValue(candidate.frequency);
+  const vistosVolume = collectionRoutesRouteOptimizationNumber(candidate.containerVolume);
+  const vistosCount = collectionRoutesRouteOptimizationNumber(candidate.containerCount);
+  const filledFields = [];
+  const differences = [];
+
+  if (!originalWasteType && vistosWasteType) filledFields.push("odpad");
+  if (!originalWasteCode && vistosWasteCode) filledFields.push("kód odpadu");
+  if (!originalFrequency && vistosFrequency) filledFields.push("četnost");
+  if (!originalVolume && vistosVolume) filledFields.push("objem nádoby");
+  if (!originalCount && vistosCount) filledFields.push("počet nádob");
+
+  if (originalWasteType && vistosWasteType && originalWasteType.toUpperCase() !== vistosWasteType.toUpperCase()) differences.push("odpad");
+  if (originalWasteCode && vistosWasteCode && collectionRoutesRouteOptimizationCompact(originalWasteCode) !== collectionRoutesRouteOptimizationCompact(vistosWasteCode)) differences.push("kód odpadu");
+  if (originalFrequency && vistosFrequency && originalFrequency !== vistosFrequency) differences.push("četnost");
+  if (originalVolume && vistosVolume && originalVolume !== vistosVolume) differences.push("objem nádoby");
+  if (originalCount && vistosCount && originalCount !== vistosCount) differences.push("počet nádob");
+
+  let status = match.status;
+  if (match.matched && filledFields.length) {
+    status = "Doplněno z Vistosu";
+  } else if (match.matched && differences.length) {
+    status = "Rozdíl proti Vistosu";
+  }
+
+  return {
+    status,
+    resolvedWasteType: originalWasteType || vistosWasteType || "-",
+    resolvedWasteCode: originalWasteCode || vistosWasteCode || "-",
+    resolvedFrequency: originalFrequency || vistosFrequency || "-",
+    resolvedContainerVolume: originalVolume || vistosVolume || 0,
+    resolvedContainerCount: originalCount || vistosCount || 0,
+    vistosWasteType: vistosWasteType || "-",
+    vistosWasteCode: vistosWasteCode || "-",
+    vistosFrequency: vistosFrequency || "-",
+    vistosContainerVolume: vistosVolume || 0,
+    vistosContainerCount: vistosCount || 0,
+    vistosCustomerName: candidate.customerName || "-",
+    vistosBranchName: candidate.branchName || "-",
+    vistosSiteName: candidate.siteName || "-",
+    vistosAddressRaw: candidate.addressRaw || "-",
+    vistosProductName: candidate.productName || "-",
+    vistosRowName: candidate.rowName || "-",
+    vistosNote: candidate.note || "-",
+    vistosSourceId: candidate.sourceId || "-",
+    vistosFilledFields: filledFields,
+    vistosDifferences: differences
   };
 }
 
@@ -10490,33 +10653,117 @@ function collectionRoutesRouteOptimizationRows() {
   const candidates = collectionRoutesRouteOptimizationVistosCandidates();
   return rows.map((row) => {
     const match = collectionRoutesRouteOptimizationMatch(row, candidates);
+    const enrichment = collectionRoutesRouteOptimizationEnrichment(row, match);
     return {
       ...row,
-      vistosMatchStatus: match.status,
+      resolvedWasteType: enrichment.resolvedWasteType,
+      resolvedWasteCode: enrichment.resolvedWasteCode,
+      resolvedFrequency: enrichment.resolvedFrequency,
+      resolvedContainerVolume: enrichment.resolvedContainerVolume,
+      resolvedContainerCount: enrichment.resolvedContainerCount,
+      vistosMatchStatus: enrichment.status,
       vistosMatchDetail: match.detail,
       vistosMatchContract: match.contractNumber,
-      vistosMatchConfidence: match.confidence
+      vistosMatchConfidence: match.confidence,
+      vistosMatchScore: match.score,
+      vistosMatchSignals: match.signals,
+      vistosWasteType: enrichment.vistosWasteType,
+      vistosWasteCode: enrichment.vistosWasteCode,
+      vistosFrequency: enrichment.vistosFrequency,
+      vistosContainerVolume: enrichment.vistosContainerVolume,
+      vistosContainerCount: enrichment.vistosContainerCount,
+      vistosCustomerName: enrichment.vistosCustomerName,
+      vistosBranchName: enrichment.vistosBranchName,
+      vistosSiteName: enrichment.vistosSiteName,
+      vistosAddressRaw: enrichment.vistosAddressRaw,
+      vistosProductName: enrichment.vistosProductName,
+      vistosRowName: enrichment.vistosRowName,
+      vistosNote: enrichment.vistosNote,
+      vistosSourceId: enrichment.vistosSourceId,
+      vistosFilledFields: enrichment.vistosFilledFields,
+      vistosDifferences: enrichment.vistosDifferences
     };
   });
 }
 
-function collectionRoutesRouteOptimizationSummaryCards(preview) {
+function collectionRoutesRouteOptimizationContainerLabel(count, volume) {
+  const safeVolume = collectionRoutesRouteOptimizationNumber(volume);
+  if (!safeVolume) {
+    return "-";
+  }
+  return `${collectionRoutesRouteOptimizationNumber(count) || 1}× ${safeVolume} l`;
+}
+
+function collectionRoutesRouteOptimizationVistosDataLabel(row) {
+  const waste = collectionRoutesRouteOptimizationValue(row.vistosWasteType);
+  const wasteCode = collectionRoutesRouteOptimizationValue(row.vistosWasteCode);
+  const frequency = collectionRoutesRouteOptimizationValue(row.vistosFrequency);
+  const container = collectionRoutesRouteOptimizationContainerLabel(row.vistosContainerCount, row.vistosContainerVolume);
+  const parts = [];
+  if (waste) parts.push(`${waste}${wasteCode ? ` / ${wasteCode}` : ""}`);
+  if (frequency) parts.push(frequency);
+  if (container !== "-") parts.push(container);
+  return parts.join(" · ") || "-";
+}
+
+function collectionRoutesRouteOptimizationResolvedDataLabel(row) {
+  const waste = collectionRoutesRouteOptimizationValue(row.resolvedWasteType);
+  const wasteCode = collectionRoutesRouteOptimizationValue(row.resolvedWasteCode);
+  const frequency = collectionRoutesRouteOptimizationValue(row.resolvedFrequency);
+  const container = collectionRoutesRouteOptimizationContainerLabel(row.resolvedContainerCount, row.resolvedContainerVolume);
+  const parts = [];
+  if (waste) parts.push(`${waste}${wasteCode ? ` / ${wasteCode}` : ""}`);
+  if (frequency) parts.push(frequency);
+  if (container !== "-") parts.push(container);
+  return parts.join(" · ") || "-";
+}
+
+function collectionRoutesRouteOptimizationChangeLabel(row) {
+  const filled = Array.isArray(row.vistosFilledFields) ? row.vistosFilledFields : [];
+  const differences = Array.isArray(row.vistosDifferences) ? row.vistosDifferences : [];
+  const parts = [];
+  if (filled.length) parts.push(`doplněno: ${filled.join(", ")}`);
+  if (differences.length) parts.push(`rozdíl: ${differences.join(", ")}`);
+  return parts.join(" · ") || "-";
+}
+
+function collectionRoutesRouteOptimizationSummaryCards(preview, rows = []) {
   if (!preview?.summary) {
     return "";
   }
   const summary = preview.summary;
   const unsupported = Array.isArray(preview.unsupportedFiles) ? preview.unsupportedFiles : [];
   const qualityCounts = summary.qualityCounts || {};
+  const pairedCount = rows.filter((row) => ["Spárováno", "Doplněno z Vistosu", "Rozdíl proti Vistosu"].includes(row.vistosMatchStatus)).length;
+  const filledCount = rows.filter((row) => Array.isArray(row.vistosFilledFields) && row.vistosFilledFields.length).length;
+  const ambiguousCount = rows.filter((row) => row.vistosMatchStatus === "Nejisté párování").length;
+  const unpairedCount = rows.filter((row) => row.vistosMatchStatus === "Nespárováno").length;
+  const candidateCount = collectionRoutesRouteOptimizationCandidateRows().length;
+  const candidateSource = collectionRoutesPilotState.kommunalPairingRows.length
+    ? "Vistos export"
+    : collectionRoutesPilotState.kommunalPreviewRows.length ? "Vistos vzorek" : "čeká";
   return `
     <div class="collection-routes-stats" aria-label="Stav optimalizačního preview">
       <article><span>Načtené soubory</span><strong>${collectionRoutesMetricValue(summary.parsedFileCount)}</strong></article>
       <article><span>Řádky návrhu</span><strong>${collectionRoutesMetricValue(summary.rowCount)}</strong></article>
       <article><span>OK řádky</span><strong>${collectionRoutesMetricValue(qualityCounts.ok)}</strong></article>
       <article><span>Čeká na Vistos</span><strong>${collectionRoutesMetricValue(qualityCounts.needs_vistos_mapping)}</strong></article>
+      <article><span>Vistos zdroj</span><strong>${escapeHtml(candidateSource)}</strong></article>
+      <article><span>Vistos řádky</span><strong>${collectionRoutesMetricValue(candidateCount)}</strong></article>
+      <article><span>Spárováno</span><strong>${collectionRoutesMetricValue(pairedCount)}</strong></article>
+      <article><span>Doplněno</span><strong>${collectionRoutesMetricValue(filledCount)}</strong></article>
+      <article><span>Nejisté</span><strong>${collectionRoutesMetricValue(ambiguousCount)}</strong></article>
+      <article><span>Nespárováno</span><strong>${collectionRoutesMetricValue(unpairedCount)}</strong></article>
       <article><span>Podezřelé</span><strong>${collectionRoutesMetricValue(qualityCounts.suspect)}</strong></article>
       <article><span>Nepodporované soubory</span><strong>${collectionRoutesMetricValue(summary.unsupportedFileCount)}</strong></article>
       <article><span>Ostré trasy</span><strong>NE</strong></article>
     </div>
+    ${collectionRoutesPilotState.kommunalPairingLoading ? `
+      <p class="module-feedback__notice">Načítám read-only Vistos řádky pro párování optimalizačního návrhu.</p>
+    ` : ""}
+    ${collectionRoutesPilotState.kommunalPairingError ? `
+      <p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.kommunalPairingError)}</p>
+    ` : ""}
     ${unsupported.length ? `
       <p class="module-feedback__notice">${escapeHtml(unsupported.map((file) => `${file.filename}: ${file.reason}`).join(" · "))}</p>
     ` : ""}
@@ -10679,6 +10926,13 @@ function collectionRoutesNormalizeKommunalPreviewState() {
   }
 
   return true;
+}
+
+function collectionRoutesResetKommunalPairingRows() {
+  collectionRoutesPilotState.kommunalPairingRows = [];
+  collectionRoutesPilotState.kommunalPairingError = "";
+  collectionRoutesPilotState.kommunalPairingLoadedAt = "";
+  collectionRoutesPilotState.kommunalPairingSource = "";
 }
 
 function collectionRoutesEmptyState(title, text) {
@@ -10916,7 +11170,7 @@ function collectionRoutesVistosKommunalSection(user) {
 
       ${collectionRoutesPilotState.routeOptimizationMessage ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.routeOptimizationMessage)}</p>` : ""}
       ${collectionRoutesPilotState.routeOptimizationError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.routeOptimizationError)}</p>` : ""}
-      ${collectionRoutesRouteOptimizationSummaryCards(routeOptimizationPreview)}
+      ${collectionRoutesRouteOptimizationSummaryCards(routeOptimizationPreview, routeOptimizationRows)}
 
       ${collectionRoutesPreviewTable("Optimalizační návrh tras", [
         { label: "Den", value: (row) => row.suggestedDay },
@@ -10925,15 +11179,20 @@ function collectionRoutesVistosKommunalSection(user) {
         { label: "Soubor/řádek", value: (row) => `${row.sourceFile || "-"} #${row.sourceRowNumber || "-"}` },
         { label: "Skupina", value: (row) => row.optimizationGroup },
         { label: "Stanoviště / text", value: (row) => row.originalText },
-        { label: "Odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
+        { label: "Excel odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
         { label: "Četnost", value: (row) => row.frequency },
         { label: "Nádoba", value: (row) => row.containerVolume ? `${row.containerCount || 1}× ${row.containerVolume} l` : "-" },
+        { label: "Vistos data", value: (row) => collectionRoutesRouteOptimizationVistosDataLabel(row) },
+        { label: "Výsledek", value: (row) => collectionRoutesRouteOptimizationResolvedDataLabel(row) },
+        { label: "Doplnění", value: (row) => collectionRoutesRouteOptimizationChangeLabel(row) },
         { label: "Min", value: (row) => row.estimatedServiceMinutes },
         { label: "t", value: (row) => row.estimatedWeightTons },
         { label: "Vykládka", value: (row) => row.disposalSite },
         { label: "Kontrola", value: (row) => `${row.qualityStatus || "-"}${Array.isArray(row.qualityIssues) && row.qualityIssues.length ? ` · ${row.qualityIssues.join(", ")}` : ""}` },
         { label: "Vistos", value: (row) => `${row.vistosMatchStatus || "-"} · ${row.vistosMatchDetail || "-"}` },
-        { label: "Jistota", value: (row) => `${row.confidence || "-"} / ${row.vistosMatchConfidence || "-"}` }
+        { label: "Vistos zákazník", value: (row) => row.vistosCustomerName || "-" },
+        { label: "Vistos adresa", value: (row) => row.vistosAddressRaw || "-" },
+        { label: "Jistota", value: (row) => `${row.confidence || "-"} / ${row.vistosMatchConfidence || "-"} / skóre ${row.vistosMatchScore || 0}` }
       ], routeOptimizationRows, "Nahrajte dispečerské trasy jako .xls, .xlsx nebo CSV. Náhled zůstane pouze read-only a nevytvoří ostré trasy.", `
         <button class="secondary-link" type="button" data-collection-routes-export-optimization>Export do Excelu</button>
       `)}
@@ -12554,6 +12813,47 @@ async function loadCollectionRoutesPilot(options = {}) {
   }
 }
 
+async function loadCollectionRoutesKommunalPairingRows(options = {}) {
+  if (!collectionRoutesCanRunImportPreview(currentUser()) || collectionRoutesPilotState.kommunalPairingLoading) {
+    return;
+  }
+  if (!options.force && collectionRoutesPilotState.kommunalPairingRows.length) {
+    return;
+  }
+
+  if (options.force) {
+    collectionRoutesResetKommunalPairingRows();
+  }
+
+  collectionRoutesPilotState.kommunalPairingLoading = true;
+  collectionRoutesPilotState.kommunalPairingError = "";
+  if (options.renderAfter !== false) {
+    render();
+  }
+
+  try {
+    const result = await apiJson("/api/collection-routes/vistos/kommunal-preview-export?limit=10000");
+    const exportPayload = result.export || {};
+    collectionRoutesPilotState.kommunalPairingRows = Array.isArray(exportPayload.rows) ? exportPayload.rows : [];
+    collectionRoutesPilotState.kommunalPairingLoadedAt = new Date().toISOString();
+    collectionRoutesPilotState.kommunalPairingSource = "vistos-komunal-preview-export";
+    if (!collectionRoutesPilotState.kommunalPairingRows.length) {
+      collectionRoutesPilotState.kommunalPairingError = "Vistos párovací export nevrátil žádné řádky.";
+    }
+  } catch (error) {
+    collectionRoutesPilotState.kommunalPairingRows = [];
+    collectionRoutesPilotState.kommunalPairingLoadedAt = "";
+    collectionRoutesPilotState.kommunalPairingSource = "";
+    collectionRoutesPilotState.kommunalPairingError =
+      error.payload?.error || error.message || "Vistos párovací export se nepodařilo načíst.";
+  } finally {
+    collectionRoutesPilotState.kommunalPairingLoading = false;
+    if (options.renderAfter !== false) {
+      render();
+    }
+  }
+}
+
 async function submitCollectionRoutesImportPreview(form) {
   const user = currentUser();
 
@@ -12601,6 +12901,7 @@ async function submitCollectionRoutesKommunalPreview(form) {
   collectionRoutesPilotState.error = "";
   collectionRoutesPilotState.message = "";
   collectionRoutesPilotState.kommunalPreviewDetailError = "";
+  collectionRoutesResetKommunalPairingRows();
   render();
 
   try {
@@ -12665,6 +12966,7 @@ async function submitCollectionRoutesRouteOptimizationPreview(form) {
   collectionRoutesPilotState.routeOptimizationLoading = true;
   collectionRoutesPilotState.routeOptimizationError = "";
   collectionRoutesPilotState.routeOptimizationMessage = "";
+  collectionRoutesResetKommunalPairingRows();
   render();
 
   try {
@@ -12676,9 +12978,17 @@ async function submitCollectionRoutesRouteOptimizationPreview(form) {
     const summary = preview.summary || {};
     collectionRoutesPilotState.routeOptimizationPreview = preview;
     collectionRoutesPilotState.routeOptimizationMessage =
-      `Optimalizační read-only náhled načetl ${summary.parsedFileCount || 0} souborů a připravil ${summary.rowCount || 0} řádků. Ostré trasy nebyly vytvořené.`;
+      `Optimalizační read-only náhled načetl ${summary.parsedFileCount || 0} souborů a připravil ${summary.rowCount || 0} řádků. Načítám Vistos párování.`;
     collectionRoutesPilotState.routeOptimizationError = "";
     collectionRoutesPilotState.activeTab = "vistos-komunal";
+    render();
+    await loadCollectionRoutesKommunalPairingRows({ force: true, renderAfter: false });
+    const pairedRows = collectionRoutesRouteOptimizationRows();
+    const pairedCount = pairedRows.filter((row) => ["Spárováno", "Doplněno z Vistosu", "Rozdíl proti Vistosu"].includes(row.vistosMatchStatus)).length;
+    const filledCount = pairedRows.filter((row) => Array.isArray(row.vistosFilledFields) && row.vistosFilledFields.length).length;
+    const pairingRowsCount = collectionRoutesRouteOptimizationCandidateRows().length;
+    collectionRoutesPilotState.routeOptimizationMessage =
+      `Optimalizační read-only náhled načetl ${summary.parsedFileCount || 0} souborů a připravil ${summary.rowCount || 0} řádků. Vistos párování: ${pairedCount} spárováno, ${filledCount} doplněno z ${pairingRowsCount} Vistos řádků. Ostré trasy nebyly vytvořené.`;
   } catch (error) {
     collectionRoutesPilotState.routeOptimizationPreview = null;
     collectionRoutesPilotState.routeOptimizationError = error.payload?.error || error.message || "Optimalizační náhled tras se nepodařilo zpracovat.";
@@ -15060,11 +15370,23 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
     "Optimalizační skupina",
     "Zdrojový text",
     "Region",
-    "Odpad",
-    "Kód odpadu",
-    "Četnost",
-    "Počet nádob",
-    "Objem nádoby l",
+    "Excel odpad",
+    "Excel kód odpadu",
+    "Excel četnost",
+    "Excel počet nádob",
+    "Excel objem nádoby l",
+    "Vistos odpad",
+    "Vistos kód odpadu",
+    "Vistos četnost",
+    "Vistos počet nádob",
+    "Vistos objem nádoby l",
+    "Výsledný odpad",
+    "Výsledný kód odpadu",
+    "Výsledná četnost",
+    "Výsledný počet nádob",
+    "Výsledný objem nádoby l",
+    "Doplněno z Vistosu",
+    "Rozdíl proti Vistosu",
     "Odhad minut",
     "Odhad tun",
     "Vykládka",
@@ -15073,6 +15395,16 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
     "Vistos stav",
     "Vistos detail",
     "Vistos smlouva",
+    "Vistos zákazník",
+    "Vistos pobočka",
+    "Vistos stanoviště",
+    "Vistos adresa",
+    "Vistos produkt",
+    "Vistos řádek",
+    "Vistos poznámka",
+    "Vistos source id",
+    "Vistos shody",
+    "Vistos skóre",
     "Jistota parseru",
     "Jistota párování",
     "Důvod",
@@ -15099,6 +15431,18 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
       row.frequency,
       row.containerCount,
       row.containerVolume,
+      row.vistosWasteType,
+      row.vistosWasteCode,
+      row.vistosFrequency,
+      row.vistosContainerCount,
+      row.vistosContainerVolume,
+      row.resolvedWasteType,
+      row.resolvedWasteCode,
+      row.resolvedFrequency,
+      row.resolvedContainerCount,
+      row.resolvedContainerVolume,
+      Array.isArray(row.vistosFilledFields) ? row.vistosFilledFields.join(", ") : "",
+      Array.isArray(row.vistosDifferences) ? row.vistosDifferences.join(", ") : "",
       row.estimatedServiceMinutes,
       row.estimatedWeightTons,
       row.disposalSite,
@@ -15107,6 +15451,16 @@ function collectionRoutesRouteOptimizationCsv(rows = []) {
       row.vistosMatchStatus,
       row.vistosMatchDetail,
       row.vistosMatchContract,
+      row.vistosCustomerName,
+      row.vistosBranchName,
+      row.vistosSiteName,
+      row.vistosAddressRaw,
+      row.vistosProductName,
+      row.vistosRowName,
+      row.vistosNote,
+      row.vistosSourceId,
+      Array.isArray(row.vistosMatchSignals) ? row.vistosMatchSignals.join(", ") : "",
+      row.vistosMatchScore,
       row.confidence,
       row.vistosMatchConfidence,
       row.reason,
