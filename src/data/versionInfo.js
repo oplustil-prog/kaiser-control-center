@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.147"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.148"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: nesvozové texty mimo aliasy",
+    text: "Vistos Komunál preview odděluje další jasně nesvozové obchodní texty jako výkupní cena, skartace, na výzvu, mimořádný vývoz nebo lisované obchodovatelné balíky mimo pravidelné trasy."
+  },
   {
     title: "Trasy svozu: objem z textu řádku Vistosu",
     text: "Vistos Komunál preview umí vzít výslovně uvedený objem nádoby přímo z obchodního textu řádku, například 60 ltr nádoba, nádoba 120 ltr nebo výklop nádoby 1100/5000 ltr."

@@ -1069,7 +1069,10 @@ function textLooksLikeNonCollectionRouteService(text) {
   if (!normalized) {
     return false;
   }
-  if (/VYZVA|NAZAVOLANI|DLEPOTREB|NAOBJEDNANI|OBJEDNAVK/.test(compact)) {
+  if (/VYZVA|VYZVU|NAVYZVU|NAZAVOLANI|DLEPOTREB|NAOBJEDNANI|OBJEDNAVK/.test(compact)) {
+    return true;
+  }
+  if (/MIMORADNYVYVOZ|SKARTAC|SANON|VYKUPN|RUCNISBER|LISOVAN|OBCHODOVATELN/.test(compact)) {
     return true;
   }
   const wasteCode = compact.match(/(^|\D)(\d{6})(\D|$)/)?.[2] || "";
