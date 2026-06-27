@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.159"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.160"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -21,12 +21,16 @@ export const versionInfo = {
 
 export const versionNews = [
   {
-    title: "Trasy svozu: rychlý export 13 Excelů a Návrhu AI",
-    text: "Horní tlačítka 13 Excelů a Návrh AI ve Vistos Komunál preview nově rovnou generují Excel-friendly exporty pro historickou kalibraci a read-only AI denní návrh."
+    title: "Trasy svozu: Optimalizováno AI",
+    text: "Vistos Komunál preview používá pro odvozený read-only AI výpočet název Optimalizováno AI v hlavních tlačítkách, tabulkách i exportních popisech."
   },
   {
-    title: "Trasy svozu: 13 Excelů vs Návrh AI",
-    text: "Vistos Komunál preview nově jasně odděluje historický podklad 13 Excelů od odvozeného read-only Návrhu AI včetně dvou rychlých tlačítek a přesnějších názvů tabulek/exportů."
+    title: "Trasy svozu: rychlý export 13 Excelů a Optimalizováno AI",
+    text: "Horní tlačítka 13 Excelů a Optimalizováno AI ve Vistos Komunál preview nově rovnou generují Excel-friendly exporty pro historickou kalibraci a read-only AI denní výpočet."
+  },
+  {
+    title: "Trasy svozu: 13 Excelů vs Optimalizováno AI",
+    text: "Vistos Komunál preview nově jasně odděluje historický podklad 13 Excelů od odvozeného read-only výpočtu Optimalizováno AI včetně dvou rychlých tlačítek a přesnějších názvů tabulek/exportů."
   },
   {
     title: "Trasy svozu: vzorky stanovišť k dennímu návrhu",

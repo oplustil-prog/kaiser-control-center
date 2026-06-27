@@ -11321,7 +11321,7 @@ function collectionRoutesVistosKommunalSection(user) {
           13 Excelů do Excelu
         </button>
         <button class="primary-action collection-routes-source-switch__link" type="button" data-collection-routes-export-daily-draft>
-          Návrh AI do Excelu
+          Optimalizováno AI do Excelu
         </button>
       </div>
 
@@ -11353,11 +11353,11 @@ function collectionRoutesVistosKommunalSection(user) {
       ${collectionRoutesKommunalIssueOverview(issueSummaryRows, issueCount, hasPreviewData)}
 
       <div class="collection-routes-phase-note collection-routes-source-block collection-routes-source-block--ai" id="collection-routes-ai-draft">
-        <strong>Návrh AI je odvozený read-only výpočet z Vistos dat, ne zdrojová tabulka a ne ostrá navigační trasa.</strong>
+        <strong>Optimalizováno AI je odvozený read-only výpočet z Vistos dat, ne zdrojová tabulka a ne ostrá navigační trasa.</strong>
         <span>Vychází z mapovatelných položek Vistos preview a rozpadá četnosti do pracovních dnů pro vozidla A 3BN 3558, B 1BP 8373 a C 3BE 2831. Může navrhovat den, vozidlo nebo skupinu jinak než historický Excel. Vzorky stanovišť níže jsou kontrolní podklad z dostupných metadat; úplný seznam zastávek a pořadí patří do další fáze.</span>
       </div>
 
-      ${collectionRoutesPreviewTable("Návrh AI: souhrn denního rozpadu z Vistosu", [
+      ${collectionRoutesPreviewTable("Optimalizováno AI: souhrn denního rozpadu z Vistosu", [
         { label: "Den", value: (row) => row.dayLabel || row.dayCode },
         { label: "Vozidlo", value: (row) => `${row.vehicleCode || "-"} ${row.vehicleRegistration || ""}` },
         { label: "Skupiny", value: (row) => row.routeGroupCount },
@@ -11371,7 +11371,7 @@ function collectionRoutesVistosKommunalSection(user) {
         <button class="secondary-link" type="button" data-collection-routes-export-daily-draft>Export do Excelu</button>
       `)}
 
-      ${collectionRoutesPreviewTable("Návrh AI: denní svozy z Vistosu", [
+      ${collectionRoutesPreviewTable("Optimalizováno AI: denní svozy z Vistosu", [
         { label: "Den", value: (row) => row.dayLabel || row.dayCode },
         { label: "Vozidlo", value: (row) => `${row.vehicleCode || "-"} ${row.vehicleRegistration || ""}` },
         { label: "Odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
@@ -11387,7 +11387,7 @@ function collectionRoutesVistosKommunalSection(user) {
         <button class="secondary-link" type="button" data-collection-routes-export-daily-draft>Export do Excelu</button>
       `)}
 
-      ${collectionRoutesPreviewTable("Návrh AI: vzorky stanovišť k dennímu rozpadu", [
+      ${collectionRoutesPreviewTable("Optimalizováno AI: vzorky stanovišť k dennímu rozpadu", [
         { label: "Den", value: (row) => row.dayLabel || row.dayCode },
         { label: "Vozidlo", value: (row) => `${row.vehicleCode || "-"} ${row.vehicleRegistration || ""}` },
         { label: "Stanoviště", value: (row) => row.siteName },
@@ -11397,11 +11397,11 @@ function collectionRoutesVistosKommunalSection(user) {
         { label: "Příklad smlouvy", value: (row) => Array.isArray(row.sampleContracts) && row.sampleContracts.length ? row.sampleContracts.join(", ") : "-" },
         { label: "Zdroj", value: () => "Vistos routeDraftRows" },
         { label: "Ostrá trasa", value: () => "NE" }
-      ], routeDailySiteRows, "Po načtení Vistos preview se zde zobrazí dostupné vzorky stanovišť pod AI návrhem. Nejde o úplný navigační seznam zastávek.", `
+      ], routeDailySiteRows, "Po načtení Vistos preview se zde zobrazí dostupné vzorky stanovišť pod Optimalizováno AI. Nejde o úplný navigační seznam zastávek.", `
         <button class="secondary-link" type="button" data-collection-routes-export-daily-sites>Export do Excelu</button>
       `)}
 
-      ${collectionRoutesPreviewTable("Návrh AI: pracovní svozové skupiny z Vistosu", [
+      ${collectionRoutesPreviewTable("Optimalizováno AI: pracovní svozové skupiny z Vistosu", [
         { label: "Odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
         { label: "Četnost", value: (row) => row.frequency },
         { label: "Nádoba", value: (row) => row.containerVolume ? `${row.containerVolume} l` : "-" },
@@ -11410,13 +11410,13 @@ function collectionRoutesVistosKommunalSection(user) {
         { label: "Položky", value: (row) => row.itemCount },
         { label: "Příklad stanoviště", value: (row) => Array.isArray(row.sampleSites) && row.sampleSites.length ? row.sampleSites.join(", ") : "-" },
         { label: "Příklad smlouvy", value: (row) => Array.isArray(row.sampleContracts) && row.sampleContracts.length ? row.sampleContracts.join(", ") : "-" }
-      ], routeDraftRows, "Po načtení Vistos preview se zde zobrazí hlavní read-only AI návrh svozových skupin z mapovatelných položek. Tohle je budoucí provozní směr, ne opis Excelů.", `
+      ], routeDraftRows, "Po načtení Vistos preview se zde zobrazí hlavní read-only výpočet Optimalizováno AI z mapovatelných položek. Tohle je budoucí provozní směr, ne opis Excelů.", `
         <button class="secondary-link" type="button" data-collection-routes-export-route-draft>Export do Excelu</button>
       `)}
 
       <div class="collection-routes-phase-note collection-routes-source-block collection-routes-source-block--excel" id="collection-routes-excel-source">
-        <strong>13 Excelů je historický lidský podklad. Návrh AI z něj nesmí dělat dojem původní dispečerské tabulky.</strong>
-        <span>13 dispečerských Excelů slouží jen jako jednorázová historická kalibrace dnešního ručního systému. Řádky si drží původní soubor, list, řádek a text; AI návrh může odděleně dopočítat den, vozidlo nebo skupinu. Nahrané soubory se neukládají do databáze ani do prohlížeče.</span>
+        <strong>13 Excelů je historický lidský podklad. Optimalizováno AI z něj nesmí dělat dojem původní dispečerské tabulky.</strong>
+        <span>13 dispečerských Excelů slouží jen jako jednorázová historická kalibrace dnešního ručního systému. Řádky si drží původní soubor, list, řádek a text; Optimalizováno AI může odděleně dopočítat den, vozidlo nebo skupinu. Nahrané soubory se neukládají do databáze ani do prohlížeče.</span>
       </div>
 
       ${canImport ? `
