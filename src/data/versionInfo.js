@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.156"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.157"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: vzorky stanovišť k dennímu návrhu",
+    text: "Denní Vistos-only návrh nově ukazuje dostupné vzorky stanovišť a smluv pod denním kapacitním rozpadem včetně samostatného kontrolního exportu bez vytvoření ostrých tras."
+  },
   {
     title: "Trasy svozu: denní Vistos-only návrh",
     text: "Vistos Komunál preview nově skládá read-only denní kapacitní rozpad svozových skupin pro vozidla A 3BN 3558, B 1BP 8373 a C 3BE 2831 bez použití historických Excelů jako provozního vstupu."

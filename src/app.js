@@ -10558,6 +10558,40 @@ function collectionRoutesKommunalDailyDraftSummaryRows(dailyRows = []) {
     ));
 }
 
+function collectionRoutesKommunalDailyDraftSiteRows(dailyRows = []) {
+  const siteRows = [];
+  dailyRows.forEach((row) => {
+    const sampleSites = Array.isArray(row.sampleSites) ? row.sampleSites : [];
+    const sampleContracts = Array.isArray(row.sampleContracts) ? row.sampleContracts : [];
+    sampleSites.forEach((siteName, index) => {
+      siteRows.push({
+        dayCode: row.dayCode,
+        dayLabel: row.dayLabel,
+        vehicleCode: row.vehicleCode,
+        vehicleRegistration: row.vehicleRegistration,
+        wasteType: row.wasteType,
+        wasteCode: row.wasteCode,
+        frequency: row.frequency,
+        cadence: row.cadence,
+        containerVolume: row.containerVolume,
+        containerType: row.containerType,
+        siteName,
+        sampleContracts: sampleContracts.slice(0, 4),
+        sourceGroup: `${row.wasteType || "-"}|${row.frequency || "-"}|${row.containerVolume || "-"}|${index + 1}`,
+        createsOperationalRoutes: false
+      });
+    });
+  });
+
+  return siteRows
+    .sort((left, right) => (
+      collectionRoutesDailyDraftDayRank(left.dayCode) - collectionRoutesDailyDraftDayRank(right.dayCode) ||
+      left.vehicleCode.localeCompare(right.vehicleCode) ||
+      String(left.siteName).localeCompare(String(right.siteName), "cs")
+    ))
+    .slice(0, 200);
+}
+
 function collectionRoutesRouteOptimizationKey(value = "") {
   return collectionRoutesTextKey(value)
     .normalize("NFD")
@@ -11250,6 +11284,7 @@ function collectionRoutesVistosKommunalSection(user) {
   const routeDraftRows = collectionRoutesKommunalRouteDraftRows(metadata);
   const routeDailyDraftRows = collectionRoutesKommunalDailyDraftRows(routeDraftRows);
   const routeDailySummaryRows = collectionRoutesKommunalDailyDraftSummaryRows(routeDailyDraftRows);
+  const routeDailySiteRows = collectionRoutesKommunalDailyDraftSiteRows(routeDailyDraftRows);
   const routeOptimizationPreview = collectionRoutesPilotState.routeOptimizationPreview;
   const routeOptimizationRows = collectionRoutesRouteOptimizationRows();
   const diagnosticRows = collectionRoutesKommunalFilterDiagnosticRows(metadata);
@@ -11310,7 +11345,7 @@ function collectionRoutesVistosKommunalSection(user) {
 
       <div class="collection-routes-phase-note">
         <strong>Denní návrh svozů z Vistosu je read-only kapacitní rozpad, ne ostrá navigační trasa.</strong>
-        <span>Vychází z mapovatelných položek Vistos preview a rozpadá četnosti do pracovních dnů pro vozidla A 3BN 3558, B 1BP 8373 a C 3BE 2831. Pořadí stanovišť a finální optimalizace patří do další fáze.</span>
+        <span>Vychází z mapovatelných položek Vistos preview a rozpadá četnosti do pracovních dnů pro vozidla A 3BN 3558, B 1BP 8373 a C 3BE 2831. Vzorky stanovišť níže jsou kontrolní podklad z dostupných metadat; úplný seznam zastávek a pořadí patří do další fáze.</span>
       </div>
 
       ${collectionRoutesPreviewTable("Souhrn denního návrhu z Vistosu", [
@@ -11341,6 +11376,20 @@ function collectionRoutesVistosKommunalSection(user) {
         { label: "Ostrá trasa", value: () => "NE" }
       ], routeDailyDraftRows, "Po načtení Vistos preview se zde zobrazí první read-only denní rozpad svozových skupin. Nejde o finální pořadí zastávek.", `
         <button class="secondary-link" type="button" data-collection-routes-export-daily-draft>Export do Excelu</button>
+      `)}
+
+      ${collectionRoutesPreviewTable("Vzorky stanovišť k dennímu návrhu z Vistosu", [
+        { label: "Den", value: (row) => row.dayLabel || row.dayCode },
+        { label: "Vozidlo", value: (row) => `${row.vehicleCode || "-"} ${row.vehicleRegistration || ""}` },
+        { label: "Stanoviště", value: (row) => row.siteName },
+        { label: "Odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
+        { label: "Četnost", value: (row) => `${row.frequency || "-"} · ${row.cadence || "-"}` },
+        { label: "Nádoba", value: (row) => row.containerVolume ? `${row.containerVolume} l` : "-" },
+        { label: "Příklad smlouvy", value: (row) => Array.isArray(row.sampleContracts) && row.sampleContracts.length ? row.sampleContracts.join(", ") : "-" },
+        { label: "Zdroj", value: () => "Vistos routeDraftRows" },
+        { label: "Ostrá trasa", value: () => "NE" }
+      ], routeDailySiteRows, "Po načtení Vistos preview se zde zobrazí dostupné vzorky stanovišť pod denním návrhem. Nejde o úplný navigační seznam zastávek.", `
+        <button class="secondary-link" type="button" data-collection-routes-export-daily-sites>Export do Excelu</button>
       `)}
 
       ${collectionRoutesPreviewTable("Pracovní návrh svozových skupin z Vistosu", [
@@ -15599,6 +15648,46 @@ function collectionRoutesKommunalDailyDraftCsv(rows = []) {
   return `\uFEFF${lines.join("\n")}`;
 }
 
+function collectionRoutesKommunalDailyDraftSitesCsv(rows = []) {
+  const headers = [
+    "Den",
+    "Vozidlo",
+    "SPZ",
+    "Stanoviště",
+    "Odpad",
+    "Kód odpadu",
+    "Četnost",
+    "Rytmus",
+    "Objem nádoby l",
+    "Typ nádoby",
+    "Příklad smlouvy",
+    "Zdroj",
+    "Ostrá trasa",
+    "Poznámka"
+  ];
+  const lines = [
+    "sep=;",
+    collectionRoutesExcelCsvLine(headers),
+    ...rows.map((row) => collectionRoutesExcelCsvLine([
+      row.dayLabel || row.dayCode,
+      row.vehicleCode,
+      row.vehicleRegistration,
+      row.siteName,
+      row.wasteType,
+      row.wasteCode,
+      row.frequency,
+      row.cadence,
+      row.containerVolume,
+      row.containerType,
+      Array.isArray(row.sampleContracts) ? row.sampleContracts.join(", ") : "",
+      "Vistos routeDraftRows",
+      "NE",
+      "Dostupný vzorek stanovišť z metadata Vistos preview; nejde o úplný navigační seznam zastávek."
+    ]))
+  ];
+  return `\uFEFF${lines.join("\n")}`;
+}
+
 function collectionRoutesRouteOptimizationCsv(rows = []) {
   const headers = [
     "Navržený den",
@@ -15754,6 +15843,22 @@ function exportCollectionRoutesKommunalDailyDraft() {
 
   const date = new Date().toISOString().slice(0, 10);
   downloadCsv(`vistos-komunal-denni-navrh-svozu-${date}.csv`, collectionRoutesKommunalDailyDraftCsv(rows));
+}
+
+function exportCollectionRoutesKommunalDailyDraftSites() {
+  const batch = collectionRoutesLatestBatchByMode("vistos-komunal-preview");
+  const routeDraftRows = collectionRoutesKommunalRouteDraftRows(batch?.metadata || {});
+  const dailyRows = collectionRoutesKommunalDailyDraftRows(routeDraftRows);
+  const rows = collectionRoutesKommunalDailyDraftSiteRows(dailyRows);
+  if (!rows.length) {
+    collectionRoutesPilotState.message = "";
+    collectionRoutesPilotState.error = "Není co exportovat pro vzorky stanovišť denního návrhu. Nejdřív načtěte Vistos preview s mapovatelnými položkami.";
+    render();
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  downloadCsv(`vistos-komunal-vzorky-stanovist-denni-navrh-${date}.csv`, collectionRoutesKommunalDailyDraftSitesCsv(rows));
 }
 
 function exportCollectionRoutesRouteOptimization() {
@@ -17740,6 +17845,12 @@ document.addEventListener("click", async (event) => {
   const collectionRoutesDailyDraftExport = event.target.closest("[data-collection-routes-export-daily-draft]");
   if (collectionRoutesDailyDraftExport) {
     exportCollectionRoutesKommunalDailyDraft();
+    return;
+  }
+
+  const collectionRoutesDailySitesExport = event.target.closest("[data-collection-routes-export-daily-sites]");
+  if (collectionRoutesDailySitesExport) {
+    exportCollectionRoutesKommunalDailyDraftSites();
     return;
   }
 
