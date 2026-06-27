@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.125"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.126"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -21,24 +21,12 @@ export const versionInfo = {
 
 export const versionNews = [
   {
+    title: "Trasy svozu: navrat funkcniho Vistos Komunal preview",
+    text: "Vistos Komunal preview je vracene do posledniho funkcniho chovani pred tvrdym filtrem ContractRow. Nepridava ostre trasy, SMS/e-maily ani automatizace."
+  },
+  {
     title: "Sledovani vozidel: WIM body v mape",
     text: "Pevne WIM vahy jsou ve vrstve Sledovani vozidel videt jako samostatne klikaci body v mapovem panelu s detailem mista, stavu a poctu smerovych vah."
-  },
-  {
-    title: "Trasy svozu: nulovy Vistos preview nesmi prepsat data bez diagnostiky",
-    text: "Vistos Komunal preview znovu drzi smlouvy viditelne jako needs_review, pokud selze parovani ContractRow. Prazdny vysledek musi ukazat diagnostiku filtru misto falesneho uspechu."
-  },
-  {
-    title: "Trasy svozu: oprava Vistos Komunal filtru",
-    text: "Komunal preview uz nepouziva ContractRow IsActive/StartDate/EndDate jako tvrdy filtr, ktery mohl shodit nahled na nulu. Platnost polozek se zobrazuje jako datovy problem a UI ukazuje diagnostiku filtru."
-  },
-  {
-    title: "Trasy svozu: fallback pro StartDate polozek",
-    text: "Komunal preview nevyhodi vsechny polozky bez ContractRow.StartDate. Necha je v read-only nahledu jako needs_review a oznaci datovy problem."
-  },
-  {
-    title: "Trasy svozu: platnost z polozek Vistos",
-    text: "Komunal preview bere Zacatek/Konec svozove sluzby z ContractRow a nezobrazuje smlouvy bez aktivni polozky jako aktivni svoz."
   },
   {
     title: "Trasy svozu: vycisteni Vistos error stavu",
