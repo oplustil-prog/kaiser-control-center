@@ -215,6 +215,7 @@ const COLLECTION_ROUTES_MODULE_KEY = "collection-routes";
 const COLLECTION_ROUTES_PHASE_NOTICE = "Pilot Tras svozu nevytváří ostré trasy, neposílá SMS/e-maily a nespouští automatizace.";
 const COLLECTION_ROUTES_TABS = [
   { id: "dashboard", label: "Dashboard", targetId: "collection-routes-dashboard" },
+  { id: "vistos-komunal", label: "Vistos Komunál preview", targetId: "collection-routes-vistos-komunal" },
   { id: "manual-import", label: "Ruční import preview", targetId: "collection-routes-manual-import" },
   { id: "import", label: "Import preview", targetId: "collection-routes-import" },
   { id: "sites", label: "Seznam stanovišť", targetId: "collection-routes-sites" },
@@ -588,6 +589,7 @@ const collectionRoutesPilotState = {
   loading: false,
   importLoading: false,
   manualImportLoading: false,
+  kommunalPreviewLoading: false,
   apiStatus: "waiting",
   batches: [],
   sites: [],
@@ -9776,6 +9778,15 @@ function collectionRoutesLatestBatch() {
   return collectionRoutesPilotState.batches[0] || null;
 }
 
+function collectionRoutesLatestBatchByMode(sourceMode) {
+  return collectionRoutesPilotState.batches.find((batch) => batch.sourceMode === sourceMode) || null;
+}
+
+function collectionRoutesMetricValue(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 function collectionRoutesEmptyState(title, text) {
   return `
     <div class="collection-routes-empty" role="status">
@@ -9878,6 +9889,125 @@ function collectionRoutesImportBatchCards() {
         </article>
       `).join("")}
     </div>
+  `;
+}
+
+function collectionRoutesPreviewTable(title, columns, rows, emptyText) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return collectionRoutesEmptyState(title, emptyText);
+  }
+
+  return `
+    <div class="collection-routes-preview-block">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="collection-routes-preview-table" role="region" aria-label="${escapeHtml(title)}">
+        <table>
+          <thead>
+            <tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                ${columns.map((column) => `<td>${escapeHtml(column.value(row) || "-")}</td>`).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function collectionRoutesVistosKommunalSection(user) {
+  const canImport = collectionRoutesCanRunImportPreview(user);
+  const batch = collectionRoutesLatestBatchByMode("vistos-komunal-preview");
+  const metadata = batch?.metadata || {};
+  const stats = metadata.mappingStats || {};
+  const contractRows = Array.isArray(metadata.contractPreviewRows) ? metadata.contractPreviewRows : [];
+  const siteRows = Array.isArray(metadata.sitePreviewRows) ? metadata.sitePreviewRows : [];
+  const issueRows = Array.isArray(metadata.issuePreviewRows) ? metadata.issuePreviewRows : [];
+  const firstContract = contractRows[0] || null;
+  const apiStatus = batch?.apiStatus || collectionRoutesPilotState.apiStatus;
+
+  return `
+    <section class="collection-routes-panel" id="collection-routes-vistos-komunal" aria-labelledby="collection-routes-vistos-komunal-title">
+      <div class="collection-routes-panel__head">
+        <div>
+          <p class="module-feedback__eyebrow">Vistos / Komunál</p>
+          <h2 id="collection-routes-vistos-komunal-title">Vistos Komunál preview</h2>
+          <p>Read-only náhled aktivních Komunál smluv z Vistosu přes backend API a pilotní D1 tabulky.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--waiting">Read-only Vistos preview</span>
+      </div>
+
+      <div class="collection-routes-phase-note">
+        <strong>Tento náhled nevytváří ostré trasy, neposílá SMS/e-maily a nespouští automatizace.</strong>
+        <span>Filtr: Status_FK = 74, Typsmlouvy_FK = [14735]. Vistos se nevolá z frontendu.</span>
+      </div>
+
+      <div class="collection-routes-stats" aria-label="Stav Vistos Komunál preview">
+        <article><span>Vistos konfigurace</span><strong>${escapeHtml(collectionRoutesApiStatusLabel(apiStatus))}</strong></article>
+        <article><span>Smlouvy</span><strong>${collectionRoutesMetricValue(stats.contracts || batch?.metadata?.contractCount)}</strong></article>
+        <article><span>Položky</span><strong>${collectionRoutesMetricValue(stats.mappedItems)}</strong></article>
+        <article><span>Stanoviště</span><strong>${collectionRoutesMetricValue(stats.sites || batch?.metadata?.siteCount)}</strong></article>
+        <article><span>Nádoby</span><strong>${collectionRoutesMetricValue(batch?.metadata?.containerCount)}</strong></article>
+        <article><span>Problémy</span><strong>${collectionRoutesMetricValue(stats.issues || batch?.issueCount)}</strong></article>
+      </div>
+
+      ${canImport ? `
+        <form class="collection-routes-import-form" data-collection-routes-kommunal-preview-form>
+          <button class="primary-action" type="submit" ${collectionRoutesPilotState.kommunalPreviewLoading ? "disabled" : ""}>
+            ${collectionRoutesPilotState.kommunalPreviewLoading ? "Načítám Komunál preview..." : "Načíst aktivní Komunál smlouvy z Vistosu"}
+          </button>
+        </form>
+      ` : `
+        <p class="module-feedback__notice">Vistos Komunál preview může spustit pouze admin.</p>
+      `}
+
+      ${collectionRoutesPilotState.message ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.message)}</p>` : ""}
+      ${collectionRoutesPilotState.error ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.error)}</p>` : ""}
+
+      ${firstContract ? `
+        <div class="collection-routes-detail-grid" aria-label="Detail jedné smlouvy">
+          <article><span>Číslo smlouvy</span><strong>${escapeHtml(firstContract.contractNumber || "-")}</strong></article>
+          <article><span>Zákazník</span><strong>${escapeHtml(firstContract.customerName || "-")}</strong></article>
+          <article><span>Pobočka</span><strong>${escapeHtml(firstContract.branchName || "-")}</strong></article>
+          <article><span>Stanoviště</span><strong>${escapeHtml(firstContract.siteName || "-")}</strong></article>
+          <article><span>Produkt</span><strong>${escapeHtml(firstContract.productName || "-")}</strong></article>
+          <article><span>Stav mapování</span><strong>${escapeHtml(firstContract.mappingStatus || "-")}</strong></article>
+        </div>
+      ` : collectionRoutesEmptyState(
+        "Komunál preview zatím není načtené.",
+        "Spusťte admin tlačítkem read-only preview, nebo nastavte Vistos secrets. Bez konfigurace se zobrazí bezpečný stav čeká na Vistos API."
+      )}
+
+      ${collectionRoutesPreviewTable("Tabulka smluv", [
+        { label: "Smlouva", value: (row) => row.contractNumber },
+        { label: "Začátek", value: (row) => row.validFrom },
+        { label: "Konec", value: (row) => row.validTo },
+        { label: "Zákazník", value: (row) => row.customerName },
+        { label: "Stanoviště", value: (row) => row.siteName },
+        { label: "Produkt", value: (row) => row.productName },
+        { label: "Stav", value: (row) => row.mappingStatus },
+        { label: "Problémy", value: (row) => row.issueCount }
+      ], contractRows, "Po načtení Vistos Komunál preview se zde zobrazí smlouvy a položky.")}
+
+      ${collectionRoutesPreviewTable("Tabulka stanovišť", [
+        { label: "Zákazník", value: (row) => row.customerName },
+        { label: "Stanoviště", value: (row) => row.siteName },
+        { label: "Adresa", value: (row) => row.addressRaw },
+        { label: "Poloha", value: (row) => row.locationQuality },
+        { label: "Položky", value: (row) => row.itemCount }
+      ], siteRows, "Po načtení preview se zde zobrazí odvozená stanoviště.")}
+
+      ${collectionRoutesPreviewTable("Tabulka problémů", [
+        { label: "Smlouva", value: (row) => row.contractNumber },
+        { label: "Stanoviště", value: (row) => row.siteName },
+        { label: "Typ", value: (row) => row.issueType },
+        { label: "Stav", value: (row) => row.severity },
+        { label: "Popis", value: (row) => row.message }
+      ], issueRows, "Po načtení preview se zde zobrazí datové problémy.")}
+    </section>
   `;
 }
 
@@ -10084,6 +10214,9 @@ function collectionRoutesActiveSection(user) {
   const activeTab = activeCollectionRoutesTabId();
   if (activeTab === "manual-import") {
     return collectionRoutesManualImportSection(user);
+  }
+  if (activeTab === "vistos-komunal") {
+    return collectionRoutesVistosKommunalSection(user);
   }
   if (activeTab === "import") {
     return collectionRoutesImportSection(user);
@@ -11419,6 +11552,41 @@ async function submitCollectionRoutesImportPreview(form) {
     collectionRoutesPilotState.message = "";
   } finally {
     collectionRoutesPilotState.importLoading = false;
+    render();
+  }
+}
+
+async function submitCollectionRoutesKommunalPreview(form) {
+  const user = currentUser();
+
+  if (!collectionRoutesCanRunImportPreview(user)) {
+    collectionRoutesPilotState.error = "Vistos Komunál preview může spustit pouze admin.";
+    collectionRoutesPilotState.message = "";
+    render();
+    return;
+  }
+
+  collectionRoutesPilotState.kommunalPreviewLoading = true;
+  collectionRoutesPilotState.error = "";
+  collectionRoutesPilotState.message = "";
+  render();
+
+  try {
+    const result = await apiJson("/api/collection-routes/vistos/kommunal-preview", {
+      method: "POST",
+      body: JSON.stringify({ source: "vistos-komunal-preview" })
+    });
+    const summary = result.preview?.summary || {};
+    collectionRoutesPilotState.message = summary.message ||
+      `Vistos Komunál preview načetl ${summary.contractCount || 0} smluv, ${summary.itemCount || 0} položek a ${summary.issueCount || 0} problémů. Ostré trasy nebyly vytvořené.`;
+    collectionRoutesPilotState.apiStatus = result.apiStatus || result.preview?.apiStatus || "ready";
+    collectionRoutesPilotState.activeTab = "vistos-komunal";
+    await loadCollectionRoutesPilot({ renderAfter: false, force: true });
+  } catch (error) {
+    collectionRoutesPilotState.error = error.payload?.error || error.message || "Vistos Komunál preview se nepodařilo spustit.";
+    collectionRoutesPilotState.message = "";
+  } finally {
+    collectionRoutesPilotState.kommunalPreviewLoading = false;
     render();
   }
 }
@@ -14998,6 +15166,13 @@ document.addEventListener("submit", async (event) => {
   if (collectionRoutesImportForm) {
     event.preventDefault();
     await submitCollectionRoutesImportPreview(collectionRoutesImportForm);
+    return;
+  }
+
+  const collectionRoutesKommunalForm = event.target.closest("[data-collection-routes-kommunal-preview-form]");
+  if (collectionRoutesKommunalForm) {
+    event.preventDefault();
+    await submitCollectionRoutesKommunalPreview(collectionRoutesKommunalForm);
     return;
   }
 

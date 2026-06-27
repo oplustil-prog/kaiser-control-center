@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.112"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.113"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: Vistos Komunal preview",
+    text: "Faze 1E nacita aktivni Komunal smlouvy z Vistosu pres backend/secrets do read-only preview bez ostrych tras, SMS/e-mailu a automatizaci."
+  },
   {
     title: "Trasy svozu: skryti promo Sarloty",
     text: "Bugfix na trase /trasy-svozu vypina samostatnou promo vrstvu Sarloty, aby neprekryvala read-only pilot ani ovladani zalozek."

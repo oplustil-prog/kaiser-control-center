@@ -204,6 +204,105 @@ StartDate <= today AND (EndDate is null OR EndDate >= today)
 
 Jednoduche range filtry pres Vistos API nebyly potvrzene jako spolehlive.
 
+## Faze 1E - read-only Vistos Komunal preview
+
+Stav: implementacni cil pro modul Trasy svozu.
+
+Faze 1E nacita aktivni Komunal smlouvy z Vistosu pouze pres backend a uklada
+jen read-only import preview do pilotnich tabulek modulu Trasy svozu.
+
+Nepovoli:
+
+- ostre trasy,
+- planovani svozovych dnu,
+- optimalizaci,
+- SMS/e-mail notifikace,
+- T-Cars alerty,
+- Waze/Google geokodovani,
+- zapis do Evidence odpadu,
+- cloud automatizace pro Trasy svozu.
+
+### Pouzite entity
+
+- `Contract`
+- `ContractRow`
+- `Product`
+
+### Filtr
+
+```json
+{
+  "Status_FK": 74,
+  "Typsmlouvy_FK": [14735]
+}
+```
+
+Filtr znamena:
+
+- `Status_FK = 74` = aktivni podepsana smlouva,
+- `Typsmlouvy_FK = [14735]` = Komunal.
+
+Datumova platnost se ma kontrolovat az v backend mapovani, protoze range filtr
+pres Vistos API neni potvrzeny jako spolehlivy.
+
+### Zdrojova pole pro preview
+
+| Preview pole | Zdroj |
+| --- | --- |
+| Cislo smlouvy | `Contract.ContractNumber` |
+| Zacatek smlouvy | `Contract.StartDate` |
+| Konec smlouvy | `Contract.EndDate` |
+| Zakaznik | `Contract.Directory_FK` |
+| Pobocka | `Contract.DirectoryBranch_FK` |
+| Nakladkova adresa / stanoviste | `Contract.Nakladkovaadresa_FK`, fallback `DirectoryBranch_FK` |
+| Polozka smlouvy | `ContractRow.Name`, `ContractRow.Description` |
+| Produkt/sluzba | `ContractRow.Product_FK` -> `Product.Name` / `Product.Caption` |
+| Interni Vistos ID smlouvy | `Contract.Id` |
+| Interni Vistos ID polozky | `ContractRow.Id` |
+| Interni Vistos ID produktu | `Product.Id` |
+| Typ odpadu | odvozeni z `Product` a textu produktu |
+| Cetnost | odvozeni z `Product` a textu produktu |
+| Nadoba/objem/pocet | odvozeni z `Product.Quantity`, nazvu produktu a popisu polozky |
+
+### Pilotni ulozeni v Kaiser Smart
+
+Faze 1E pouziva existujici pilotni tabulky:
+
+- `collection_import_batches`
+- `collection_import_rows`
+- `collection_customer_sites`
+- `collection_site_locations`
+- `collection_contract_services`
+- `collection_containers`
+- `collection_data_issues`
+
+Batch musi mit `source_mode = vistos-komunal-preview`.
+
+### Povinne datove problemy
+
+Preview ma detekovat a zobrazit minimalne:
+
+- chybi zakaznik,
+- chybi nakladkova adresa,
+- chybi polozky smlouvy,
+- neznamy produkt,
+- neznamy typ odpadu,
+- neznama cetnost,
+- chybi nadoba/objem,
+- mozna duplicita stanoviste,
+- smlouva bez aktivniho rozsahu,
+- vice stanovist u jedne smlouvy,
+- polozka neni mapovatelna na svoz.
+
+### Secrets a provozni pravidla
+
+- `VISTOS_API_BASE_URL`, `VISTOS_API_USERNAME` a `VISTOS_API_PASSWORD` patri pouze
+  do Cloudflare secrets / backend secret store.
+- Secrets nesmi byt ve frontendu, dokumentaci, logu ani commitu.
+- Pokud secrets chybi, API vrati stav `Vistos API neni nakonfigurovano`.
+- Bez konfigurace se nesmi zobrazit fake zakaznicka data.
+- Frontend nikdy nevola Vistos primo.
+
 ## Zakaznik, pobocka, adresa
 
 | Vyznam | API pole | Doporucene pouziti |

@@ -1790,6 +1790,81 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/collection-routes/vistos/kommunal-preview" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    if (normalizeRole(user.role) !== "admin") {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const batch = {
+      id: `collection-import-batch-${randomUUID()}`,
+      source: "vistos",
+      sourceMode: "vistos-komunal-preview",
+      status: "waiting_configuration",
+      apiStatus: "not_configured",
+      message: "Vistos API není nakonfigurováno",
+      rowCount: 0,
+      issueCount: 1,
+      createdByUserId: user.id,
+      createdAt: now,
+      finishedAt: now,
+      metadata: {
+        phase: "1E",
+        mode: "vistos-komunal-preview",
+        source: "vistos",
+        filter: {
+          Status_FK: 74,
+          Typsmlouvy_FK: [14735]
+        },
+        vistosConfigured: false,
+        createsOperationalRoutes: false,
+        sendsEmailOrSms: false,
+        startsAutomation: false
+      }
+    };
+    const issue = {
+      id: `collection-data-issue-${randomUUID()}`,
+      batchId: batch.id,
+      siteId: "",
+      issueType: "vistos-api",
+      severity: "warning",
+      message: "Vistos API není nakonfigurováno",
+      status: "open",
+      createdAt: now,
+      resolvedAt: ""
+    };
+    mockCollectionRouteBatches.unshift(batch);
+    mockCollectionRouteIssues.unshift(issue);
+    sendJson(response, 200, {
+      preview: {
+        batch,
+        summary: {
+          status: batch.status,
+          message: batch.message,
+          rowCount: 0,
+          contractCount: 0,
+          itemCount: 0,
+          siteCount: 0,
+          containerCount: 0,
+          issueCount: 1,
+          createsOperationalRoutes: false,
+          sendsEmailOrSms: false,
+          startsAutomation: false
+        },
+        apiStatus: "not_configured"
+      },
+      apiStatus: "not_configured"
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/collection-routes/import-batches" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
@@ -1823,6 +1898,44 @@ async function handleApi(request, response) {
     sendJson(response, 200, {
       batch,
       rows: mockCollectionRouteImportRows.filter((item) => item.batchId === batch.id),
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  const collectionBatchRowsMatch = url.pathname.match(/^\/api\/collection-routes\/import-batches\/([^/]+)\/rows$/);
+  if (collectionBatchRowsMatch && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    const batchId = decodeURIComponent(collectionBatchRowsMatch[1]);
+    sendJson(response, 200, {
+      rows: mockCollectionRouteImportRows.filter((item) => item.batchId === batchId),
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
+  const collectionBatchIssuesMatch = url.pathname.match(/^\/api\/collection-routes\/import-batches\/([^/]+)\/issues$/);
+  if (collectionBatchIssuesMatch && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "collection-routes", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+    const batchId = decodeURIComponent(collectionBatchIssuesMatch[1]);
+    sendJson(response, 200, {
+      issues: mockCollectionRouteIssues.filter((item) => item.batchId === batchId),
       apiStatus: "ready"
     });
     return true;

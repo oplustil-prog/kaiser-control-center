@@ -6,7 +6,67 @@ const MANUAL_IMPORT_PHASE = "1C";
 const MANUAL_IMPORT_MESSAGE = "Import preview – nevytváří ostré trasy.";
 const VISTOS_DISCOVERY_PHASE = "1D";
 const VISTOS_DISCOVERY_MESSAGE = "Vistos API discovery – import preview nevytváří ostré trasy.";
+const VISTOS_KOMUNAL_PHASE = "1E";
+const VISTOS_KOMUNAL_MESSAGE = "Read-only Vistos Komunál preview – nevytváří ostré trasy.";
 const DEFAULT_VISTOS_DISCOVERY_PATHS = ["/Contract", "/ServiceList"];
+const VISTOS_EXECUTE_API_SUFFIX = "/API/VistosAPI";
+const VISTOS_EXECUTE_PAGE_SIZE = 1000;
+const VISTOS_EXECUTE_MAX_PAGES = 80;
+const VISTOS_KOMUNAL_CONTRACT_FILTER = {
+  Status_FK: 74,
+  Typsmlouvy_FK: [14735]
+};
+const VISTOS_CONTRACT_COLUMNS = [
+  "Id",
+  "ContractNumber",
+  "Name",
+  "Status_FK",
+  "Type_FK",
+  "Typsmlouvy_FK",
+  "StartDate",
+  "EndDate",
+  "Directory_FK",
+  "DirectoryBranch_FK",
+  "Nakladkovaadresa_FK",
+  "Sidlo_FK"
+];
+const VISTOS_CONTRACT_ROW_COLUMNS = [
+  "Id",
+  "Contract_FK",
+  "Product_FK",
+  "Name",
+  "Description",
+  "Quantity",
+  "UOM_FK",
+  "Typpolozky_FK",
+  "Intervalodvozu_FK",
+  "Kategorieodpadu_FK",
+  "Stanoviste",
+  "StartDate",
+  "IsActive",
+  "ServiceList_FK"
+];
+const VISTOS_PRODUCT_COLUMNS = [
+  "Id",
+  "Name",
+  "Caption",
+  "Quantity",
+  "UOM_FK",
+  "Currency_FK",
+  "CostPrice",
+  "ListPrice",
+  "WeightedCostPrice",
+  "DiscountPrice",
+  "Size",
+  "Weight",
+  "Typodpadu_FK",
+  "Typodpadupopelnice_FK",
+  "Typnadoby",
+  "Cetnostsvozuodpadu_FK",
+  "ServiceCycle_FK",
+  "Kod_druhotnych_surovin",
+  "Waste"
+];
 
 export class CollectionRoutesStoreError extends Error {
   constructor(message, status = 400, code = "collection_routes_error") {
@@ -24,6 +84,14 @@ function cleanString(value) {
 function numericValue(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function nullableNumericValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function booleanValue(value, fallback = false) {
@@ -297,6 +365,10 @@ function extractVistosRows(payload) {
     return [];
   }
 
+  if (Array.isArray(payload.data?.data)) {
+    return payload.data.data.filter((row) => row && typeof row === "object");
+  }
+
   const directKeys = ["rows", "data", "items", "value", "result", "contracts", "services", "records"];
   for (const key of directKeys) {
     if (Array.isArray(payload[key])) {
@@ -311,6 +383,215 @@ function extractVistosRows(payload) {
     }
   }
   return nested;
+}
+
+function vistosExecuteApiBase(env) {
+  const rawBase = cleanString(env?.VISTOS_API_BASE_URL);
+  if (!rawBase) {
+    return "";
+  }
+
+  try {
+    const url = new URL(rawBase);
+    url.hash = "";
+    url.search = "";
+    let pathname = url.pathname.replace(/\/+$/, "");
+    if (!pathname.toLowerCase().endsWith(VISTOS_EXECUTE_API_SUFFIX.toLowerCase())) {
+      pathname = `${pathname}${VISTOS_EXECUTE_API_SUFFIX}`;
+    }
+    url.pathname = pathname;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    const withoutHash = rawBase.split("#")[0].split("?")[0].replace(/\/+$/, "");
+    return withoutHash.toLowerCase().endsWith(VISTOS_EXECUTE_API_SUFFIX.toLowerCase())
+      ? withoutHash
+      : `${withoutHash}${VISTOS_EXECUTE_API_SUFFIX}`;
+  }
+}
+
+function isVistosExecuteConfigured(env) {
+  return Boolean(
+    vistosExecuteApiBase(env) &&
+    cleanString(env?.VISTOS_API_USERNAME) &&
+    cleanString(env?.VISTOS_API_PASSWORD)
+  );
+}
+
+function vistosExecuteEnvelope(methodName, payload) {
+  return {
+    [methodName]: payload,
+    RequestGuid: randomId("vistos-request").replace(/^vistos-request-/, ""),
+    RequestDatetime: nowIso(),
+    Version: "3.0",
+    Device: "Browser",
+    Culture: "cs-CZ"
+  };
+}
+
+function parseVistosCookieHeader(headers) {
+  const setCookie = cleanString(headers.get("set-cookie"));
+  const cookies = [];
+  const cookiePattern = /(VistosAccessToken|VistosRefreshToken)=([^;,]+)/g;
+  let match = cookiePattern.exec(setCookie);
+
+  while (match) {
+    cookies.push(`${match[1]}=${match[2]}`);
+    match = cookiePattern.exec(setCookie);
+  }
+
+  return cookies.join("; ");
+}
+
+async function fetchVistosExecute(env, methodName, payload, cookieHeader = "") {
+  const apiBase = vistosExecuteApiBase(env);
+  if (!apiBase) {
+    throw new CollectionRoutesStoreError(VISTOS_NOT_CONFIGURED_MESSAGE, 503, "vistos_api_not_configured");
+  }
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutMs = Math.max(5000, Math.min(Number(env?.VISTOS_API_TIMEOUT_MS) || 20000, 45000));
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+
+    if (cookieHeader) {
+      headers.Cookie = cookieHeader;
+    }
+
+    const response = await fetch(`${apiBase}/Execute?${methodName}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(vistosExecuteEnvelope(methodName, payload)),
+      signal: controller?.signal
+    });
+    const text = await response.text();
+    let body = {};
+
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      throw new CollectionRoutesStoreError(
+        "Vistos API nevrátilo validní JSON.",
+        502,
+        "vistos_api_invalid_json"
+      );
+    }
+
+    if (!response.ok || body?.status !== "OK") {
+      throw new CollectionRoutesStoreError(
+        response.status === 401 || response.status === 403 || response.status === 215
+          ? "Vistos API odmítlo přístup pro read-only preview."
+          : "Vistos API požadavek se nepodařil.",
+        response.status === 401 || response.status === 403 || response.status === 215 ? 502 : 502,
+        "vistos_api_execute_failed"
+      );
+    }
+
+    return {
+      status: response.status,
+      body,
+      cookieHeader: parseVistosCookieHeader(response.headers)
+    };
+  } catch (error) {
+    if (error instanceof CollectionRoutesStoreError) {
+      throw error;
+    }
+
+    throw new CollectionRoutesStoreError(
+      error?.name === "AbortError"
+        ? "Vistos API překročilo časový limit."
+        : "Vistos API se nepodařilo načíst.",
+      502,
+      "vistos_api_unavailable"
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function loginVistosExecute(env) {
+  if (!isVistosExecuteConfigured(env)) {
+    throw new CollectionRoutesStoreError(VISTOS_NOT_CONFIGURED_MESSAGE, 503, "vistos_api_not_configured");
+  }
+
+  const login = await fetchVistosExecute(env, "LoginParam", {
+    UserName: cleanString(env.VISTOS_API_USERNAME),
+    Password: cleanString(env.VISTOS_API_PASSWORD)
+  });
+
+  if (!login.cookieHeader) {
+    throw new CollectionRoutesStoreError(
+      "Vistos API login nevrátil bezpečnou session cookie.",
+      502,
+      "vistos_api_session_missing"
+    );
+  }
+
+  return {
+    cookieHeader: login.cookieHeader
+  };
+}
+
+function vistosRecordsTotal(payload) {
+  const data = payload?.data;
+  return {
+    total: numericValue(data?.recordsTotal),
+    filtered: numericValue(data?.recordsFiltered)
+  };
+}
+
+async function getVistosPage(env, session, entityName, columns, filter = null, start = 0, length = VISTOS_EXECUTE_PAGE_SIZE) {
+  const request = {
+    EntityName: entityName,
+    Start: start,
+    Length: length,
+    Columns: columns.map((column) => ({ ColumnName: column, Status: 1 }))
+  };
+
+  if (filter && Object.keys(filter).length) {
+    request.Filter = filter;
+  }
+
+  const result = await fetchVistosExecute(env, "GetPageParam", request, session.cookieHeader);
+  const rows = extractVistosRows(result.body);
+  return {
+    rows,
+    ...vistosRecordsTotal(result.body)
+  };
+}
+
+async function getAllVistosPages(env, session, entityName, columns, filter = null, {
+  pageSize = VISTOS_EXECUTE_PAGE_SIZE,
+  maxPages = VISTOS_EXECUTE_MAX_PAGES
+} = {}) {
+  const rows = [];
+  let total = 0;
+  let filtered = 0;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const start = page * pageSize;
+    const result = await getVistosPage(env, session, entityName, columns, filter, start, pageSize);
+    rows.push(...result.rows);
+    total = result.total;
+    filtered = result.filtered;
+
+    if (result.rows.length < pageSize || (filtered && rows.length >= filtered)) {
+      break;
+    }
+  }
+
+  return {
+    rows,
+    total,
+    filtered,
+    capped: Boolean(filtered && rows.length < filtered)
+  };
 }
 
 function flattenVistosRow(row, path) {
@@ -477,6 +758,390 @@ function normalizeContainerCount(value) {
   return count || 1;
 }
 
+function firstNonEmpty(...values) {
+  return values.map(cleanString).find(Boolean) || "";
+}
+
+function fkRecordId(row, fieldName) {
+  return firstNonEmpty(row?.[`${fieldName}_RecordId`], row?.[fieldName]);
+}
+
+function fkCaption(row, fieldName) {
+  return firstNonEmpty(row?.[fieldName], row?.[`${fieldName}_Caption`], row?.[`${fieldName}_MainProjection`]);
+}
+
+function isoDateValue(value) {
+  const text = cleanString(value);
+  if (!text) {
+    return "";
+  }
+
+  const match = text.match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : text.slice(0, 10);
+}
+
+function dateInActiveRange(startDate, endDate, today = new Date()) {
+  const todayIso = today.toISOString().slice(0, 10);
+  const start = isoDateValue(startDate);
+  const end = isoDateValue(endDate);
+  return (!start || start <= todayIso) && (!end || end >= todayIso);
+}
+
+function productSearchText(contractRow, product) {
+  return [
+    product?.Kod_druhotnych_surovin,
+    product?.Typodpadu_FK,
+    product?.Typodpadupopelnice_FK,
+    product?.Typnadoby,
+    product?.Cetnostsvozuodpadu_FK,
+    product?.ServiceCycle_FK,
+    product?.Caption,
+    product?.Name,
+    contractRow?.Name,
+    contractRow?.Description
+  ].map(cleanString).filter(Boolean).join(" ");
+}
+
+function inferVistosWaste(contractRow, product) {
+  const text = productSearchText(contractRow, product);
+  const structured = normalizeWaste(
+    firstNonEmpty(product?.Typodpadupopelnice_FK, product?.Typodpadu_FK, text),
+    product?.Kod_druhotnych_surovin
+  );
+
+  if (structured.known) {
+    return structured;
+  }
+
+  const normalized = normalizeValueKey(text);
+  const compact = normalized.replace(/\s+/g, "");
+  const candidates = [
+    ["150106", { wasteType: "SMESNE OBALY", wasteCode: "150106" }],
+    ["150101", { wasteType: "PAPIR", wasteCode: "150101" }],
+    ["150102", { wasteType: "PLAST", wasteCode: "150102" }],
+    ["200301", { wasteType: "SKO", wasteCode: "200301" }],
+    ["200101", { wasteType: "PAPIR", wasteCode: "200101" }],
+    ["200139", { wasteType: "PLAST", wasteCode: "200139" }],
+    ["200102", { wasteType: "SKLO", wasteCode: "200102" }],
+    ["200201", { wasteType: "BIO", wasteCode: "200201" }],
+    ["SKO", { wasteType: "SKO", wasteCode: "200301" }],
+    ["PAPIR", { wasteType: "PAPIR", wasteCode: "200101" }],
+    ["PAP", { wasteType: "PAPIR", wasteCode: "200101" }],
+    ["PLAST", { wasteType: "PLAST", wasteCode: "200139" }],
+    ["SKLO", { wasteType: "SKLO", wasteCode: "200102" }],
+    ["BIO", { wasteType: "BIO", wasteCode: "200201" }],
+    ["SMESNEOBALY", { wasteType: "SMESNE OBALY", wasteCode: "150106" }]
+  ];
+
+  for (const [needle, value] of candidates) {
+    if (normalized.includes(needle) || compact.includes(needle)) {
+      return { ...value, known: true };
+    }
+  }
+
+  return {
+    wasteType: "",
+    wasteCode: "",
+    known: false
+  };
+}
+
+function inferVistosFrequency(contractRow, product) {
+  const rawStructured = firstNonEmpty(product?.Cetnostsvozuodpadu_FK, product?.ServiceCycle_FK, contractRow?.Intervalodvozu_FK);
+  const structured = normalizeFrequency(rawStructured);
+  if (structured.known) {
+    return structured;
+  }
+
+  const text = productSearchText(contractRow, product).replace("×", "x");
+  const match = text.match(/([1235])\s*x\s*(7|14|30)/i);
+  if (match) {
+    return normalizeFrequency(`${match[1]}x${match[2]}`);
+  }
+
+  return {
+    frequency: cleanString(rawStructured),
+    known: false
+  };
+}
+
+function inferVistosContainer(contractRow, product) {
+  const raw = firstNonEmpty(product?.Typnadoby, product?.Size, product?.Caption, product?.Name, contractRow?.Name);
+  const volume = normalizeContainerVolume(raw);
+  const quantitySource = firstNonEmpty(contractRow?.Quantity, product?.Quantity);
+  return {
+    volume: volume.volume,
+    known: volume.known,
+    count: normalizeContainerCount(quantitySource),
+    type: cleanString(product?.Typnadoby || "container")
+  };
+}
+
+function vistosSiteKey(contract) {
+  const sourceSiteId = firstNonEmpty(fkRecordId(contract, "Nakladkovaadresa_FK"), fkRecordId(contract, "DirectoryBranch_FK"));
+  if (sourceSiteId) {
+    return `vistos-site-${sourceSiteId}`;
+  }
+  return normalizeLookupKey([
+    fkCaption(contract, "Directory_FK"),
+    fkCaption(contract, "Nakladkovaadresa_FK"),
+    fkCaption(contract, "DirectoryBranch_FK")
+  ].join("|"));
+}
+
+function buildVistosKommunalPreview({ contracts, contractRows, products, totals = {} }) {
+  const productsById = new Map(products.map((product) => [cleanString(product?.Id), product]));
+  const contractIds = new Set(contracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
+  const rowsByContractId = new Map();
+
+  for (const row of contractRows) {
+    const contractId = cleanString(row?.Contract_FK_RecordId || row?.Contract_FK);
+    if (!contractIds.has(contractId)) {
+      continue;
+    }
+    if (!rowsByContractId.has(contractId)) {
+      rowsByContractId.set(contractId, []);
+    }
+    rowsByContractId.get(contractId).push(row);
+  }
+
+  const mappedRows = [];
+  const today = new Date();
+
+  for (const contract of contracts) {
+    const contractId = cleanString(contract?.Id);
+    const contractRowsForContract = rowsByContractId.get(contractId) || [];
+    const baseIssues = [];
+    const customerName = fkCaption(contract, "Directory_FK");
+    const branchName = fkCaption(contract, "DirectoryBranch_FK");
+    const addressRaw = firstNonEmpty(fkCaption(contract, "Nakladkovaadresa_FK"), branchName);
+    const siteName = firstNonEmpty(fkCaption(contract, "Nakladkovaadresa_FK"), branchName, customerName);
+    const sourceCustomerId = fkRecordId(contract, "Directory_FK");
+    const sourceSiteId = firstNonEmpty(fkRecordId(contract, "Nakladkovaadresa_FK"), fkRecordId(contract, "DirectoryBranch_FK"));
+    const contractActiveRange = dateInActiveRange(contract?.StartDate, contract?.EndDate, today);
+    const possibleSiteIds = new Set([
+      fkRecordId(contract, "Nakladkovaadresa_FK"),
+      fkRecordId(contract, "DirectoryBranch_FK"),
+      fkRecordId(contract, "Sidlo_FK")
+    ].filter(Boolean));
+
+    if (!customerName) {
+      baseIssues.push({ type: "missing-customer", severity: "error", message: "Chybí zákazník." });
+    }
+    if (!sourceSiteId && !addressRaw) {
+      baseIssues.push({ type: "missing-loading-address", severity: "error", message: "Chybí nakládková adresa." });
+    }
+    if (!contractActiveRange) {
+      baseIssues.push({ type: "inactive-contract-range", severity: "warning", message: "Smlouva nemá aktivní datumový rozsah." });
+    }
+    if (possibleSiteIds.size > 1) {
+      baseIssues.push({ type: "multiple-sites-contract", severity: "info", message: "Smlouva má více možných adresních vazeb." });
+    }
+
+    if (!contractRowsForContract.length) {
+      mappedRows.push({
+        rowNumber: mappedRows.length + 1,
+        sourceEntity: "Contract",
+        sourceId: `Contract:${contractId}`,
+        sourceContractId: contractId,
+        sourceCustomerId,
+        sourceSiteId,
+        contractId,
+        contractNumber: cleanString(contract?.ContractNumber),
+        validFrom: isoDateValue(contract?.StartDate),
+        validTo: isoDateValue(contract?.EndDate),
+        customerName,
+        branchName,
+        addressRaw,
+        siteName,
+        wasteType: "",
+        wasteCode: "",
+        frequency: "",
+        containerVolume: 0,
+        containerCount: 0,
+        productName: "",
+        productId: "",
+        contractRowId: "",
+        mappingStatus: "needs_review",
+        rowKey: `vistos-contract-${contractId}`,
+        siteKey: vistosSiteKey(contract),
+        locationQuality: sourceSiteId ? "vistos_unverified" : "missing",
+        latitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Lat),
+        longitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Long),
+        issues: [
+          ...baseIssues,
+          { type: "missing-contract-items", severity: "warning", message: "Chybí položky smlouvy." },
+          { type: "item-not-collection-mappable", severity: "warning", message: "Položka není mapovatelná na svoz." }
+        ]
+      });
+      continue;
+    }
+
+    for (const contractRow of contractRowsForContract) {
+      const productId = cleanString(contractRow?.Product_FK_RecordId || contractRow?.Product_FK);
+      const product = productsById.get(productId) || null;
+      const waste = inferVistosWaste(contractRow, product);
+      const frequency = inferVistosFrequency(contractRow, product);
+      const container = inferVistosContainer(contractRow, product);
+      const issues = [...baseIssues];
+
+      if (!productId || !product) {
+        issues.push({ type: "unknown-product", severity: "warning", message: "Neznámý produkt." });
+      }
+      if (!waste.known) {
+        issues.push({ type: "unknown-waste-type", severity: "warning", message: "Neznámý typ odpadu." });
+      }
+      if (!frequency.known) {
+        issues.push({ type: "unknown-frequency", severity: "warning", message: "Neznámá četnost." });
+      }
+      if (!container.known) {
+        issues.push({ type: "missing-container-volume", severity: "warning", message: "Chybí nádoba/objem." });
+      }
+      if (!waste.known || !frequency.known || !container.known) {
+        issues.push({ type: "item-not-collection-mappable", severity: "warning", message: "Položka není mapovatelná na svoz." });
+      }
+
+      mappedRows.push({
+        rowNumber: mappedRows.length + 1,
+        sourceEntity: "ContractRow",
+        sourceId: `Contract:${contractId}:ContractRow:${cleanString(contractRow?.Id)}`,
+        sourceContractId: contractId,
+        sourceCustomerId,
+        sourceSiteId,
+        contractId,
+        contractRowId: cleanString(contractRow?.Id),
+        productId,
+        contractNumber: cleanString(contract?.ContractNumber),
+        validFrom: isoDateValue(contract?.StartDate),
+        validTo: isoDateValue(contract?.EndDate),
+        customerName,
+        branchName,
+        addressRaw,
+        siteName,
+        wasteType: waste.wasteType,
+        wasteCode: waste.wasteCode,
+        frequency: frequency.frequency,
+        containerVolume: container.volume,
+        containerCount: container.count,
+        containerType: container.type,
+        productName: firstNonEmpty(product?.Caption, product?.Name, contractRow?.Name),
+        rowName: cleanString(contractRow?.Name),
+        note: cleanString(contractRow?.Description),
+        mappingStatus: issues.length ? "needs_review" : "mapped",
+        rowKey: `vistos-contract-${contractId}-row-${cleanString(contractRow?.Id) || productId || mappedRows.length + 1}`,
+        siteKey: vistosSiteKey(contract),
+        locationQuality: sourceSiteId ? "vistos_unverified" : "missing",
+        latitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Lat),
+        longitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Long),
+        unitPrice: numericValue(product?.ListPrice || product?.CostPrice || product?.WeightedCostPrice || product?.DiscountPrice, 0),
+        issues
+      });
+    }
+  }
+
+  const siteCounts = new Map();
+  for (const row of mappedRows) {
+    if (row.siteKey) {
+      siteCounts.set(row.siteKey, (siteCounts.get(row.siteKey) || 0) + 1);
+    }
+  }
+  for (const row of mappedRows) {
+    if (row.siteKey && siteCounts.get(row.siteKey) > 1) {
+      row.issues.push({ type: "possible-site-duplicate", severity: "info", message: "Možná duplicita stanoviště." });
+    }
+  }
+
+  const uniqueSites = new Set(mappedRows.map((row) => row.siteKey).filter(Boolean));
+  const uniqueCustomers = new Set(mappedRows.map((row) => row.sourceCustomerId || normalizeLookupKey(row.customerName)).filter(Boolean));
+  const containerCount = mappedRows.reduce((sum, row) => sum + (row.containerVolume ? row.containerCount : 0), 0);
+  const issueCount = mappedRows.reduce((sum, row) => sum + row.issues.length, 0);
+  const itemCount = mappedRows.filter((row) => row.sourceEntity === "ContractRow").length;
+  const previewRows = mappedRows.slice(0, 10).map((row) => ({
+    rowNumber: row.rowNumber,
+    customerName: row.customerName,
+    addressRaw: row.addressRaw,
+    siteName: row.siteName,
+    wasteType: row.wasteType,
+    wasteCode: row.wasteCode,
+    frequency: row.frequency,
+    containerVolume: row.containerVolume,
+    containerCount: row.containerCount,
+    contractNumber: row.contractNumber,
+    mappingStatus: row.mappingStatus,
+    issueCount: row.issues.length
+  }));
+
+  const contractPreviewRows = mappedRows.slice(0, 50).map((row) => ({
+    contractId: row.contractId,
+    contractNumber: row.contractNumber,
+    validFrom: row.validFrom,
+    validTo: row.validTo,
+    customerName: row.customerName,
+    branchName: row.branchName,
+    siteName: row.siteName,
+    sourceEntity: row.sourceEntity,
+    productName: row.productName,
+    mappingStatus: row.mappingStatus,
+    issueCount: row.issues.length
+  }));
+  const sitePreviewRows = [...uniqueSites].slice(0, 50).map((siteKey) => {
+    const row = mappedRows.find((item) => item.siteKey === siteKey) || {};
+    return {
+      siteKey,
+      customerName: row.customerName,
+      siteName: row.siteName,
+      addressRaw: row.addressRaw,
+      locationQuality: row.locationQuality,
+      itemCount: siteCounts.get(siteKey) || 0
+    };
+  });
+  const issuePreviewRows = mappedRows
+    .flatMap((row) => row.issues.map((issue) => ({
+      contractNumber: row.contractNumber,
+      siteName: row.siteName,
+      issueType: issue.type,
+      severity: issue.severity,
+      message: issue.message
+    })))
+    .slice(0, 80);
+
+  return {
+    filename: "vistos-komunal-preview.json",
+    contentType: "application/json",
+    rows: mappedRows,
+    summary: {
+      status: "preview",
+      message: VISTOS_KOMUNAL_MESSAGE,
+      rowCount: mappedRows.length,
+      contractCount: contracts.length,
+      customerCount: uniqueCustomers.size,
+      itemCount,
+      siteCount: uniqueSites.size,
+      containerCount,
+      issueCount,
+      createsOperationalRoutes: false,
+      sendsEmailOrSms: false,
+      startsAutomation: false
+    },
+    previewRows,
+    contractPreviewRows,
+    sitePreviewRows,
+    issuePreviewRows,
+    metadata: {
+      filter: VISTOS_KOMUNAL_CONTRACT_FILTER,
+      vistosTotals: totals,
+      mappingStats: {
+        contracts: contracts.length,
+        contractRows: contractRows.length,
+        products: products.length,
+        mappedItems: itemCount,
+        sites: uniqueSites.size,
+        issues: issueCount
+      }
+    }
+  };
+}
+
 function mappedManualRow(rawRow, rowNumber) {
   const customerName = readMappedField(rawRow, "customerName");
   const addressRaw = readMappedField(rawRow, "addressRaw");
@@ -604,6 +1269,9 @@ export function buildCollectionRoutesManualImportPreview({ text, filename = "", 
 }
 
 function siteLocationQuality(row) {
+  if (row.locationQuality) {
+    return row.locationQuality;
+  }
   return row.issues.some((issue) => issue.type === "missing-address" || issue.type === "unclear-location")
     ? "missing"
     : "approximate";
@@ -611,14 +1279,28 @@ function siteLocationQuality(row) {
 
 function manualRowSummary(row) {
   return {
+    sourceEntity: row.sourceEntity || "",
+    sourceId: row.sourceId || "",
+    contractId: row.contractId || "",
+    contractRowId: row.contractRowId || "",
+    contractNumber: row.contractNumber || "",
+    validFrom: row.validFrom || "",
+    validTo: row.validTo || "",
     customerName: row.customerName,
+    branchName: row.branchName || "",
     addressRaw: row.addressRaw,
     siteName: row.siteName,
+    productId: row.productId || "",
+    productName: row.productName || "",
+    rowName: row.rowName || "",
     wasteType: row.wasteType,
     wasteCode: row.wasteCode,
     frequency: row.frequency,
     containerVolume: row.containerVolume,
     containerCount: row.containerCount,
+    containerType: row.containerType || "",
+    unitPrice: row.unitPrice || 0,
+    mappingStatus: row.mappingStatus || "",
     note: row.note,
     contact: row.contact,
     phone: row.phone,
@@ -656,6 +1338,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
     createsOperationalRoutes: false,
     sendsEmailOrSms: false,
     startsAutomation: false,
+    ...(preview.metadata || {}),
     ...metadata
   };
 
@@ -694,13 +1377,15 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
 
     for (const row of preview.rows) {
       const rowId = randomId("collection-import-row");
-      const importSourceId = row.rowKey || `manual-row-${row.rowNumber}`;
+      const importSourceId = cleanString(row.sourceId) || row.rowKey || `manual-row-${row.rowNumber}`;
       let siteId = "";
 
       if (row.siteKey && !siteIds.has(row.siteKey)) {
         siteId = randomId("collection-site");
         siteIds.set(row.siteKey, siteId);
         const locationQuality = siteLocationQuality(row);
+        const latitude = nullableNumericValue(row.latitude);
+        const longitude = nullableNumericValue(row.longitude);
 
         await db
           .prepare(`
@@ -724,8 +1409,8 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
           .bind(
             siteId,
             siteSourceSystem,
-            normalizeLookupKey(row.customerName),
-            row.siteKey,
+            cleanString(row.sourceCustomerId) || normalizeLookupKey(row.customerName),
+            cleanString(row.sourceSiteId) || row.siteKey,
             row.customerName,
             row.siteName,
             row.addressRaw,
@@ -741,6 +1426,8 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
             INSERT INTO collection_site_locations (
               id,
               site_id,
+              latitude,
+              longitude,
               quality,
               status,
               source,
@@ -748,11 +1435,13 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, 'needs-review', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'needs-review', ?, ?, ?, ?)
           `)
           .bind(
             randomId("collection-site-location"),
             siteId,
+            latitude,
+            longitude,
             locationQuality,
             locationSource,
             locationNote,
@@ -783,7 +1472,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
           rowId,
           batchId,
           row.rowNumber,
-          sourceEntity,
+          row.sourceEntity || sourceEntity,
           importSourceId,
           jsonString(manualRowSummary(row)),
           jsonString(row.issues),
@@ -804,20 +1493,24 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
               waste_code,
               frequency_code,
               stable_pattern,
+              valid_from,
+              valid_to,
               status,
               last_import_batch_id,
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, '', 'preview', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 'preview', ?, ?, ?)
           `)
           .bind(
             serviceId,
             siteId,
-            importSourceId,
+            cleanString(row.sourceContractId) || cleanString(row.contractId) || importSourceId,
             row.wasteType,
             row.wasteCode,
             row.frequency,
+            row.validFrom || null,
+            row.validTo || null,
             batchId,
             createdAt,
             createdAt
@@ -841,12 +1534,13 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, 'container', ?, ?, ?, 'preview', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'preview', ?, ?, ?)
           `)
           .bind(
             randomId("collection-container"),
             siteId,
             serviceId,
+            cleanString(row.containerType) || "container",
             row.containerVolume,
             row.containerCount,
             row.wasteType,
@@ -912,6 +1606,136 @@ export async function createCollectionRoutesManualImportPreview(env, user, { tex
     locationSource: "manual-import-preview",
     locationNote: "Ruční import preview bez geokódování.",
     message: MANUAL_IMPORT_MESSAGE
+  });
+}
+
+async function loadVistosKommunalPreviewData(env) {
+  if (!isVistosExecuteConfigured(env)) {
+    return {
+      configured: false,
+      message: VISTOS_NOT_CONFIGURED_MESSAGE,
+      apiStatus: "not_configured"
+    };
+  }
+
+  const session = await loginVistosExecute(env);
+  const [contractsPage, contractRowsPage, productsPage] = await Promise.all([
+    getAllVistosPages(env, session, "Contract", VISTOS_CONTRACT_COLUMNS, VISTOS_KOMUNAL_CONTRACT_FILTER),
+    getAllVistosPages(env, session, "ContractRow", VISTOS_CONTRACT_ROW_COLUMNS, null),
+    getAllVistosPages(env, session, "Product", VISTOS_PRODUCT_COLUMNS, null, { maxPages: 10 })
+  ]);
+  const contractIds = new Set(contractsPage.rows.map((contract) => cleanString(contract?.Id)).filter(Boolean));
+  const relevantContractRows = contractRowsPage.rows.filter((row) => (
+    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
+  ));
+  const productIds = new Set(relevantContractRows.map((row) => cleanString(row?.Product_FK_RecordId || row?.Product_FK)).filter(Boolean));
+  const relevantProducts = productsPage.rows.filter((product) => productIds.has(cleanString(product?.Id)));
+
+  return {
+    configured: true,
+    apiStatus: "ready",
+    preview: buildVistosKommunalPreview({
+      contracts: contractsPage.rows,
+      contractRows: relevantContractRows,
+      products: relevantProducts,
+      totals: {
+        contracts: {
+          total: contractsPage.total,
+          filtered: contractsPage.filtered,
+          loaded: contractsPage.rows.length,
+          capped: contractsPage.capped
+        },
+        contractRows: {
+          total: contractRowsPage.total,
+          filtered: contractRowsPage.filtered,
+          loaded: contractRowsPage.rows.length,
+          relevant: relevantContractRows.length,
+          capped: contractRowsPage.capped
+        },
+        products: {
+          total: productsPage.total,
+          filtered: productsPage.filtered,
+          loaded: productsPage.rows.length,
+          relevant: relevantProducts.length,
+          capped: productsPage.capped
+        }
+      }
+    })
+  };
+}
+
+export async function createCollectionRoutesVistosKommunalPreview(env, user) {
+  let loaded;
+  try {
+    loaded = await loadVistosKommunalPreviewData(env);
+  } catch (error) {
+    if (error instanceof CollectionRoutesStoreError && error.code?.startsWith("vistos_api")) {
+      return createCollectionRoutesStatusBatch(env, user, {
+        status: "waiting_mapping",
+        apiStatus: error.code === "vistos_api_not_configured" ? "not_configured" : "waiting",
+        message: error.message,
+        issueType: "vistos-komunal-preview",
+        severity: "warning",
+        phase: VISTOS_KOMUNAL_PHASE,
+        mode: "vistos-komunal-preview",
+        source: "vistos",
+        sourceMode: "vistos-komunal-preview",
+        metadata: {
+          filter: VISTOS_KOMUNAL_CONTRACT_FILTER
+        }
+      });
+    }
+    throw error;
+  }
+
+  if (!loaded.configured) {
+    return createCollectionRoutesStatusBatch(env, user, {
+      status: "waiting_configuration",
+      apiStatus: loaded.apiStatus,
+      message: loaded.message,
+      issueType: "vistos-api",
+      severity: "warning",
+      phase: VISTOS_KOMUNAL_PHASE,
+      mode: "vistos-komunal-preview",
+      source: "vistos",
+      sourceMode: "vistos-komunal-preview",
+      metadata: {
+        filter: VISTOS_KOMUNAL_CONTRACT_FILTER,
+        hint: "Nastavte VISTOS_API_BASE_URL, VISTOS_API_USERNAME a VISTOS_API_PASSWORD v Cloudflare secrets."
+      }
+    });
+  }
+
+  if (!loaded.preview.summary.contractCount) {
+    return createCollectionRoutesStatusBatch(env, user, {
+      status: "waiting_mapping",
+      apiStatus: "waiting",
+      message: "Vistos Komunál preview nenašlo žádné aktivní Komunál smlouvy.",
+      issueType: "vistos-komunal-preview",
+      severity: "info",
+      phase: VISTOS_KOMUNAL_PHASE,
+      mode: "vistos-komunal-preview",
+      source: "vistos",
+      sourceMode: "vistos-komunal-preview",
+      metadata: {
+        filter: VISTOS_KOMUNAL_CONTRACT_FILTER
+      }
+    });
+  }
+
+  return persistCollectionRoutesImportPreview(env, user, loaded.preview, {
+    phase: VISTOS_KOMUNAL_PHASE,
+    mode: "vistos-komunal-preview",
+    source: "vistos",
+    sourceMode: "vistos-komunal-preview",
+    siteSourceSystem: "vistos",
+    sourceEntity: "vistos-contract-row",
+    locationSource: "vistos-komunal-preview",
+    locationNote: "Vistos Komunál preview bez Google geokódování.",
+    message: VISTOS_KOMUNAL_MESSAGE,
+    metadata: {
+      filter: VISTOS_KOMUNAL_CONTRACT_FILTER
+    }
   });
 }
 
@@ -1090,6 +1914,46 @@ export async function getCollectionImportBatch(env, id) {
   }
 }
 
+export async function listCollectionImportRows(env, batchId, limit = 500) {
+  const db = collectionRoutesDatabase(env, true);
+  const id = cleanString(batchId);
+  try {
+    const result = await db
+      .prepare(`
+        SELECT *
+        FROM collection_import_rows
+        WHERE batch_id = ?
+        ORDER BY row_number ASC
+        LIMIT ?
+      `)
+      .bind(id, Math.max(1, Math.min(Number(limit) || 500, 1000)))
+      .all();
+    return (result.results || []).map(rowToImportRow);
+  } catch (error) {
+    throw collectionRoutesDbError(error);
+  }
+}
+
+export async function listCollectionImportIssues(env, batchId, limit = 500) {
+  const db = collectionRoutesDatabase(env, true);
+  const id = cleanString(batchId);
+  try {
+    const result = await db
+      .prepare(`
+        SELECT *
+        FROM collection_data_issues
+        WHERE batch_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .bind(id, Math.max(1, Math.min(Number(limit) || 500, 1000)))
+      .all();
+    return (result.results || []).map(rowToIssue);
+  } catch (error) {
+    throw collectionRoutesDbError(error);
+  }
+}
+
 export async function listCollectionSites(env, limit = 100) {
   const db = collectionRoutesDatabase(env, true);
   try {
@@ -1191,6 +2055,10 @@ async function createCollectionRoutesStatusBatch(env, user, {
   message,
   issueType = "vistos-api",
   severity = "warning",
+  phase = VISTOS_DISCOVERY_PHASE,
+  mode = "vistos-api-discovery",
+  source = "vistos-api-discovery",
+  sourceMode = "api-discovery",
   metadata = {},
   issues = []
 }) {
@@ -1198,11 +2066,12 @@ async function createCollectionRoutesStatusBatch(env, user, {
   const createdAt = nowIso();
   const batchId = randomId("collection-import-batch");
   const safeIssues = issues.length ? issues : [{ issueType, severity, message }];
+  const executeMode = sourceMode === "vistos-komunal-preview";
   const metadataJson = {
-    phase: VISTOS_DISCOVERY_PHASE,
-    mode: "vistos-api-discovery",
-    source: "vistos-api-discovery",
-    vistosConfigured: isVistosApiConfigured(env),
+    phase,
+    mode,
+    source,
+    vistosConfigured: executeMode ? isVistosExecuteConfigured(env) : isVistosApiConfigured(env),
     createsOperationalRoutes: false,
     sendsEmailOrSms: false,
     startsAutomation: false,
@@ -1226,10 +2095,12 @@ async function createCollectionRoutesStatusBatch(env, user, {
           finished_at,
           metadata_json
         )
-        VALUES (?, 'vistos', 'api-discovery', ?, ?, ?, 0, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
       `)
       .bind(
         batchId,
+        source,
+        sourceMode,
         status,
         apiStatus,
         message,
