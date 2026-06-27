@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.126"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.127"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: Vistos preview bez tvrdeho datumoveho vyrazeni",
+    text: "Komunal preview ponechava Contract i ContractRow datumy jako read-only diagnostiku. Smlouvy a polozky se nemaji vyrazovat jen kvuli StartDate/EndDate nebo IsActive."
+  },
   {
     title: "Trasy svozu: navrat funkcniho Vistos Komunal preview",
     text: "Vistos Komunal preview je vracene do posledniho funkcniho chovani pred tvrdym filtrem ContractRow. Nepridava ostre trasy, SMS/e-maily ani automatizace."

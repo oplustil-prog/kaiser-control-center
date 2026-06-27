@@ -196,13 +196,16 @@ Toto vratilo 488 smluv. Pro Trasy svozu je bezpecnejsi zacit s sirsi variantou
 `Status_FK = 74` + `Typsmlouvy_FK = [14735]` a `Type_FK = 77` pouzit jen jako
 doplnujici kontrolu.
 
-Datumovou platnost resit v nasem backendu:
+Datumovou platnost ve Fazi 1E jen diagnostikovat v read-only preview:
 
 ```text
 StartDate <= today AND (EndDate is null OR EndDate >= today)
 ```
 
 Jednoduche range filtry pres Vistos API nebyly potvrzene jako spolehlive.
+`Contract.StartDate` / `Contract.EndDate` ani `ContractRow.IsActive` / `ContractRow.StartDate` / `ContractRow.EndDate`
+nesmi byt ve Fazi 1E tvrdy filtr pro vyrazeni preview. Pokud datum nebo priznak nevychazi,
+radek zustava v preview jako `needs_review`.
 
 ## Faze 1E - read-only Vistos Komunal preview
 
@@ -250,8 +253,8 @@ pres Vistos API neni potvrzeny jako spolehlivy.
 | Preview pole | Zdroj |
 | --- | --- |
 | Cislo smlouvy | `Contract.ContractNumber` |
-| Zacatek smlouvy | `Contract.StartDate` |
-| Konec smlouvy | `Contract.EndDate` |
+| Zacatek smlouvy | `Contract.StartDate`, diagnostika; neni tvrdy filtr preview |
+| Konec smlouvy | `Contract.EndDate`, diagnostika; neni tvrdy filtr preview |
 | Zakaznik | `Contract.Directory_FK` |
 | Pobocka | `Contract.DirectoryBranch_FK` |
 | Nakladkova adresa / stanoviste | `Contract.Nakladkovaadresa_FK`, fallback `DirectoryBranch_FK` |
@@ -648,8 +651,8 @@ Proto tato pole zatim nepovazovat za povinna.
 - `contract_status_id` <- `Contract.Status_FK`
 - `contract_type_id` <- `Contract.Type_FK`
 - `contract_type_ids_json` <- `Contract.Typsmlouvy_FK`
-- `valid_from` <- `Contract.StartDate`
-- `valid_to` <- `Contract.EndDate`
+- `valid_from` <- `Contract.StartDate` nebo `ContractRow.StartDate` podle dostupneho detailu; ve Fazi 1E diagnostika, ne tvrdy filtr
+- `valid_to` <- `Contract.EndDate` nebo `ContractRow.EndDate` podle dostupneho detailu; ve Fazi 1E diagnostika, ne tvrdy filtr
 
 ### Zakaznik a stanoviste
 
@@ -711,7 +714,7 @@ Proto tato pole zatim nepovazovat za povinna.
 - `GetPageParam` filtruje pres `Filter`; `Filters` se ignoruje.
 - `GetByIdParam` funguje pro detail entity, pokud je entita a zaznam dostupny profilu.
 - `Contract` dostupny a obsahuje smlouvy.
-- Aktivni Komunal filtr pres `Status_FK = 74` a `Typsmlouvy_FK = [14735]`; backend navic vyrazuje smlouvy mimo datumovou platnost `StartDate <= today AND (EndDate is null OR EndDate >= today)`.
+- Aktivni Komunal filtr pres `Status_FK = 74` a `Typsmlouvy_FK = [14735]`; datumova platnost `Contract.StartDate` / `Contract.EndDate` a `ContractRow.IsActive` / `ContractRow.StartDate` / `ContractRow.EndDate` je ve Fazi 1E diagnostika, ne tvrde vyrazeni preview.
 - `Contract.ContractNumber` je cislo smlouvy.
 - `ContractRow` vraci polozky smlouvy pres `Contract_FK`.
 - `ContractRow.Product_FK_RecordId` vede na `Product`.
