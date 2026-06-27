@@ -10293,6 +10293,105 @@ function collectionRoutesKommunalMappingGapRows(metadata = {}) {
     .slice(0, 30);
 }
 
+function collectionRoutesKommunalRouteDraftRows(metadata = {}) {
+  if (Array.isArray(metadata.routeDraftRows) && metadata.routeDraftRows.length) {
+    return metadata.routeDraftRows.map((row) => ({
+      wasteType: row.wasteType || "-",
+      wasteCode: row.wasteCode || "-",
+      frequency: row.frequency || "-",
+      containerVolume: collectionRoutesMetricValue(row.containerVolume, 0),
+      containerType: row.containerType || "container",
+      itemCount: collectionRoutesMetricValue(row.itemCount, 0),
+      siteCount: collectionRoutesMetricValue(row.siteCount, 0),
+      contractCount: collectionRoutesMetricValue(row.contractCount, 0),
+      containerCount: collectionRoutesMetricValue(row.containerCount, 0),
+      sampleSites: Array.isArray(row.sampleSites) ? row.sampleSites : [],
+      sampleContracts: Array.isArray(row.sampleContracts) ? row.sampleContracts : [],
+      createsOperationalRoutes: false
+    })).slice(0, 80);
+  }
+
+  const blockingIssueTypes = new Set([
+    "non-route-contract-row",
+    "item-not-collection-mappable",
+    "unknown-waste-type",
+    "unknown-frequency",
+    "missing-container-volume",
+    "missing-address",
+    "unclear-location"
+  ]);
+  const rowsByKey = new Map();
+  collectionRoutesPilotState.kommunalPreviewRows.forEach((row) => {
+    const summary = collectionRoutesImportRowSummary(row);
+    const issues = Array.isArray(row.issues) ? row.issues : [];
+    const issueTypes = new Set(issues.map((issue) => issue.issueType || issue.type).filter(Boolean));
+    const hasBlockingIssue = Array.from(blockingIssueTypes).some((issueType) => issueTypes.has(issueType));
+    if (hasBlockingIssue || !summary.wasteType || !summary.frequency || !summary.containerVolume) {
+      return;
+    }
+
+    const key = [
+      summary.wasteType,
+      summary.wasteCode,
+      summary.frequency,
+      summary.containerVolume,
+      summary.containerType || "container"
+    ].map((value) => String(value || "").trim()).join("|");
+    const existing = rowsByKey.get(key) || {
+      wasteType: summary.wasteType,
+      wasteCode: summary.wasteCode,
+      frequency: summary.frequency,
+      containerVolume: collectionRoutesMetricValue(summary.containerVolume, 0),
+      containerType: summary.containerType || "container",
+      itemCount: 0,
+      siteKeys: new Set(),
+      contractNumbers: new Set(),
+      containerCount: 0,
+      sampleSites: new Set(),
+      sampleContracts: []
+    };
+    existing.itemCount += 1;
+    existing.containerCount += collectionRoutesMetricValue(summary.containerCount, 1);
+    const siteKey = [summary.customerName, summary.siteName, summary.addressRaw].map((value) => String(value || "").trim()).join("|");
+    if (siteKey) {
+      existing.siteKeys.add(siteKey);
+    }
+    if (summary.contractNumber) {
+      existing.contractNumbers.add(summary.contractNumber);
+      if (existing.sampleContracts.length < 4 && !existing.sampleContracts.includes(summary.contractNumber)) {
+        existing.sampleContracts.push(summary.contractNumber);
+      }
+    }
+    const sampleSite = [summary.siteName, summary.addressRaw, summary.customerName].map((value) => String(value || "").trim()).find(Boolean);
+    if (sampleSite) {
+      existing.sampleSites.add(sampleSite);
+    }
+    rowsByKey.set(key, existing);
+  });
+
+  return Array.from(rowsByKey.values())
+    .map((row) => ({
+      wasteType: row.wasteType,
+      wasteCode: row.wasteCode,
+      frequency: row.frequency,
+      containerVolume: row.containerVolume,
+      containerType: row.containerType,
+      itemCount: row.itemCount,
+      siteCount: row.siteKeys.size,
+      contractCount: row.contractNumbers.size,
+      containerCount: row.containerCount,
+      sampleSites: Array.from(row.sampleSites).slice(0, 4),
+      sampleContracts: row.sampleContracts,
+      createsOperationalRoutes: false
+    }))
+    .sort((left, right) => (
+      String(left.wasteType).localeCompare(String(right.wasteType), "cs") ||
+      String(left.frequency).localeCompare(String(right.frequency), "cs") ||
+      collectionRoutesMetricValue(left.containerVolume) - collectionRoutesMetricValue(right.containerVolume)
+    ))
+    .slice(0, 80);
+}
+
 function collectionRoutesMetricValue(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -10606,6 +10705,7 @@ function collectionRoutesVistosKommunalSection(user) {
   const issueRows = collectionRoutesKommunalIssueRows(metadata);
   const issueSummaryRows = collectionRoutesKommunalIssueSummaryRows(metadata);
   const mappingGapRows = collectionRoutesKommunalMappingGapRows(metadata);
+  const routeDraftRows = collectionRoutesKommunalRouteDraftRows(metadata);
   const diagnosticRows = collectionRoutesKommunalFilterDiagnosticRows(metadata);
   const firstContract = contractRows[0] || null;
   const apiStatus = batch?.apiStatus || collectionRoutesPilotState.apiStatus;
@@ -10641,6 +10741,7 @@ function collectionRoutesVistosKommunalSection(user) {
         <article><span>Položky</span><strong>${collectionRoutesMetricValue(stats.mappedItems)}</strong></article>
         <article><span>Stanoviště</span><strong>${collectionRoutesMetricValue(stats.sites || batch?.metadata?.siteCount)}</strong></article>
         <article><span>Nádoby</span><strong>${collectionRoutesMetricValue(batch?.metadata?.containerCount)}</strong></article>
+        <article><span>Návrhy skupin</span><strong>${collectionRoutesMetricValue(stats.routeDraftGroups || routeDraftRows.length)}</strong></article>
         <article class="${issueToneClass}"><span>Upozornění</span><strong>${issueCount}</strong></article>
       </div>
 
@@ -10659,6 +10760,19 @@ function collectionRoutesVistosKommunalSection(user) {
       ${collectionRoutesPilotState.kommunalPreviewDetailError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.kommunalPreviewDetailError)}</p>` : ""}
 
       ${collectionRoutesKommunalIssueOverview(issueSummaryRows, issueCount, hasPreviewData)}
+
+      ${collectionRoutesPreviewTable("Pracovní návrh svozů", [
+        { label: "Odpad", value: (row) => `${row.wasteType || "-"}${row.wasteCode ? ` / ${row.wasteCode}` : ""}` },
+        { label: "Četnost", value: (row) => row.frequency },
+        { label: "Nádoba", value: (row) => row.containerVolume ? `${row.containerVolume} l` : "-" },
+        { label: "Stanoviště", value: (row) => row.siteCount },
+        { label: "Nádoby", value: (row) => row.containerCount },
+        { label: "Položky", value: (row) => row.itemCount },
+        { label: "Příklad stanoviště", value: (row) => Array.isArray(row.sampleSites) && row.sampleSites.length ? row.sampleSites.join(", ") : "-" },
+        { label: "Příklad smlouvy", value: (row) => Array.isArray(row.sampleContracts) && row.sampleContracts.length ? row.sampleContracts.join(", ") : "-" }
+      ], routeDraftRows, "Po načtení preview se zde zobrazí bezpečný read-only návrh svozových skupin z už mapovatelných položek.", `
+        <button class="secondary-link" type="button" data-collection-routes-export-route-draft>Export do Excelu</button>
+      `)}
 
       ${collectionRoutesPreviewTable("Vzorky svozových textů k aliasům", [
         { label: "Text z Vistosu", value: (row) => row.label },
@@ -14668,6 +14782,42 @@ function collectionRoutesKommunalMappingGapCsv(rows = []) {
   return `\uFEFF${lines.join("\n")}`;
 }
 
+function collectionRoutesKommunalRouteDraftCsv(rows = []) {
+  const headers = [
+    "Odpad",
+    "Kód odpadu",
+    "Četnost",
+    "Objem nádoby l",
+    "Typ nádoby",
+    "Stanoviště",
+    "Nádoby celkem",
+    "Položky",
+    "Smlouvy",
+    "Příklad stanoviště",
+    "Příklad smlouvy",
+    "Ostrá trasa"
+  ];
+  const lines = [
+    "sep=;",
+    collectionRoutesExcelCsvLine(headers),
+    ...rows.map((row) => collectionRoutesExcelCsvLine([
+      row.wasteType,
+      row.wasteCode,
+      row.frequency,
+      row.containerVolume,
+      row.containerType,
+      row.siteCount,
+      row.containerCount,
+      row.itemCount,
+      row.contractCount,
+      Array.isArray(row.sampleSites) ? row.sampleSites.join(", ") : "",
+      Array.isArray(row.sampleContracts) ? row.sampleContracts.join(", ") : "",
+      "NE"
+    ]))
+  ];
+  return `\uFEFF${lines.join("\n")}`;
+}
+
 function exportCollectionRoutesKommunalMappingGaps() {
   const batch = collectionRoutesLatestBatchByMode("vistos-komunal-preview");
   const rows = collectionRoutesKommunalMappingGapRows(batch?.metadata || {});
@@ -14680,6 +14830,20 @@ function exportCollectionRoutesKommunalMappingGaps() {
 
   const date = new Date().toISOString().slice(0, 10);
   downloadCsv(`vistos-komunal-vzorky-mapovani-${date}.csv`, collectionRoutesKommunalMappingGapCsv(rows));
+}
+
+function exportCollectionRoutesKommunalRouteDraft() {
+  const batch = collectionRoutesLatestBatchByMode("vistos-komunal-preview");
+  const rows = collectionRoutesKommunalRouteDraftRows(batch?.metadata || {});
+  if (!rows.length) {
+    collectionRoutesPilotState.message = "";
+    collectionRoutesPilotState.error = "Není co exportovat pro pracovní návrh svozů. Nejdřív načtěte Vistos preview s mapovatelnými položkami.";
+    render();
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  downloadCsv(`vistos-komunal-pracovni-navrh-svozu-${date}.csv`, collectionRoutesKommunalRouteDraftCsv(rows));
 }
 
 function fleetCsvCell(value) {
@@ -16634,6 +16798,12 @@ document.addEventListener("click", async (event) => {
   const collectionRoutesMappingExport = event.target.closest("[data-collection-routes-export-mapping-gaps]");
   if (collectionRoutesMappingExport) {
     exportCollectionRoutesKommunalMappingGaps();
+    return;
+  }
+
+  const collectionRoutesRouteDraftExport = event.target.closest("[data-collection-routes-export-route-draft]");
+  if (collectionRoutesRouteDraftExport) {
+    exportCollectionRoutesKommunalRouteDraft();
     return;
   }
 

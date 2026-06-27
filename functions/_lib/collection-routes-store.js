@@ -1496,6 +1496,8 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     ))
     .slice(0, 50);
   const mappingGapRows = buildVistosKommunalMappingGapRows(mappedRows);
+  const routeDraftRows = buildVistosKommunalRouteDraftRows(mappedRows);
+  const routeDraftContainerCount = routeDraftRows.reduce((sum, row) => sum + (row.containerCount || 0), 0);
 
   return {
     filename: "vistos-komunal-preview.json",
@@ -1510,6 +1512,8 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
       itemCount,
       siteCount: uniqueSites.size,
       containerCount,
+      routeDraftGroupCount: routeDraftRows.length,
+      routeDraftContainerCount,
       issueCount,
       createsOperationalRoutes: false,
       sendsEmailOrSms: false,
@@ -1521,6 +1525,7 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     issuePreviewRows,
     issueSummaryRows,
     mappingGapRows,
+    routeDraftRows,
     metadata: {
       filter: VISTOS_KOMUNAL_CONTRACT_FILTER,
       filterDiagnostics,
@@ -1531,6 +1536,8 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
         products: products.length,
         mappedItems: itemCount,
         sites: uniqueSites.size,
+        routeDraftGroups: routeDraftRows.length,
+        routeDraftContainers: routeDraftContainerCount,
         issues: issueCount
       }
     }
@@ -1812,6 +1819,87 @@ function buildVistosKommunalMappingGapRows(mappedRows) {
     .slice(0, 30);
 }
 
+function buildVistosKommunalRouteDraftRows(mappedRows) {
+  const blockingIssueTypes = new Set([
+    "non-route-contract-row",
+    "item-not-collection-mappable",
+    "unknown-waste-type",
+    "unknown-frequency",
+    "missing-container-volume",
+    "missing-address",
+    "unclear-location"
+  ]);
+  const rowsByKey = new Map();
+
+  for (const row of mappedRows) {
+    const issueTypes = new Set((row.issues || []).map((issue) => cleanString(issue?.type)).filter(Boolean));
+    const hasBlockingIssue = Array.from(blockingIssueTypes).some((issueType) => issueTypes.has(issueType));
+    if (hasBlockingIssue || !row.wasteType || !row.frequency || !row.containerVolume || !row.siteKey) {
+      continue;
+    }
+
+    const key = [
+      row.wasteType,
+      row.wasteCode,
+      row.frequency,
+      row.containerVolume,
+      row.containerType || "container"
+    ].map(cleanString).join("|");
+    const existing = rowsByKey.get(key) || {
+      wasteType: row.wasteType,
+      wasteCode: row.wasteCode,
+      frequency: row.frequency,
+      containerVolume: row.containerVolume,
+      containerType: row.containerType || "container",
+      itemCount: 0,
+      containerCount: 0,
+      contractNumbers: new Set(),
+      siteKeys: new Set(),
+      sampleSites: new Set(),
+      sampleContracts: []
+    };
+
+    existing.itemCount += 1;
+    existing.containerCount += row.containerCount || 1;
+    if (row.contractNumber) {
+      existing.contractNumbers.add(row.contractNumber);
+      if (existing.sampleContracts.length < 4 && !existing.sampleContracts.includes(row.contractNumber)) {
+        existing.sampleContracts.push(row.contractNumber);
+      }
+    }
+    if (row.siteKey) {
+      existing.siteKeys.add(row.siteKey);
+    }
+    if (row.siteName || row.addressRaw || row.customerName) {
+      existing.sampleSites.add(firstNonEmpty(row.siteName, row.addressRaw, row.customerName));
+    }
+    rowsByKey.set(key, existing);
+  }
+
+  return Array.from(rowsByKey.values())
+    .map((row) => ({
+      wasteType: row.wasteType,
+      wasteCode: row.wasteCode,
+      frequency: row.frequency,
+      containerVolume: row.containerVolume,
+      containerType: row.containerType,
+      itemCount: row.itemCount,
+      siteCount: row.siteKeys.size,
+      contractCount: row.contractNumbers.size,
+      containerCount: row.containerCount,
+      sampleSites: Array.from(row.sampleSites).slice(0, 4),
+      sampleContracts: row.sampleContracts,
+      createsOperationalRoutes: false
+    }))
+    .sort((left, right) => (
+      left.wasteType.localeCompare(right.wasteType, "cs") ||
+      left.frequency.localeCompare(right.frequency, "cs") ||
+      Number(left.containerVolume) - Number(right.containerVolume) ||
+      right.containerCount - left.containerCount
+    ))
+    .slice(0, 80);
+}
+
 async function persistCollectionRoutesImportPreview(env, user, preview, {
   phase,
   mode,
@@ -1845,6 +1933,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
     previewRows: preview.previewRows,
     issueSummaryRows: preview.issueSummaryRows,
     mappingGapRows: preview.mappingGapRows,
+    routeDraftRows: preview.routeDraftRows,
     persistedRowCount: rowsToPersist.length,
     persistedRowsLimit: maxPersistRows,
     createsOperationalRoutes: false,
