@@ -812,6 +812,18 @@ function dateInActiveRange(startDate, endDate, today = new Date()) {
   return (!start || start <= todayIso) && (!end || end >= todayIso);
 }
 
+function contractRowInActiveRange(row, today = new Date()) {
+  if (!booleanValue(row?.IsActive, true)) {
+    return false;
+  }
+
+  if (!isoDateValue(row?.StartDate)) {
+    return false;
+  }
+
+  return dateInActiveRange(row?.StartDate, row?.EndDate, today);
+}
+
 function productSearchText(contractRow, product) {
   return [
     product?.Kod_druhotnych_surovin,
@@ -987,7 +999,6 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
   }
 
   const mappedRows = [];
-  const today = new Date();
 
   for (const contract of contracts) {
     const contractId = cleanString(contract?.Id);
@@ -999,7 +1010,6 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     const siteName = firstNonEmpty(fkCaption(contract, "Nakladkovaadresa_FK"), branchName, customerName);
     const sourceCustomerId = fkRecordId(contract, "Directory_FK");
     const sourceSiteId = firstNonEmpty(fkRecordId(contract, "Nakladkovaadresa_FK"), fkRecordId(contract, "DirectoryBranch_FK"));
-    const contractActiveRange = dateInActiveRange(contract?.StartDate, contract?.EndDate, today);
     const possibleSiteIds = new Set([
       fkRecordId(contract, "Nakladkovaadresa_FK"),
       fkRecordId(contract, "DirectoryBranch_FK"),
@@ -1012,49 +1022,11 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
     if (!sourceSiteId && !addressRaw) {
       baseIssues.push({ type: "missing-loading-address", severity: "error", message: "Chybí nakládková adresa." });
     }
-    if (!contractActiveRange) {
-      baseIssues.push({ type: "inactive-contract-range", severity: "warning", message: "Smlouva nemá aktivní datumový rozsah." });
-    }
     if (possibleSiteIds.size > 1 && !rowHasExplicitLoadingAddress(contract)) {
       baseIssues.push({ type: "multiple-sites-contract", severity: "info", message: "Smlouva má více možných adresních vazeb bez jasné nakládkové adresy." });
     }
 
     if (!contractRowsForContract.length) {
-      mappedRows.push({
-        rowNumber: mappedRows.length + 1,
-        sourceEntity: "Contract",
-        sourceId: `Contract:${contractId}`,
-        sourceContractId: contractId,
-        sourceCustomerId,
-        sourceSiteId,
-        contractId,
-        contractNumber: cleanString(contract?.ContractNumber),
-        validFrom: isoDateValue(contract?.StartDate),
-        validTo: isoDateValue(contract?.EndDate),
-        customerName,
-        branchName,
-        addressRaw,
-        siteName,
-        wasteType: "",
-        wasteCode: "",
-        frequency: "",
-        containerVolume: 0,
-        containerCount: 0,
-        productName: "",
-        productId: "",
-        contractRowId: "",
-        mappingStatus: "needs_review",
-        rowKey: `vistos-contract-${contractId}`,
-        siteKey: vistosSiteKey(contract),
-        locationQuality: sourceSiteId ? "vistos_unverified" : "missing",
-        latitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Lat),
-        longitude: nullableNumericValue(contract?.Nakladkovaadresa_FK_Long),
-        issues: [
-          ...baseIssues,
-          { type: "missing-contract-items", severity: "warning", message: "Chybí položky smlouvy." },
-          { type: "item-not-collection-mappable", severity: "warning", message: "Položka není mapovatelná na svoz." }
-        ]
-      });
       continue;
     }
 
@@ -1099,8 +1071,8 @@ function buildVistosKommunalPreview({ contracts, contractRows, products, totals 
         contractRowId: cleanString(contractRow?.Id),
         productId,
         contractNumber: cleanString(contract?.ContractNumber),
-        validFrom: isoDateValue(contract?.StartDate),
-        validTo: isoDateValue(contract?.EndDate),
+        validFrom: isoDateValue(contractRow?.StartDate),
+        validTo: isoDateValue(contractRow?.EndDate),
         customerName,
         branchName,
         addressRaw,
@@ -1721,11 +1693,16 @@ async function loadVistosKommunalPreviewData(env) {
     getAllVistosPages(env, session, "Product", VISTOS_PRODUCT_COLUMNS, null, { maxPages: 10 })
   ]);
   const today = new Date();
-  const activeContracts = contractsPage.rows.filter((contract) => dateInActiveRange(contract?.StartDate, contract?.EndDate, today));
-  const contractIds = new Set(activeContracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
+  const kommunalContracts = contractsPage.rows;
+  const contractIds = new Set(kommunalContracts.map((contract) => cleanString(contract?.Id)).filter(Boolean));
   const relevantContractRows = contractRowsPage.rows.filter((row) => (
-    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
+    contractIds.has(cleanString(row?.Contract_FK_RecordId || row?.Contract_FK)) &&
+    contractRowInActiveRange(row, today)
   ));
+  const contractsWithActiveRows = new Set(relevantContractRows
+    .map((row) => cleanString(row?.Contract_FK_RecordId || row?.Contract_FK))
+    .filter(Boolean));
+  const activeContracts = kommunalContracts.filter((contract) => contractsWithActiveRows.has(cleanString(contract?.Id)));
   const productIds = new Set(relevantContractRows.map((row) => cleanString(row?.Product_FK_RecordId || row?.Product_FK)).filter(Boolean));
   const relevantProducts = productsPage.rows.filter((product) => productIds.has(cleanString(product?.Id)));
 
@@ -1742,13 +1719,15 @@ async function loadVistosKommunalPreviewData(env) {
           filtered: contractsPage.filtered,
           loaded: contractsPage.rows.length,
           dateValid: activeContracts.length,
-          dateExcluded: Math.max(0, contractsPage.rows.length - activeContracts.length),
+          dateExcluded: Math.max(0, kommunalContracts.length - activeContracts.length),
           capped: contractsPage.capped
         },
         contractRows: {
           total: contractRowsPage.total,
           filtered: contractRowsPage.filtered,
           loaded: contractRowsPage.rows.length,
+          dateValid: relevantContractRows.length,
+          dateExcluded: Math.max(0, contractRowsPage.rows.length - relevantContractRows.length),
           relevant: relevantContractRows.length,
           capped: contractRowsPage.capped
         },

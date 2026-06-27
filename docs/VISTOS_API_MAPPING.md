@@ -103,8 +103,8 @@ Dulezite technicke poznamky:
 | Stav | `Contract.Status_FK` | overeno |
 | Typ | `Contract.Type_FK` | overeno |
 | Typ smlouvy | `Contract.Typsmlouvy_FK` | overeno |
-| Zacatek | `Contract.StartDate` | overeno |
-| Konec | `Contract.EndDate` | overeno |
+| Zacatek smlouvy | `Contract.StartDate` | overeno, nepouzivat jako zdroj pravdy pro platnost svozu |
+| Konec smlouvy | `Contract.EndDate` | overeno, nepouzivat jako zdroj pravdy pro platnost svozu |
 | Zakaznik / firma | `Contract.Directory_FK` | overeno |
 | Firma nebo pobocka | `Contract.DirectoryBranch_FK` | overeno |
 | Nakladkova adresa | `Contract.Nakladkovaadresa_FK` | overeno |
@@ -196,10 +196,10 @@ Toto vratilo 488 smluv. Pro Trasy svozu je bezpecnejsi zacit s sirsi variantou
 `Status_FK = 74` + `Typsmlouvy_FK = [14735]` a `Type_FK = 77` pouzit jen jako
 doplnujici kontrolu.
 
-Datumovou platnost resit v nasem backendu:
+Datumovou platnost svozove sluzby resit v nasem backendu podle polozky smlouvy:
 
 ```text
-StartDate <= today AND (EndDate is null OR EndDate >= today)
+ContractRow.IsActive AND ContractRow.StartDate <= today AND (ContractRow.EndDate is null OR ContractRow.EndDate >= today)
 ```
 
 Jednoduche range filtry pres Vistos API nebyly potvrzene jako spolehlive.
@@ -250,8 +250,8 @@ pres Vistos API neni potvrzeny jako spolehlivy.
 | Preview pole | Zdroj |
 | --- | --- |
 | Cislo smlouvy | `Contract.ContractNumber` |
-| Zacatek smlouvy | `Contract.StartDate` |
-| Konec smlouvy | `Contract.EndDate` |
+| Zacatek svozove polozky | `ContractRow.StartDate` |
+| Konec svozove polozky | `ContractRow.EndDate`, pripravene; ve Vistosu ma byt doprogramovano |
 | Zakaznik | `Contract.Directory_FK` |
 | Pobocka | `Contract.DirectoryBranch_FK` |
 | Nakladkova adresa / stanoviste | `Contract.Nakladkovaadresa_FK`, fallback `DirectoryBranch_FK` |
@@ -343,6 +343,7 @@ GPS:
 | Kategorie odpadu | `ContractRow.Kategorieodpadu_FK` | existuje, ve vzorku nevyplneno |
 | Stanoviste | `ContractRow.Stanoviste` | existuje, ve vzorku nevyplneno |
 | Zacatek | `ContractRow.StartDate` | existuje, ve vzorku nevyplneno |
+| Konec | `ContractRow.EndDate` | pripravene, ve Vistosu ma byt doprogramovano |
 | Aktivni | `ContractRow.IsActive` | existuje, ve vzorku nevyplneno |
 | Zakazkovy list | `ContractRow.ServiceList_FK` | existuje, ve vzorku nevyplneno |
 
@@ -648,8 +649,7 @@ Proto tato pole zatim nepovazovat za povinna.
 - `contract_status_id` <- `Contract.Status_FK`
 - `contract_type_id` <- `Contract.Type_FK`
 - `contract_type_ids_json` <- `Contract.Typsmlouvy_FK`
-- `valid_from` <- `Contract.StartDate`
-- `valid_to` <- `Contract.EndDate`
+- `valid_from` / `valid_to` na urovni smlouvy nepouzivat jako zdroj pravdy pro svozovou sluzbu.
 
 ### Zakaznik a stanoviste
 
@@ -673,6 +673,8 @@ Proto tato pole zatim nepovazovat za povinna.
 - `row_quantity` <- `ContractRow.Quantity`
 - `row_uom_id` <- `ContractRow.UOM_FK`
 - `row_type_id` <- `ContractRow.Typpolozky_FK`
+- `valid_from` <- `ContractRow.StartDate`
+- `valid_to` <- `ContractRow.EndDate`, pripravene; ve Vistosu ma byt doprogramovano
 
 ### Produkt / nadoba / sluzba
 
@@ -711,7 +713,7 @@ Proto tato pole zatim nepovazovat za povinna.
 - `GetPageParam` filtruje pres `Filter`; `Filters` se ignoruje.
 - `GetByIdParam` funguje pro detail entity, pokud je entita a zaznam dostupny profilu.
 - `Contract` dostupny a obsahuje smlouvy.
-- Aktivni Komunal filtr pres `Status_FK = 74` a `Typsmlouvy_FK = [14735]`; backend navic vyrazuje smlouvy mimo datumovou platnost `StartDate <= today AND (EndDate is null OR EndDate >= today)`.
+- Aktivni Komunal filtr pres `Contract.Status_FK = 74` a `Contract.Typsmlouvy_FK = [14735]`; aktivita a platnost svozu se bere z polozky smlouvy: `ContractRow.IsActive`, `ContractRow.StartDate <= today` a `ContractRow.EndDate` prazdne nebo >= today.
 - `Contract.ContractNumber` je cislo smlouvy.
 - `ContractRow` vraci polozky smlouvy pres `Contract_FK`.
 - `ContractRow.Product_FK_RecordId` vede na `Product`.
