@@ -612,6 +612,10 @@ const collectionRoutesPilotState = {
   sourceImportLoading: false,
   sourceImportMessage: "",
   sourceImportError: "",
+  sourceVistosMatchLoading: false,
+  sourceVistosMatchMessage: "",
+  sourceVistosMatchError: "",
+  sourceVistosMatchSummary: null,
   sourceBatches: [],
   sourceFiles: [],
   sourceRows: [],
@@ -11525,8 +11529,29 @@ function collectionRoutesSourceVehicleLabel(value) {
   return value === "all" ? "všechna auta" : value || "-";
 }
 
+function collectionRoutesSourceVistosStatus(row) {
+  return row?.vistosMatchStatus || row?.mappingStatus || "-";
+}
+
+function collectionRoutesSourceVistosIssue(row) {
+  return row?.vistosIssue || row?.mappingIssue || "-";
+}
+
+function collectionRoutesSourceVistosContract(row) {
+  return row?.vistosContractNumber || row?.vistosContractId || "-";
+}
+
+function collectionRoutesSourceVistosCustomer(row) {
+  return row?.vistosCustomerName || row?.vistosBranchName || "-";
+}
+
+function collectionRoutesSourceVistosSite(row) {
+  return row?.vistosSiteName || row?.vistosAddressText || row?.vistosBranchName || "-";
+}
+
 function collectionRoutesSourceSummaryCards() {
   const summary = collectionRoutesPilotState.sourceSummary || {};
+  const mappingCounts = summary.mappingCounts || {};
   const latestBatch = collectionRoutesPilotState.sourceBatches.find((batch) => batch.id === collectionRoutesPilotState.sourceSelectedBatchId) ||
     collectionRoutesPilotState.sourceBatches[0] ||
     null;
@@ -11538,8 +11563,32 @@ function collectionRoutesSourceSummaryCards() {
       <article><span>Nádoby</span><strong>${collectionRoutesMetricValue(summary.containerCount)}</strong></article>
       <article><span>Odhad času</span><strong>${collectionRoutesMetricValue(summary.estimatedMinutes)} min</strong></article>
       <article><span>Odhad hmotnosti</span><strong>${collectionRoutesMetricValue(summary.estimatedTons)} t</strong></article>
+      <article><span>Namapováno</span><strong>${collectionRoutesMetricValue(mappingCounts["namapováno"] || 0)}</strong></article>
       <article><span>Vistos match</span><strong>read-only</strong></article>
       <article><span>Ostré trasy</span><strong>NE</strong></article>
+    </div>
+  `;
+}
+
+function collectionRoutesSourceVistosMatchStatus() {
+  const summary = collectionRoutesPilotState.sourceVistosMatchSummary;
+  if (!summary && !collectionRoutesPilotState.sourceVistosMatchMessage && !collectionRoutesPilotState.sourceVistosMatchError) {
+    return "";
+  }
+
+  return `
+    <div class="collection-routes-match-status">
+      ${collectionRoutesPilotState.sourceVistosMatchMessage ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.sourceVistosMatchMessage)}</p>` : ""}
+      ${collectionRoutesPilotState.sourceVistosMatchError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.sourceVistosMatchError)}</p>` : ""}
+      ${summary ? `
+        <dl>
+          <div><dt>Excel řádky</dt><dd>${escapeHtml(summary.sourceRowCount || 0)}</dd></div>
+          <div><dt>Vistos kandidáti</dt><dd>${escapeHtml(summary.vistosCandidateCount || 0)}</dd></div>
+          <div><dt>Namapováno</dt><dd>${escapeHtml(summary.matchedCount || 0)}</dd></div>
+          <div><dt>Nejasné</dt><dd>${escapeHtml(summary.ambiguousCount || 0)}</dd></div>
+          <div><dt>Nenamapováno</dt><dd>${escapeHtml(summary.unmatchedCount || 0)}</dd></div>
+        </dl>
+      ` : ""}
     </div>
   `;
 }
@@ -11665,7 +11714,7 @@ function collectionRoutesSourceRoutesSection(user) {
 
       <div class="collection-routes-phase-note collection-routes-source-block collection-routes-source-block--excel">
         <strong>13 Excelů je vstupní rozsah pro tuto sekci.</strong>
-        <span>Řádky drží původní soubor, list, řádek a pořadí. Vistos match nesmí přidat zákazníky mimo tento zdroj. Auto A/B/C je zatím pracovní označení, ne ostré přiřazení řidiči.</span>
+        <span>Řádky drží původní soubor, list, řádek a pořadí. Vistos match je ruční read-only kontrola nad těmito řádky a nesmí přidat zákazníky mimo tento zdroj. Auto A/B/C je zatím pracovní označení, ne ostré přiřazení řidiči.</span>
       </div>
 
       ${canImport ? `
@@ -11684,12 +11733,16 @@ function collectionRoutesSourceRoutesSection(user) {
 
       ${collectionRoutesPilotState.sourceImportMessage ? `<p class="module-feedback__notice">${escapeHtml(collectionRoutesPilotState.sourceImportMessage)}</p>` : ""}
       ${collectionRoutesPilotState.sourceImportError ? `<p class="module-feedback__error">${escapeHtml(collectionRoutesPilotState.sourceImportError)}</p>` : ""}
+      ${collectionRoutesSourceVistosMatchStatus()}
 
       ${collectionRoutesSourceImportCards()}
       ${collectionRoutesSourceFilters()}
       ${collectionRoutesSourceSummaryCards()}
 
       <div class="collection-routes-preview-block__actions">
+        <button class="secondary-link" type="button" data-collection-routes-source-vistos-match ${(collectionRoutesPilotState.sourceBatches.length && canImport && !collectionRoutesPilotState.sourceVistosMatchLoading) ? "" : "disabled"}>
+          ${collectionRoutesPilotState.sourceVistosMatchLoading ? "Páruju s Vistosem..." : "Spustit Vistos match"}
+        </button>
         <button class="secondary-link" type="button" data-collection-routes-source-export-csv ${rows.length ? "" : "disabled"}>Vybranou trasu do CSV</button>
         <button class="primary-action" type="button" data-collection-routes-source-print-pdf ${rows.length ? "" : "disabled"}>Vybranou trasu do PDF</button>
       </div>
@@ -11703,8 +11756,11 @@ function collectionRoutesSourceRoutesSection(user) {
         { label: "Frekvence", value: (row) => row.frequency },
         { label: "Poznámka", value: (row) => row.note },
         { label: "Zdroj", value: (row) => `${row.sourceFile || "-"} / ${row.sourceSheet || "-"} / ř. ${row.sourceRowNumber || "-"}` },
-        { label: "Vistos match", value: (row) => row.mappingStatus },
-        { label: "Problém", value: (row) => row.mappingIssue },
+        { label: "Vistos stav", value: (row) => collectionRoutesSourceVistosStatus(row) },
+        { label: "Vistos smlouva", value: (row) => collectionRoutesSourceVistosContract(row) },
+        { label: "Vistos zákazník", value: (row) => collectionRoutesSourceVistosCustomer(row) },
+        { label: "Vistos stanoviště", value: (row) => collectionRoutesSourceVistosSite(row) },
+        { label: "Problém", value: (row) => collectionRoutesSourceVistosIssue(row) },
         { label: "Ostrá trasa", value: () => "NE" }
       ], rows, "Nahrajte 13 Excelů nebo upravte filtr. Tato tabulka nesmí tahat zákazníky mimo Excel zdroj.")}
     </section>
@@ -13755,6 +13811,52 @@ async function submitCollectionRoutesSourceImport(form) {
   }
 }
 
+async function submitCollectionRoutesSourceVistosMatch() {
+  const user = currentUser();
+
+  if (!collectionRoutesCanRunImportPreview(user)) {
+    collectionRoutesPilotState.sourceVistosMatchError = "Vistos match může spustit pouze admin.";
+    collectionRoutesPilotState.sourceVistosMatchMessage = "";
+    render();
+    return;
+  }
+
+  const batchId = collectionRoutesPilotState.sourceSelectedBatchId || collectionRoutesPilotState.sourceBatches[0]?.id || "";
+  if (!batchId) {
+    collectionRoutesPilotState.sourceVistosMatchError = "Nejdřív je potřeba uložit import 13 Excelů.";
+    collectionRoutesPilotState.sourceVistosMatchMessage = "";
+    render();
+    return;
+  }
+
+  collectionRoutesPilotState.sourceVistosMatchLoading = true;
+  collectionRoutesPilotState.sourceVistosMatchError = "";
+  collectionRoutesPilotState.sourceVistosMatchMessage = "";
+  collectionRoutesPilotState.sourceVistosMatchSummary = null;
+  render();
+
+  try {
+    const result = await apiJson("/api/collection-routes/svozove-trasy/vistos-match", {
+      method: "POST",
+      body: JSON.stringify({ batchId, limit: 5000 })
+    });
+    const match = result.match || {};
+    const summary = match.summary || {};
+    collectionRoutesPilotState.sourceVistosMatchSummary = summary;
+    collectionRoutesPilotState.sourceVistosMatchMessage = match.message ||
+      `Vistos match hotový. Namapováno ${summary.matchedCount || 0} z ${summary.sourceRowCount || 0} řádků.`;
+    collectionRoutesPilotState.sourceVistosMatchError = "";
+    await loadCollectionRoutesSourceRoutes({ renderAfter: false });
+  } catch (error) {
+    collectionRoutesPilotState.sourceVistosMatchError = error.payload?.error || error.message || "Vistos match se nepodařilo spustit.";
+    collectionRoutesPilotState.sourceVistosMatchMessage = "";
+    collectionRoutesPilotState.sourceVistosMatchSummary = null;
+  } finally {
+    collectionRoutesPilotState.sourceVistosMatchLoading = false;
+    render();
+  }
+}
+
 async function updateCollectionRoutesSourceFilter(select) {
   const key = select.dataset.collectionRoutesSourceFilter || "";
   if (key === "batch") {
@@ -13783,6 +13885,9 @@ function collectionRoutesSourceRowsCsv(rows = collectionRoutesPilotState.sourceR
     "Zdrojovy list",
     "Zdrojovy radek",
     "Vistos match stav",
+    "Vistos smlouva",
+    "Vistos zakaznik",
+    "Vistos stanoviste",
     "Problem mapovani",
     "Odhad minut",
     "Odhad tun",
@@ -13807,8 +13912,11 @@ function collectionRoutesSourceRowsCsv(rows = collectionRoutesPilotState.sourceR
       row.sourceFile,
       row.sourceSheet,
       row.sourceRowNumber,
-      row.mappingStatus,
-      row.mappingIssue,
+      collectionRoutesSourceVistosStatus(row),
+      collectionRoutesSourceVistosContract(row),
+      collectionRoutesSourceVistosCustomer(row),
+      collectionRoutesSourceVistosSite(row),
+      collectionRoutesSourceVistosIssue(row),
       row.estimatedServiceMinutes,
       row.estimatedWeightTons,
       "NE"
@@ -13875,7 +13983,7 @@ function printCollectionRoutesSourcePdf() {
         <table>
           <thead>
             <tr>
-              <th>#</th><th>Zákazník</th><th>Adresa</th><th>Odpad</th><th>Nádoba</th><th>Frekvence</th><th>Poznámka</th><th>Vistos</th>
+              <th>#</th><th>Zákazník</th><th>Adresa</th><th>Odpad</th><th>Nádoba</th><th>Frekvence</th><th>Poznámka</th><th>Vistos</th><th>Smlouva</th>
             </tr>
           </thead>
           <tbody>
@@ -13888,7 +13996,8 @@ function printCollectionRoutesSourcePdf() {
                 <td>${escapeHtml(row.containerVolume ? `${row.containerCount || 1}× ${row.containerVolume} l` : "-")}</td>
                 <td>${escapeHtml(row.frequency || "-")}</td>
                 <td>${escapeHtml(row.note || "")}</td>
-                <td>${escapeHtml(row.mappingStatus || "-")}</td>
+                <td>${escapeHtml(collectionRoutesSourceVistosStatus(row))}</td>
+                <td>${escapeHtml(collectionRoutesSourceVistosContract(row))}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -18670,6 +18779,12 @@ document.addEventListener("click", async (event) => {
   const collectionRoutesSourceExportCsv = event.target.closest("[data-collection-routes-source-export-csv]");
   if (collectionRoutesSourceExportCsv) {
     exportCollectionRoutesSourceCsv();
+    return;
+  }
+
+  const collectionRoutesSourceVistosMatch = event.target.closest("[data-collection-routes-source-vistos-match]");
+  if (collectionRoutesSourceVistosMatch) {
+    await submitCollectionRoutesSourceVistosMatch();
     return;
   }
 

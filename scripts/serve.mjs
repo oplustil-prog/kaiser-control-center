@@ -2120,6 +2120,110 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/collection-routes/svozove-trasy/vistos-match" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    if (normalizeRole(user.role) !== "admin") {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const body = await readJsonBody(request);
+    const batchId = String(body.batchId || mockCollectionRouteSourceBatches[0]?.id || "").trim();
+    const batchRows = mockCollectionRouteSourceRows.filter((row) => row.batchId === batchId);
+    const createdAt = new Date().toISOString();
+    let matchedCount = 0;
+    let ambiguousCount = 0;
+    let unmatchedCount = 0;
+    let missingAddressCount = 0;
+    let missingContainerCount = 0;
+    let missingFrequencyCount = 0;
+    let duplicateCount = 0;
+
+    mockCollectionRouteSourceRows = mockCollectionRouteSourceRows.map((row) => {
+      if (row.batchId !== batchId) {
+        return row;
+      }
+
+      const next = { ...row };
+      if (!next.customerName || !next.addressText) {
+        next.mappingStatus = "chybí adresa";
+        next.vistosMatchStatus = "chybí adresa";
+        next.vistosIssue = "Lokální mock: chybí adresa pro Vistos match.";
+        missingAddressCount += 1;
+      } else if (next.mappingStatus === "chybí nádoba") {
+        next.vistosMatchStatus = "chybí nádoba";
+        next.vistosIssue = "Lokální mock: zdrojový řádek čeká na kontrolu nádoby.";
+        missingContainerCount += 1;
+      } else if (next.mappingStatus === "chybí frekvence") {
+        next.vistosMatchStatus = "chybí frekvence";
+        next.vistosIssue = "Lokální mock: zdrojový řádek čeká na kontrolu frekvence.";
+        missingFrequencyCount += 1;
+      } else if (next.mappingStatus === "duplicita") {
+        next.vistosMatchStatus = "duplicita";
+        next.vistosIssue = "Lokální mock: duplicitní Excel text.";
+        duplicateCount += 1;
+      } else if ((next.routeOrder || 0) % 5 === 0) {
+        next.mappingStatus = "nejasné";
+        next.mappingIssue = "Lokální mock: více podobných Vistos kandidátů.";
+        next.vistosMatchStatus = "nejasné";
+        next.vistosIssue = next.mappingIssue;
+        next.vistosContractNumber = `MOCK-${String(next.routeOrder || 0).padStart(4, "0")}`;
+        next.vistosCustomerName = next.customerName;
+        next.vistosSiteName = next.addressText;
+        ambiguousCount += 1;
+      } else {
+        next.mappingStatus = "namapováno";
+        next.mappingIssue = "Lokální mock Vistos match. Ostré trasy nevznikly.";
+        next.vistosMatchStatus = "namapováno";
+        next.vistosMatchConfidence = "vysoká";
+        next.vistosIssue = next.mappingIssue;
+        next.vistosContractNumber = `MOCK-${String(next.routeOrder || 0).padStart(4, "0")}`;
+        next.vistosCustomerName = next.customerName;
+        next.vistosBranchName = next.customerName;
+        next.vistosSiteName = next.addressText;
+        next.vistosAddressText = next.addressText;
+        next.vistosProductName = next.wasteType || "Komunál";
+        matchedCount += 1;
+      }
+      return next;
+    });
+
+    unmatchedCount = Math.max(0, batchRows.length - matchedCount - ambiguousCount - missingAddressCount - missingContainerCount - missingFrequencyCount - duplicateCount);
+    sendJson(response, 200, {
+      match: {
+        status: "matched",
+        apiStatus: "ready",
+        message: `Lokální Vistos match hotový pro ${batchRows.length} řádků z 13 Excelů. Ostré trasy nevznikly.`,
+        summary: {
+          batchId,
+          sourceRowCount: batchRows.length,
+          sourceBatchRowCount: batchRows.length,
+          vistosCandidateCount: batchRows.length,
+          matchedCount,
+          ambiguousCount,
+          unmatchedCount,
+          missingAddressCount,
+          missingContainerCount,
+          missingFrequencyCount,
+          duplicateCount,
+          createdAt,
+          source: "13-excel",
+          vistosUse: "read-only mapping",
+          createsOperationalRoutes: false,
+          sendsEmailOrSms: false,
+          startsAutomation: false
+        }
+      },
+      apiStatus: "ready"
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/collection-routes/svozove-trasy/routes" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {

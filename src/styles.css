@@ -1496,6 +1496,41 @@ h1 {
   background: #fff8e8;
 }
 
+.collection-routes-match-status {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.collection-routes-match-status dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.collection-routes-match-status div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(66, 80, 74, 0.12);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.collection-routes-match-status dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.collection-routes-match-status dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
 .collection-routes-tabs {
   display: flex;
   flex-wrap: wrap;
