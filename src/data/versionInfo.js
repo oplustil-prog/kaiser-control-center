@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.128"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.129"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: rychlejsi ulozeni Vistos preview",
+    text: "Komunal preview uklada plne souhrnne pocty do metadata a detailni D1 radky omezuje na bezpecny vzorek, aby produkcni request nedrzel UI ve stavu nacitani."
+  },
   {
     title: "Trasy svozu: oprava souhrnu stanovišť ve Vistos preview",
     text: "Backend doplnuje pocitadlo polozek podle stanoviste, aby se nenulove Vistos preview ulozilo a zobrazilo misto padu pri sestaveni souhrnu."

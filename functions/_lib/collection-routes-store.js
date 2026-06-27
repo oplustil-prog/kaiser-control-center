@@ -1468,12 +1468,17 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
   locationSource,
   locationNote,
   message,
-  metadata = {}
+  metadata = {},
+  persistRowsLimit = null
 }) {
   const db = collectionRoutesDatabase(env, true);
   const createdAt = nowIso();
   const batchId = randomId("collection-import-batch");
   const siteIds = new Map();
+  const maxPersistRows = Number.isFinite(Number(persistRowsLimit)) && Number(persistRowsLimit) >= 0
+    ? Math.floor(Number(persistRowsLimit))
+    : null;
+  const rowsToPersist = maxPersistRows === null ? preview.rows : preview.rows.slice(0, maxPersistRows);
   const metadataJson = {
     phase,
     mode,
@@ -1484,6 +1489,8 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
     siteCount: preview.summary.siteCount,
     containerCount: preview.summary.containerCount,
     previewRows: preview.previewRows,
+    persistedRowCount: rowsToPersist.length,
+    persistedRowsLimit: maxPersistRows,
     createsOperationalRoutes: false,
     sendsEmailOrSms: false,
     startsAutomation: false,
@@ -1524,7 +1531,7 @@ async function persistCollectionRoutesImportPreview(env, user, preview, {
       )
       .run();
 
-    for (const row of preview.rows) {
+    for (const row of rowsToPersist) {
       const rowId = randomId("collection-import-row");
       const importSourceId = cleanString(row.sourceId) || row.rowKey || `manual-row-${row.rowNumber}`;
       let siteId = "";
@@ -1921,7 +1928,8 @@ export async function createCollectionRoutesVistosKommunalPreview(env, user) {
     message: VISTOS_KOMUNAL_MESSAGE,
     metadata: {
       filter: VISTOS_KOMUNAL_CONTRACT_FILTER
-    }
+    },
+    persistRowsLimit: 250
   });
 }
 
