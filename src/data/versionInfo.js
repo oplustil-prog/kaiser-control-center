@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.188"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.189"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Karta zaměstnance: HR nadpisy v hlavní barvě",
+    text: "Nadpisy HR skupin z Excelu používají skutečnou hlavní firemní barvu místo tmavší varianty."
+  },
   {
     title: "Karta zaměstnance: kompaktnější HR položky",
     text: "HR položky z Excelu jsou na desktopu uspořádané hustěji do dvou skupinových sloupců a tří sloupců polí uvnitř, aby blok nebyl zbytečně vysoký."

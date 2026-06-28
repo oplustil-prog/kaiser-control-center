@@ -9099,7 +9099,7 @@ body:has(.ai-assistant-promo-modal) {
 }
 
 .absence-page .employee-hr-profile-group h3 {
-  color: var(--color-primary-dark);
+  color: var(--color-primary);
 }
 
 @media (max-width: 860px) {
