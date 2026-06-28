@@ -8263,7 +8263,7 @@ body:has(.ai-assistant-promo-modal) {
 }
 
 .data-box-page {
-  width: min(1680px, calc(100% - 28px));
+  width: min(1500px, calc(100% - 32px));
   gap: 10px;
   padding-top: 18px;
 }
@@ -8623,7 +8623,7 @@ body:has(.ai-assistant-promo-modal) {
 }
 
 .data-box-workbench {
-  grid-template-columns: minmax(520px, 1.03fr) minmax(480px, 0.97fr);
+  grid-template-columns: clamp(420px, 34vw, 520px) minmax(520px, 1fr);
   gap: 12px;
 }
 
@@ -8704,6 +8704,7 @@ body:has(.ai-assistant-promo-modal) {
   top: 8px;
   max-height: min(690px, calc(100dvh - 236px));
   gap: 10px;
+  align-content: start;
   overflow: auto;
   padding: 12px;
   box-shadow: none;
@@ -8725,6 +8726,7 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-reading-section p,
 .data-box-reading-section li {
+  max-width: 72ch;
   font-size: 0.82rem;
   font-weight: 500;
 }
