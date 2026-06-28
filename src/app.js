@@ -3111,7 +3111,7 @@ function employeeOverviewSection(selectedEmployee, user) {
             ], employeeCardState.overviewAbsenceFilter)}
           </select>
         </label>
-        <button class="text-action" type="button" data-employee-overview-reset>Vymazat filtry</button>
+        <button class="text-action" type="reset" data-employee-overview-reset>Vymazat filtry</button>
       </form>
 
       <div class="employee-overview__meta">
@@ -19260,6 +19260,18 @@ document.addEventListener("input", (event) => {
   }
 });
 
+document.addEventListener("reset", (event) => {
+  const employeeOverviewFilters = event.target.closest("[data-employee-overview-filters]");
+  if (employeeOverviewFilters) {
+    employeeCardState.overviewSearch = "";
+    employeeCardState.overviewStatusFilter = "all";
+    employeeCardState.overviewDepartmentFilter = "all";
+    employeeCardState.overviewRoleFilter = "all";
+    employeeCardState.overviewAbsenceFilter = "all";
+    window.setTimeout(() => updateEmployeeOverviewFilters(employeeOverviewFilters), 0);
+  }
+});
+
 document.addEventListener("change", async (event) => {
   const appearanceImport = event.target.closest("[data-appearance-import]");
   if (appearanceImport) {
@@ -19426,6 +19438,13 @@ document.addEventListener("pointerup", (event) => {
 }, true);
 
 document.addEventListener("click", async (event) => {
+  const employeeOverviewReset = event.target.closest("[data-employee-overview-reset]");
+  if (employeeOverviewReset) {
+    event.preventDefault();
+    resetEmployeeOverviewFilters(employeeOverviewReset);
+    return;
+  }
+
   const neumorphicAccent = event.target.closest("[data-neumorphic-accent]");
   if (neumorphicAccent) {
     event.preventDefault();
@@ -19654,12 +19673,6 @@ document.addEventListener("click", async (event) => {
   const editAccessRole = event.target.closest("[data-access-edit-role]");
   if (editAccessRole) {
     guardedAccessAction(() => selectAccessRole(editAccessRole.dataset.accessEditRole));
-    return;
-  }
-
-  const employeeOverviewReset = event.target.closest("[data-employee-overview-reset]");
-  if (employeeOverviewReset) {
-    resetEmployeeOverviewFilters(employeeOverviewReset);
     return;
   }
 
