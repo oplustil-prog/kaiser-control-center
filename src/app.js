@@ -59,6 +59,7 @@ import {
 } from "./data/absence.js";
 import {
   MEDICAL_EXAM_CATEGORY_OPTIONS,
+  MEDICAL_EXAM_RULES,
   calculateMedicalExamState,
   formatMedicalExamDate,
   medicalExamDateValue,
@@ -499,6 +500,12 @@ const MEDICAL_EXAM_REQUEST_CATEGORY_OPTIONS = [
   { value: "technician_ii", label: "Technik / kategorie II." },
   { value: "wastewater_operator_ii", label: "Obsluha ČOV / kategorie II." }
 ];
+const DEFAULT_MEDICAL_EXAM_FACILITY = {
+  medicalFacilityName: "Medikara s.r.o.",
+  medicalDoctorName: "MUDr.PhDr. Zdeňka Nováková, Ph.D.",
+  medicalFacilityAddress: "Nádražní 195, Hrušovany u Brna",
+  medicalFacilityCompanyId: "01051733"
+};
 const basePath = new URL(document.querySelector("base")?.href || "/", window.location.origin)
   .pathname
   .replace(/\/$/, "");
@@ -765,11 +772,13 @@ const assistantPromoDefaultState = {
   error: ""
 };
 const assistantPromoState = { ...assistantPromoDefaultState };
+const AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED = false;
+const AI_ASSISTANT_PROMO_AUTOSHOW_ENABLED = false;
 
 let aiAssistantMessageId = 0;
 const aiAssistantState = {
-  welcomeVisible: true,
-  welcomeAnimate: true,
+  welcomeVisible: AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED,
+  welcomeAnimate: AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED,
   chatOpen: false,
   launcherVisible: false,
   mode: "text",
@@ -1526,7 +1535,8 @@ function shouldShowAiVoiceDock() {
 }
 
 function shouldShowAiWelcomeModal() {
-  return !isCollectionRoutesPath();
+  const path = normalizePath(window.location.pathname);
+  return AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED && !isCollectionRoutesPath(path);
 }
 
 function clearAiVoiceWeakInputNotice() {
@@ -1854,8 +1864,8 @@ function resetAiAssistantSession() {
   elevenLabsAssistant.stopVoiceAudio?.();
   clearAiVoiceStateTimer();
   void releaseAiVoiceWakeLock({ renderAfter: false });
-  aiAssistantState.welcomeVisible = true;
-  aiAssistantState.welcomeAnimate = true;
+  aiAssistantState.welcomeVisible = AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED;
+  aiAssistantState.welcomeAnimate = AI_ASSISTANT_WELCOME_AUTOSHOW_ENABLED;
   aiAssistantState.chatOpen = false;
   aiAssistantState.launcherVisible = false;
   aiAssistantState.mode = "text";
@@ -2409,7 +2419,7 @@ function renderAiAssistantLayer() {
   }
 
   const assistant = selectedAiAssistant();
-  const promoVisible = assistantPromoState.visible;
+  const promoVisible = assistantPromoState.visible && shouldAutoShowAssistantPromo();
 
   const content = [
     AiWelcomeModal({
@@ -3076,30 +3086,48 @@ function employeeMedicalExamComparable(data) {
   };
 }
 
+function employeeMedicalExamDefaultsFor(employee) {
+  return {
+    employeeId: employee?.id || "",
+    category: "",
+    dateOfBirth: medicalExamDateValue(employee?.hrProfile?.dateOfBirth || employee?.dateOfBirth || ""),
+    lastExamDate: "",
+    requestExamType: "entry",
+    requestCategory: "",
+    ...DEFAULT_MEDICAL_EXAM_FACILITY,
+    note: "",
+    notificationEnabled: true
+  };
+}
+
+function employeeMedicalExamWithDefaults(data, employee) {
+  const defaults = employeeMedicalExamDefaultsFor(employee);
+  const source = data || {};
+
+  return {
+    ...defaults,
+    ...source,
+    dateOfBirth: source.dateOfBirth || defaults.dateOfBirth,
+    medicalFacilityName: source.medicalFacilityName || defaults.medicalFacilityName,
+    medicalDoctorName: source.medicalDoctorName || defaults.medicalDoctorName,
+    medicalFacilityAddress: source.medicalFacilityAddress || defaults.medicalFacilityAddress,
+    medicalFacilityCompanyId: source.medicalFacilityCompanyId || defaults.medicalFacilityCompanyId,
+    notificationEnabled: source.notificationEnabled ?? defaults.notificationEnabled
+  };
+}
+
 function employeeMedicalExamDraftFor(employee) {
   const draft = employeeCardState.medicalExamDraft;
   const employeeId = String(employee?.id || "").trim().toLowerCase();
   const draftId = String(draft?.employeeId || "").trim().toLowerCase();
+  const baseline = employeeMedicalExamWithDefaults(employeeCardState.medicalExam, employee);
 
   if (!draft || !employeeId || draftId !== employeeId) {
-    return employeeCardState.medicalExam || {
-      employeeId: employee?.id || "",
-      category: "",
-      dateOfBirth: "",
-      lastExamDate: "",
-      requestExamType: "entry",
-      requestCategory: "",
-      medicalFacilityName: "",
-      medicalDoctorName: "",
-      medicalFacilityAddress: "",
-      medicalFacilityCompanyId: "",
-      note: "",
-      notificationEnabled: true
-    };
+    return baseline;
   }
 
   return {
-    ...(employeeCardState.medicalExam || {}),
+    ...baseline,
     ...draft
   };
 }
@@ -5401,6 +5429,81 @@ function moduleAutomationRunsForRule(ruleId) {
     .slice(0, 5);
 }
 
+function medicalExamRuleIntervalLabel(rule, ageGroup) {
+  if (rule?.noExam) {
+    return "nechodí se";
+  }
+
+  const months = ageGroup === "over50" ? rule?.over50Months : rule?.under50Months;
+  if (!months) {
+    return "nechodí se";
+  }
+
+  return `po ${months} měsících${rule?.note ? ` (${rule.note})` : ""}`;
+}
+
+function medicalExamRulesOverviewPanel() {
+  const rows = Object.entries(MEDICAL_EXAM_RULES).map(([key, rule]) => `
+    <tr>
+      <td data-label="Kategorie">
+        <strong>${escapeHtml(rule.fullLabel || rule.label || key)}</strong>
+        <small>${escapeHtml(rule.label || key)}</small>
+      </td>
+      <td data-label="Měsíční perioda">${escapeHtml(rule.noExam ? "vstupní prohlídka" : "vstupní prohlídka")}</td>
+      <td data-label="Rozhodný věk do 50 roků">${escapeHtml(medicalExamRuleIntervalLabel(rule, "under50"))}</td>
+      <td data-label="Rozhodný věk nad 50 roků">${escapeHtml(medicalExamRuleIntervalLabel(rule, "over50"))}</td>
+      <td data-label="Povinnost">
+        <span class="employee-medical-exam-rule-badge ${rule.required === false ? "employee-medical-exam-rule-badge--optional" : "employee-medical-exam-rule-badge--required"}">
+          ${rule.required === false ? "Nepovinná" : "Povinná"}
+        </span>
+      </td>
+    </tr>
+  `).join("");
+
+  return `
+    <section class="absence-panel medical-exam-rules-panel" aria-labelledby="medical-exam-rules-title">
+      <div class="absence-panel__head">
+        <div>
+          <h2 id="medical-exam-rules-title">Pravidla lékařských prohlídek</h2>
+          <p>Viditelný přepis rozhodovací tabulky pro výpočet příští prohlídky v Kartě zaměstnance.</p>
+        </div>
+        <span class="employee-card-status employee-card-status--ready">Read-only pravidla</span>
+      </div>
+      <div class="medical-exam-rules-summary" aria-label="Souhrn pravidel lékařských prohlídek">
+        <article>
+          <span>Zdroj výpočtu</span>
+          <strong>Karta zaměstnance</strong>
+        </article>
+        <article>
+          <span>Věk</span>
+          <strong>do 50 / nad 50</strong>
+        </article>
+        <article>
+          <span>Odesílání</span>
+          <strong>Dry-run</strong>
+        </article>
+      </div>
+      <div class="medical-exam-rules-table-wrap">
+        <table class="medical-exam-rules-table">
+          <thead>
+            <tr>
+              <th>Kategorie</th>
+              <th>Měsíční perioda</th>
+              <th>Rozhodný věk do 50 roků</th>
+              <th>Rozhodný věk nad 50 roků</th>
+              <th>Povinnost</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <p class="medical-exam-rules-note">
+        Jde o read-only UI přehled. Změna pravidel musí být samostatně potvrzená, protože ovlivní výpočty termínů lékařských prohlídek.
+      </p>
+    </section>
+  `;
+}
+
 function moduleRuleFormDraft() {
   const existing = moduleRulesState.rules.find((item) => item.id === moduleRulesState.editingId);
   if (existing) {
@@ -5806,11 +5909,14 @@ function moduleRulesAutomationPanel({
 
 function absenceRulesAutomation(user) {
   ensureModuleRulesData("absence");
-  return moduleRulesAutomationPanel({
-    moduleKey: "absence",
-    moduleName: "Dovolená / Nemoc",
-    user
-  });
+  return `
+    ${medicalExamRulesOverviewPanel()}
+    ${moduleRulesAutomationPanel({
+      moduleKey: "absence",
+      moduleName: "Dovolená / Nemoc",
+      user
+    })}
+  `;
 }
 
 function absenceSettings(user) {
@@ -5857,6 +5963,7 @@ function absenceSettings(user) {
         </button>
       </form>
     </section>
+    ${medicalExamRulesOverviewPanel()}
   `;
 }
 
@@ -5888,6 +5995,53 @@ function employeeCardKpis(employee) {
         <span>Aktuální stav</span>
         <strong>${escapeHtml(absence.status || employee.currentAbsenceStatus || "v práci")}</strong>
       </article>
+    </div>
+  `;
+}
+
+function employeeVacationValue(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function employeeVacationPercent(value, total) {
+  if (!total) {
+    return "0";
+  }
+
+  return Math.max(0, Math.min(100, (value / total) * 100)).toFixed(2);
+}
+
+function employeeVacationOverview(employee) {
+  const entitlement = employeeVacationValue(employee.vacationEntitlementDays);
+  const used = employeeVacationValue(employee.vacationUsedDays);
+  const pending = employeeVacationValue(employee.vacationPendingDays);
+  const remaining = employeeVacationValue(
+    employee.vacationRemainingDays ?? Math.max(0, entitlement - used - pending)
+  );
+  const total = Math.max(entitlement, used + pending + remaining, 1);
+  const usedPercent = employeeVacationPercent(used, total);
+  const pendingPercent = employeeVacationPercent(pending, total);
+  const remainingPercent = employeeVacationPercent(remaining, total);
+  const entitlementLabel = entitlement > 0 ? `z nároku ${formatAbsenceDays(entitlement)}` : "nárok není nastaven";
+
+  return `
+    <div class="employee-vacation-overview" aria-label="Přehled dovolené">
+      <div class="employee-vacation-overview__hero">
+        <span>Zbývá dovolené</span>
+        <strong>${escapeHtml(formatAbsenceDays(remaining))}</strong>
+        <small>${escapeHtml(entitlementLabel)}</small>
+      </div>
+      <div class="employee-vacation-meter" aria-hidden="true">
+        <span class="employee-vacation-meter__bar employee-vacation-meter__bar--used" style="width: ${usedPercent}%;"></span>
+        <span class="employee-vacation-meter__bar employee-vacation-meter__bar--pending" style="width: ${pendingPercent}%;"></span>
+        <span class="employee-vacation-meter__bar employee-vacation-meter__bar--remaining" style="width: ${remainingPercent}%;"></span>
+      </div>
+      <div class="employee-vacation-overview__stats">
+        <span><strong>${escapeHtml(formatAbsenceDays(entitlement))}</strong>Nárok</span>
+        <span><strong>${escapeHtml(formatAbsenceDays(used))}</strong>Čerpáno</span>
+        <span><strong>${escapeHtml(formatAbsenceDays(pending))}</strong>Čeká</span>
+      </div>
     </div>
   `;
 }
@@ -6142,6 +6296,60 @@ function employeeMedicalExamAgeLabel(state) {
   return `${state.age} let · ${state.ageGroupLabel || "neuvedeno"}`;
 }
 
+function employeeMedicalExamRuleBadge(exam) {
+  if (exam.required) {
+    return '<span class="employee-medical-exam-rule-badge employee-medical-exam-rule-badge--required">Povinná</span>';
+  }
+
+  return '<span class="employee-medical-exam-rule-badge employee-medical-exam-rule-badge--optional">Nepovinná</span>';
+}
+
+function employeeMedicalExamOverview(exam, nextExamLabel) {
+  const notificationClass = exam.notificationEnabled
+    ? "employee-medical-exam-alert--enabled"
+    : "employee-medical-exam-alert--disabled";
+  const notificationLabel = exam.notificationEnabled ? "Hlídání termínu prohlídky" : "Hlídání termínu vypnuto";
+  const notificationText = exam.notificationEnabled
+    ? "Kontroluje příští prohlídku a stav termínu."
+    : "Karta se z kontroly termínů vynechá.";
+  const ruleNote = exam.ruleNote
+    ? `<p class="employee-medical-exam-overview__note">${escapeHtml(exam.ruleNote)}</p>`
+    : "";
+
+  return `
+    <div class="employee-medical-exam-overview" aria-label="Přehled lékařské prohlídky">
+      <article class="employee-medical-exam-overview__main">
+        <div>
+          <span>Příští prohlídka</span>
+          <strong>${escapeHtml(nextExamLabel)}</strong>
+        </div>
+        ${employeeMedicalExamStatusBadge(exam)}
+      </article>
+      <article class="employee-medical-exam-overview__rule">
+        <span>Pravidlo</span>
+        <strong>${escapeHtml(exam.fullCategoryLabel || exam.categoryLabel || "Vyberte kategorii")}</strong>
+        <div class="employee-medical-exam-rule-row">
+          ${employeeMedicalExamRuleBadge(exam)}
+          <small>${escapeHtml(exam.intervalLabel || "perioda neuvedena")}</small>
+        </div>
+        ${ruleNote}
+      </article>
+      <article class="employee-medical-exam-alert ${notificationClass}">
+        <span class="employee-medical-exam-alert__icon" aria-hidden="true"></span>
+        <div>
+          <strong>${escapeHtml(notificationLabel)}</strong>
+          <span>${escapeHtml(notificationText)}</span>
+        </div>
+      </article>
+      <article class="employee-medical-exam-automation">
+        <span>Odesílání</span>
+        <strong>Dry-run</strong>
+        <small>Pravidla se vyhodnocují bez ostrého odeslání e-mailu/SMS.</small>
+      </article>
+    </div>
+  `;
+}
+
 function employeeMedicalExamSection(employee, canEdit) {
   if (!canManageEmployeeMedicalExams()) {
     return "";
@@ -6180,13 +6388,14 @@ function employeeMedicalExamSection(employee, canEdit) {
       ${employeeCardState.medicalExamError ? `<p class="module-feedback__error">${escapeHtml(employeeCardState.medicalExamError)}</p>` : ""}
 
       <form class="employee-medical-exam-form" data-employee-medical-exam-form data-employee-id="${escapeHtml(employee.id)}">
+        ${employeeMedicalExamOverview(exam, nextExamLabel)}
         <div class="employee-card-fields">
           ${employeeCardField("Kategorie prohlídky", employeeCardSelect("category", categoryOptions, exam.category, disabled))}
           ${employeeCardField("Datum narození pro výpočet věku", employeeCardInput("dateOfBirth", exam.dateOfBirth, { type: "date", disabled }))}
           ${employeeCardField("Datum poslední prohlídky", employeeCardInput("lastExamDate", exam.lastExamDate, { type: "date", disabled }))}
           ${employeeCardField("Typ prohlídky do PDF", employeeCardSelect("requestExamType", MEDICAL_EXAM_REQUEST_TYPE_OPTIONS, exam.requestExamType || "entry", disabled))}
           ${employeeCardField("Zařazení do PDF", employeeCardSelect("requestCategory", MEDICAL_EXAM_REQUEST_CATEGORY_OPTIONS, exam.requestCategory || exam.category || "", disabled))}
-          ${employeeCardField("Upozornění", employeeCardSelect("notificationEnabled", [
+          ${employeeCardField("Hlídání termínu", employeeCardSelect("notificationEnabled", [
             { value: "true", label: "Zapnuto" },
             { value: "false", label: "Vypnuto" }
           ], exam.notificationEnabled ? "true" : "false", disabled))}
@@ -6197,7 +6406,6 @@ function employeeMedicalExamSection(employee, canEdit) {
             <span>Stav termínu</span>
             ${employeeMedicalExamStatusBadge(exam)}
           </div>
-          ${employeeCardReadonlyValue("Poznámka pravidla", exam.ruleNote || (exam.required ? "povinná prohlídka" : "nepovinná / nehlídá se"))}
           <label class="employee-card-field employee-card-field--wide">
             <span>Poznámka</span>
             <textarea name="note" rows="3" ${disabled ? "disabled" : ""}>${escapeHtml(exam.note || "")}</textarea>
@@ -6209,7 +6417,7 @@ function employeeMedicalExamSection(employee, canEdit) {
         </div>
 
         <p class="employee-medical-exam-note">
-          Citlivé údaje jsou dostupné jen oprávněným rolím. E-mailové upozornění se posílá serverově na personalistiku a nikdy z prohlížeče.
+          Citlivé údaje jsou dostupné jen oprávněným rolím. Tato karta sama nespouští ostré e-mailové ani SMS odesílání.
         </p>
 
         <div class="employee-medical-exam-pdf">
@@ -6397,7 +6605,7 @@ function employeeWorkHistorySection(employee, canEdit) {
   `;
 }
 
-function employeeAbsenceWorkflowSection() {
+function employeeAbsenceWorkflowSection(employee) {
   const absence = employeeCardState.absence || {};
   const items = normalizedApiAbsenceRequests(absence.items || []);
   const history = Array.isArray(absence.history) ? absence.history : [];
@@ -6437,6 +6645,9 @@ function employeeAbsenceWorkflowSection() {
           <h2>Schvalování absencí</h2>
           <p>Stavy žádostí, schvalovatelé, připomínky a historie z cloud API.</p>
         </div>
+        <button class="text-action employee-card-request-link" type="button" data-employee-open-requests="${escapeHtml(employee?.id || "")}">
+          Zobrazit žádosti
+        </button>
       </div>
       <div class="absence-table-wrap">
         <table class="absence-table employee-card-table">
@@ -6493,24 +6704,19 @@ function employeeCardContent(employeeId, user) {
           <p>${escapeHtml(formEmployee.position || roleLabel(formEmployee.role))} · ${escapeHtml(formEmployee.department || "bez oddělení")}</p>
         </div>
         <div class="employee-card-header__actions">
-          ${employeeCardApiBadge()}
           <select class="employee-card-switcher" data-employee-card-select aria-label="Vybrat zaměstnance">
             ${employeeOptionList(employee.id)}
           </select>
-          <button class="secondary-link" type="button" data-employee-open-requests="${escapeHtml(employee.id)}">
-            Otevřít žádosti zaměstnance
-          </button>
         </div>
       </div>
 
       ${employeeCardState.message ? `<p class="module-feedback__notice">${escapeHtml(employeeCardState.message)}</p>` : ""}
       ${employeeCardState.error ? `<p class="module-feedback__error">${escapeHtml(employeeCardState.error)}</p>` : ""}
       ${employeeCardKpis(formEmployee)}
-      ${employeeExcelImportSection(canEdit)}
 
       <form class="employee-card-form" data-employee-card-form data-employee-id="${escapeHtml(employee.id)}">
-        <div class="employee-card-grid">
-          <section class="employee-card-section">
+        <div class="employee-card-grid employee-card-grid--primary">
+          <section class="employee-card-section employee-card-section--identity">
             <div class="employee-card-section__head">
               <div>
                 <h2>Základní údaje</h2>
@@ -6535,22 +6741,22 @@ function employeeCardContent(employeeId, user) {
             </div>
           </section>
 
-          <section class="employee-card-section">
+          <section class="employee-card-section employee-card-section--compact">
             <div class="employee-card-section__head">
               <div>
                 <h2>Dovolená</h2>
                 <p>Nárok, čerpání, čekající žádosti a aktuální zůstatek.</p>
               </div>
             </div>
-            <div class="employee-card-fields">
+            ${employeeVacationOverview(formEmployee)}
+            <div class="employee-card-fields employee-vacation-fields">
               ${employeeCardField("Roční nárok dovolené", employeeCardInput("vacationEntitlementDays", formEmployee.vacationEntitlementDays, { type: "number", step: "0.5", min: "0", disabled }))}
               ${employeeCardField("Čerpáno", employeeCardInput("vacationUsedDays", formEmployee.vacationUsedDays, { type: "number", step: "0.5", min: "0", disabled }))}
               ${employeeCardField("Čeká na schválení", employeeCardInput("vacationPendingDays", formEmployee.vacationPendingDays, { type: "number", step: "0.5", min: "0", disabled }))}
-              ${employeeCardReadonlyValue("Zbývá", formatAbsenceDays(formEmployee.vacationRemainingDays || 0))}
             </div>
           </section>
 
-          <section class="employee-card-section">
+          <section class="employee-card-section employee-card-section--compact">
             <div class="employee-card-section__head">
               <div>
                 <h2>Nemoc / absence</h2>
@@ -6565,7 +6771,7 @@ function employeeCardContent(employeeId, user) {
             </div>
           </section>
 
-          <section class="employee-card-section">
+          <section class="employee-card-section employee-card-section--compact">
             <div class="employee-card-section__head">
               <div>
                 <h2>Nadřízený a schvalování</h2>
@@ -6616,9 +6822,10 @@ function employeeCardContent(employeeId, user) {
       </form>
 
       ${employeeMedicalExamSection(employee, canEditMedicalExam)}
+      ${employeeExcelImportSection(canEdit)}
 
       <div class="employee-card-grid employee-card-grid--bottom">
-        ${employeeAbsenceWorkflowSection()}
+        ${employeeAbsenceWorkflowSection(employee)}
         ${employeeWorkHistorySection(employee, canEdit)}
         ${employeeDocumentsSection(employee, canEdit)}
       </div>
@@ -6690,9 +6897,17 @@ function absenceModulePage(moduleItem, user, isDashboard = false, context = {}) 
     : "";
   const tabs = absenceTabsForUser(user);
   const isQuickTab = activeTab === "quick";
+  const pageClass = [
+    "app-shell",
+    "module-page",
+    "module-theme-scope",
+    "absence-page",
+    isQuickTab ? "absence-page--quick" : "",
+    activeTab === "employee-card" ? "absence-page--employee-card" : ""
+  ].filter(Boolean).join(" ");
 
   return `
-    <main class="app-shell module-page module-theme-scope absence-page ${isQuickTab ? "absence-page--quick" : ""}" ${moduleThemeStyleAttribute()}>
+    <main class="${pageClass}" ${moduleThemeStyleAttribute()}>
       ${userBar(user)}
       <nav class="topbar" aria-label="Navigace">
         <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
@@ -14969,7 +15184,10 @@ function isAssistantPromoActive(dateString = assistantPromoDateString()) {
 
 function shouldAutoShowAssistantPromo() {
   const path = normalizePath(window.location.pathname);
-  return !path.startsWith(FLEET_ROUTE) && !isCollectionRoutesPath();
+  return AI_ASSISTANT_PROMO_AUTOSHOW_ENABLED &&
+    !path.startsWith(FLEET_ROUTE) &&
+    !isCollectionRoutesPath(path) &&
+    !path.startsWith(ABSENCE_ROUTE);
 }
 
 function applyAssistantPromoPayload(payload = {}) {
@@ -14991,6 +15209,13 @@ async function recordAssistantPromoAction(action) {
 }
 
 async function loadAssistantPromo(options = {}) {
+  if (!AI_ASSISTANT_PROMO_AUTOSHOW_ENABLED) {
+    assistantPromoState.visible = false;
+    assistantPromoState.loaded = true;
+    assistantPromoState.loading = false;
+    return;
+  }
+
   if (assistantPromoState.loaded || assistantPromoState.loading || authState.status !== "authenticated" || !authState.user) {
     return;
   }
@@ -15035,7 +15260,7 @@ async function loadAssistantPromo(options = {}) {
 }
 
 function renderAssistantPromoLayer() {
-  if (isCollectionRoutesPath()) {
+  if (!shouldAutoShowAssistantPromo()) {
     return "";
   }
 
@@ -15904,7 +16129,7 @@ async function loadModuleRules(moduleKey = moduleRulesState.moduleKey, options =
     moduleRulesState.rules = [];
     moduleRulesState.automationRuns = [];
     moduleRulesState.automationRunnerRuns = [];
-    moduleRulesState.loaded = false;
+    moduleRulesState.loaded = true;
     moduleRulesState.apiStatus = error.payload?.apiStatus || "waiting";
     moduleRulesState.error = error.payload?.error || "Pravidla a automatizace se teď nepodařilo načíst.";
   } finally {

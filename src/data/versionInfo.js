@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.182"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.183"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Dovolená / Nemoc: pravidla prohlídek a stabilní klikání",
+    text: "Karta zaměstnance má kompaktnější UI, pravidla lékařských prohlídek jsou vidět v Seznamu pravidel i Nastavení, Šarlota promo je globálně skryté a záložky už nezamrzají při nedostupném API pravidel."
+  },
   {
     title: "HP: nizsi header bez zmenseni loga",
     text: "Header homepage je zhruba o tretinu kompaktnejsi diky mensim mezeram, subtitle vedle loga na desktopu a nizsim stavovym kartam; velikost loga zustala stejna."

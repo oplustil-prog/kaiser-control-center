@@ -7691,6 +7691,106 @@ body:has(.ai-assistant-promo-modal) {
   min-width: 0;
 }
 
+.medical-exam-rules-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.medical-exam-rules-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.medical-exam-rules-summary article {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  min-height: 86px;
+  padding: 14px;
+  border: 1px solid rgba(35, 40, 33, 0.08);
+  border-radius: 8px;
+  background: #fbfdf9;
+}
+
+.medical-exam-rules-summary span,
+.medical-exam-rules-table th {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.medical-exam-rules-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.medical-exam-rules-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.medical-exam-rules-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.medical-exam-rules-table th,
+.medical-exam-rules-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.medical-exam-rules-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.medical-exam-rules-table td {
+  color: var(--steel);
+  font-weight: 800;
+}
+
+.medical-exam-rules-table td strong,
+.medical-exam-rules-table td small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.medical-exam-rules-table td strong {
+  color: var(--ink);
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.medical-exam-rules-table td small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.medical-exam-rules-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #f8fbf4;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .module-rules-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(150px, 0.45fr) minmax(150px, 0.45fr);
@@ -8095,7 +8195,7 @@ body:has(.ai-assistant-promo-modal) {
 
 .employee-card {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   margin-top: 18px;
 }
 
@@ -8133,7 +8233,7 @@ body:has(.ai-assistant-promo-modal) {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 520px;
+  max-width: 320px;
 }
 
 .employee-card-switcher,
@@ -8220,7 +8320,12 @@ body:has(.ai-assistant-promo-modal) {
 .employee-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
+}
+
+.employee-card-grid--primary {
+  grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.84fr);
+  align-items: start;
 }
 
 .employee-card-grid--bottom {
@@ -8229,12 +8334,21 @@ body:has(.ai-assistant-promo-modal) {
 
 .employee-card-section {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .employee-card-section--wide {
   grid-column: 1 / -1;
+}
+
+.employee-card-section--identity {
+  align-self: start;
+}
+
+.employee-card-section--compact {
+  gap: 12px;
+  padding: 16px;
 }
 
 .employee-card-section__head {
@@ -8246,15 +8360,16 @@ body:has(.ai-assistant-promo-modal) {
 
 .employee-card-section h2 {
   margin: 0;
-  font-size: 1.18rem;
+  font-size: 1.08rem;
   line-height: 1.2;
 }
 
 .employee-card-section p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
+  font-size: 0.88rem;
   font-weight: 700;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .employee-card-fields,
@@ -8262,12 +8377,104 @@ body:has(.ai-assistant-promo-modal) {
 .employee-medical-exam-form .employee-card-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.employee-card-section--compact .employee-card-fields {
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+.employee-vacation-overview {
+  display: grid;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid #d7e7cc;
+  border-radius: 8px;
+  background: #f7fbf3;
+}
+
+.employee-vacation-overview__hero {
+  display: grid;
+  gap: 3px;
+}
+
+.employee-vacation-overview__hero span,
+.employee-vacation-overview__stats span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.employee-vacation-overview__hero strong {
+  color: var(--kaiser-green-dark);
+  font-size: 2.45rem;
+  line-height: 0.95;
+}
+
+.employee-vacation-overview__hero small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.employee-vacation-meter {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(35, 40, 33, 0.08);
+  border-radius: 999px;
+  background: #edf1e9;
+}
+
+.employee-vacation-meter__bar {
+  min-width: 0;
+}
+
+.employee-vacation-meter__bar--used {
+  background: #94a08d;
+}
+
+.employee-vacation-meter__bar--pending {
+  background: #e2ad49;
+}
+
+.employee-vacation-meter__bar--remaining {
+  background: #7fb83f;
+}
+
+.employee-vacation-overview__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.employee-vacation-overview__stats span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(35, 40, 33, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.employee-vacation-overview__stats strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.15;
+  text-transform: none;
+}
+
+.employee-vacation-fields {
+  padding-top: 2px;
 }
 
 .employee-card-field {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .employee-card-field--wide,
@@ -8277,9 +8484,9 @@ body:has(.ai-assistant-promo-modal) {
 
 .employee-card-readonly {
   display: grid;
-  gap: 6px;
-  min-height: 42px;
-  padding: 10px 12px;
+  gap: 5px;
+  min-height: 40px;
+  padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f8fbf4;
@@ -8320,6 +8527,27 @@ body:has(.ai-assistant-promo-modal) {
 .employee-card-status--waiting {
   background: #fff5e5;
   color: #8a5a00;
+}
+
+.employee-card-request-link {
+  justify-self: end;
+  min-height: 34px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--kaiser-green-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  box-shadow: none;
+}
+
+.employee-card-request-link:hover,
+.employee-card-request-link:focus-visible {
+  color: var(--ink);
+  outline: none;
 }
 
 .employee-medical-exam-section {
@@ -8364,6 +8592,191 @@ body:has(.ai-assistant-promo-modal) {
 .employee-medical-exam-status--muted {
   background: #f1f4ef;
   color: var(--muted);
+}
+
+.employee-medical-exam-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.employee-medical-exam-overview article {
+  min-width: 0;
+  border: 1px solid #dfe8d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.employee-medical-exam-overview__main,
+.employee-medical-exam-overview__rule,
+.employee-medical-exam-alert,
+.employee-medical-exam-automation {
+  padding: 14px;
+}
+
+.employee-medical-exam-overview__main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f7fbf3;
+}
+
+.employee-medical-exam-overview__main div,
+.employee-medical-exam-overview__rule,
+.employee-medical-exam-automation {
+  display: grid;
+  gap: 6px;
+}
+
+.employee-medical-exam-overview__main span,
+.employee-medical-exam-overview__rule > span,
+.employee-medical-exam-automation > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.employee-medical-exam-overview__main strong {
+  color: var(--ink);
+  font-size: 1.7rem;
+  line-height: 1.05;
+}
+
+.employee-medical-exam-overview__rule strong {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.employee-medical-exam-rule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.employee-medical-exam-rule-row small,
+.employee-medical-exam-automation small,
+.employee-medical-exam-overview__note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.employee-medical-exam-rule-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.employee-medical-exam-rule-badge--required {
+  background: #edf8e7;
+  color: var(--kaiser-green-dark);
+}
+
+.employee-medical-exam-rule-badge--optional {
+  background: #f1f4ef;
+  color: var(--muted);
+}
+
+.employee-medical-exam-overview__note {
+  margin: 2px 0 0;
+}
+
+.employee-medical-exam-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-left-width: 4px;
+}
+
+.employee-medical-exam-alert__icon {
+  position: relative;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.employee-medical-exam-alert__icon::before {
+  content: "";
+  position: absolute;
+  inset: 9px 10px 11px;
+  border: 3px solid currentColor;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-bottom: 0;
+}
+
+.employee-medical-exam-alert__icon::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  right: 13px;
+  bottom: 9px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 5px 5px 0 -2px currentColor;
+}
+
+.employee-medical-exam-alert div {
+  display: grid;
+  gap: 4px;
+}
+
+.employee-medical-exam-alert strong,
+.employee-medical-exam-automation strong {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.employee-medical-exam-alert span:not(.employee-medical-exam-alert__icon) {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.employee-medical-exam-alert--enabled {
+  border-color: #d7e7cc;
+  border-left-color: var(--kaiser-green);
+  background: #f7fbf3;
+}
+
+.employee-medical-exam-alert--enabled .employee-medical-exam-alert__icon {
+  background: #edf8e7;
+  color: var(--kaiser-green-dark);
+}
+
+.employee-medical-exam-alert--disabled {
+  border-color: #e3e7df;
+  border-left-color: #94a08d;
+  background: #f7f8f5;
+}
+
+.employee-medical-exam-alert--disabled .employee-medical-exam-alert__icon {
+  background: #edf0ea;
+  color: var(--muted);
+}
+
+.employee-medical-exam-automation {
+  border-color: #f2d6a7;
+  background: #fffaf0;
+}
+
+.employee-medical-exam-automation strong {
+  color: #8a5a00;
 }
 
 .employee-medical-exam-note {
@@ -8998,6 +9411,10 @@ body:has(.ai-assistant-promo-modal) {
   .employee-document-upload-form__file,
   .employee-document-upload-form__note {
     grid-column: auto;
+  }
+
+  .employee-medical-exam-overview {
+    grid-template-columns: 1fr;
   }
 
   .employee-medical-exam-pdf {
@@ -9940,6 +10357,10 @@ body:has(.ai-assistant-promo-modal) {
   --radius-card: 18px;
   --shadow-card: 0 18px 45px rgba(31, 41, 33, 0.1);
   color: var(--color-text);
+}
+
+body:has(.absence-page--employee-card) {
+  background: #f7f9f4;
 }
 
 .absence-page .topbar {
@@ -11239,6 +11660,7 @@ body:has(.ai-assistant-promo-modal) {
   .absence-doctor-time-fields,
   .absence-filters,
   .absence-report-grid,
+  .medical-exam-rules-summary,
   .module-rules-toolbar,
   .module-rules-status-grid,
   .module-rules-detail,
@@ -11247,10 +11669,15 @@ body:has(.ai-assistant-promo-modal) {
     grid-template-columns: 1fr;
   }
 
+  .medical-exam-rules-table-wrap,
   .module-rules-table-wrap {
     overflow-x: hidden;
   }
 
+  .medical-exam-rules-table,
+  .medical-exam-rules-table tbody,
+  .medical-exam-rules-table tr,
+  .medical-exam-rules-table td,
   .module-rules-table,
   .module-rules-table tbody,
   .module-rules-table tr,
@@ -11261,35 +11688,42 @@ body:has(.ai-assistant-promo-modal) {
     max-width: 100%;
   }
 
+  .medical-exam-rules-table,
   .module-rules-table {
     table-layout: fixed;
   }
 
+  .medical-exam-rules-table tbody,
   .module-rules-table tbody {
     display: grid;
     gap: 10px;
   }
 
+  .medical-exam-rules-table thead,
   .module-rules-table thead {
     display: none;
   }
 
+  .medical-exam-rules-table tr,
   .module-rules-table tr {
     border: 1px solid var(--line);
     border-radius: 8px;
     background: #ffffff;
   }
 
+  .medical-exam-rules-table td,
   .module-rules-table td {
     border-bottom: 0;
     overflow-wrap: anywhere;
   }
 
+  .medical-exam-rules-table td:not([colspan]),
   .module-rules-table td:not([colspan]) {
     display: grid;
     gap: 4px;
   }
 
+  .medical-exam-rules-table td:not([colspan])::before,
   .module-rules-table td:not([colspan])::before,
   .module-rules-table td[colspan]::before {
     display: block;
@@ -11299,6 +11733,11 @@ body:has(.ai-assistant-promo-modal) {
     text-transform: uppercase;
   }
 
+  .medical-exam-rules-table td:nth-child(1)::before { content: "Kategorie"; }
+  .medical-exam-rules-table td:nth-child(2)::before { content: "Měsíční perioda"; }
+  .medical-exam-rules-table td:nth-child(3)::before { content: "Do 50 roků"; }
+  .medical-exam-rules-table td:nth-child(4)::before { content: "Nad 50 roků"; }
+  .medical-exam-rules-table td:nth-child(5)::before { content: "Povinnost"; }
   .module-rules-table td:nth-child(1)::before { content: "Název"; }
   .module-rules-table td:nth-child(2)::before { content: "Typ"; }
   .module-rules-table td:nth-child(3)::before { content: "Modul"; }
@@ -11736,6 +12175,7 @@ body:has(.ai-assistant-promo-modal) {
 
   .employee-card-kpis,
   .employee-card-fields,
+  .employee-medical-exam-overview,
   .employee-work-history-form,
   .employee-medical-exam-form .employee-card-fields {
     grid-template-columns: 1fr;
