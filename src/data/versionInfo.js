@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.195"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.196"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Karta zaměstnance: Pinya dokumenty read-only preview",
+    text: "Karta zaměstnance má bezpečný read-only stav pro budoucí napojení dokumentů z Pinya. Endpoint zatím Pinya nevolá, nestahuje soubory a nic neukládá."
+  },
   {
     title: "Datová schránka: ruční read-only sync",
     text: "Modul Datová schránka má chráněný backendový endpoint pro ruční synchronizaci seznamu obálek ISDS, zapisuje log běhu do D1 a bez Cloudflare secrets bezpečně skončí stavem konfigurace."
