@@ -7417,7 +7417,9 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-status-grid,
 .data-box-phase-grid,
-.data-box-ai-grid {
+.data-box-ai-grid,
+.data-box-reality-grid,
+.data-box-safe-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -7426,6 +7428,8 @@ body:has(.ai-assistant-promo-modal) {
 .data-box-status-grid article,
 .data-box-phase-grid article,
 .data-box-ai-grid article,
+.data-box-reality-grid article,
+.data-box-safe-actions article,
 .data-box-panel,
 .data-box-architecture-grid section {
   border: 1px solid rgba(40, 55, 47, 0.1);
@@ -7436,7 +7440,9 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-status-grid article,
 .data-box-phase-grid article,
-.data-box-ai-grid article {
+.data-box-ai-grid article,
+.data-box-reality-grid article,
+.data-box-safe-actions article {
   display: grid;
   gap: 7px;
   min-height: 132px;
@@ -7446,6 +7452,8 @@ body:has(.ai-assistant-promo-modal) {
 .data-box-status-grid span,
 .data-box-phase-grid span,
 .data-box-ai-grid span,
+.data-box-reality-grid span,
+.data-box-safe-actions span,
 .data-box-architecture-grid dt {
   color: var(--muted);
   font-size: 0.72rem;
@@ -7455,7 +7463,9 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-status-grid strong,
 .data-box-phase-grid strong,
-.data-box-ai-grid strong {
+.data-box-ai-grid strong,
+.data-box-reality-grid strong,
+.data-box-safe-actions strong {
   color: var(--ink);
   font-size: 1rem;
   line-height: 1.25;
@@ -7463,6 +7473,8 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-status-grid small,
 .data-box-ai-grid small,
+.data-box-reality-grid small,
+.data-box-safe-actions small,
 .data-box-phase-grid p,
 .data-box-panel__head p,
 .data-box-architecture-grid dd {
@@ -7551,7 +7563,7 @@ body:has(.ai-assistant-promo-modal) {
 
 .data-box-architecture-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -13810,7 +13822,9 @@ body:has(.absence-page--employee-card) {
 @media (max-width: 1023px) {
   .data-box-status-grid,
   .data-box-phase-grid,
-  .data-box-ai-grid {
+  .data-box-ai-grid,
+  .data-box-reality-grid,
+  .data-box-safe-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -13826,7 +13840,9 @@ body:has(.absence-page--employee-card) {
 
   .data-box-status-grid,
   .data-box-phase-grid,
-  .data-box-ai-grid {
+  .data-box-ai-grid,
+  .data-box-reality-grid,
+  .data-box-safe-actions {
     grid-template-columns: 1fr;
   }
 

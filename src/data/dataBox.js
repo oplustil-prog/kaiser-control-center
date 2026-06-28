@@ -12,13 +12,13 @@ export const DATA_BOX_TABS = [
 export const DATA_BOX_STATUS_CARDS = [
   {
     label: "Stav funkce",
-    value: "Funkcni pres API",
-    note: "Cloud API a D1 model bez ostreho cteni, zapisu nebo odesilani do ISDS."
+    value: "Funkční přes API",
+    note: "Cloud API a D1 model bez ostrého čtení, zápisu nebo odesílání do ISDS."
   },
   {
     label: "Zdroj dat",
     value: "Cloudflare D1",
-    note: "Metadata datovych schranek, zprav, priloh, AI vysledku a auditu."
+    note: "Metadata datových schránek, zpráv, příloh, AI výsledků a auditu."
   },
   {
     label: "ISDS napojení",
@@ -68,11 +68,37 @@ export const DATA_BOX_INTEGRATION_POINTS = [
   ["Bezpečnost", "Secrets pouze v Cloudflare, žádné tokeny ani certifikáty v repozitáři."]
 ];
 
-export const DATA_BOX_PLANNED_ENDPOINTS = [
+export const DATA_BOX_REALITY_ITEMS = [
+  {
+    label: "Co opravdu funguje",
+    value: "Chráněné čtecí API",
+    note: "Frontend čte stav, metadata zpráv a log běhů přes backend. Data jsou pouze v D1, pokud je binding a migrace v produkci hotová."
+  },
+  {
+    label: "Co zatím nefunguje",
+    value: "ISDS je vypnuté",
+    note: "Nečte se ostrá datová schránka, nestahují se přílohy, neposílají se odpovědi a neběží automatická synchronizace."
+  },
+  {
+    label: "Když nikdo neotevře aplikaci",
+    value: "Nic se nespustí",
+    note: "Modul zatím nemá worker, cron ani queue. Bez další fáze nevznikne žádný nový sync běh."
+  },
+  {
+    label: "Když selže API",
+    value: "Bezpečná chyba",
+    note: "Frontend zobrazí chybu z backendu a nepředstírá lokálně uložená data."
+  }
+];
+
+export const DATA_BOX_EXISTING_ENDPOINTS = [
   "GET /api/data-box/status",
   "GET /api/data-box/messages",
   "GET /api/data-box/messages/:id",
-  "GET /api/data-box/sync-runs",
+  "GET /api/data-box/sync-runs"
+];
+
+export const DATA_BOX_FUTURE_ENDPOINTS = [
   "POST /api/data-box/sync",
   "GET /api/data-box/messages/:id/attachments/:attachmentId",
   "POST /api/data-box/messages/:id/ai-evaluate",

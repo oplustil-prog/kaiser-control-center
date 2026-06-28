@@ -180,10 +180,12 @@ import {
 } from "./data/vehicleTracking.js";
 import {
   DATA_BOX_EMPTY_MESSAGE_COLUMNS,
+  DATA_BOX_EXISTING_ENDPOINTS,
+  DATA_BOX_FUTURE_ENDPOINTS,
   DATA_BOX_INTEGRATION_POINTS,
   DATA_BOX_MODULE_KEY,
   DATA_BOX_PHASES,
-  DATA_BOX_PLANNED_ENDPOINTS,
+  DATA_BOX_REALITY_ITEMS,
   DATA_BOX_ROUTE,
   DATA_BOX_STATUS_CARDS,
   DATA_BOX_TABS
@@ -13106,12 +13108,12 @@ function collectionRoutesModulePage(moduleItem, user, isDashboard = false) {
 
 function dataBoxStatusLabel(value) {
   const labels = {
-    inactive: "neaktivni",
-    waiting: "ceka",
-    ready: "aktivni",
+    inactive: "neaktivní",
+    waiting: "čeká",
+    ready: "aktivní",
     pilot: "pilot"
   };
-  return labels[String(value || "").trim().toLowerCase()] || String(value || "ceka");
+  return labels[String(value || "").trim().toLowerCase()] || String(value || "čeká");
 }
 
 function dataBoxStatusCards() {
@@ -13122,29 +13124,29 @@ function dataBoxStatusCards() {
   const cards = DATA_BOX_STATUS_CARDS.map((item) => ({ ...item }));
   cards[0] = {
     label: "Stav funkce",
-    value: apiReady ? "Funkcni pres API" : (dataBoxState.loading ? "nacitam API" : "UI navrh"),
+    value: apiReady ? "Funkční přes API" : (dataBoxState.loading ? "načítám API" : "UI návrh"),
     note: apiReady
-      ? "Frontend cte metadata z cloud API a D1. ISDS zustava vypnute."
-      : (dataBoxState.error || "Bez ostreho cteni, zapisu nebo odesilani do ISDS.")
+      ? "Frontend čte metadata z cloud API a D1. ISDS zůstává vypnuté."
+      : (dataBoxState.error || "Bez ostrého čtení, zápisu nebo odesílání do ISDS.")
   };
   cards[1] = {
     label: "Zdroj dat",
-    value: apiReady ? "Cloudflare D1" : "ceka na API",
+    value: apiReady ? "Cloudflare D1" : "čeká na API",
     note: apiReady
-      ? `${Number(summary.received || 0)} prijatych, ${Number(summary.sent || 0)} odeslanych, ${Number(summary.attachments || 0)} priloh.`
-      : "Cilove cloud backend, D1 metadata a R2 prilohy."
+      ? `${Number(summary.received || 0)} přijatých, ${Number(summary.sent || 0)} odeslaných, ${Number(summary.attachments || 0)} příloh.`
+      : "Cílově cloud backend, D1 metadata a R2 přílohy."
   };
   cards[2] = {
-    label: "ISDS napojeni",
+    label: "ISDS napojení",
     value: dataBoxStatusLabel(dataBoxState.integrationStatus),
-    note: status.message || "SOAP/WSDL adapter bude az v dalsi fazi."
+    note: status.message || "SOAP/WSDL adapter bude až v další fázi."
   };
   cards[3] = {
-    label: "Uloziste priloh",
-    value: storageReady ? "R2 pripraveno" : "ceka na R2",
+    label: "Úložiště příloh",
+    value: storageReady ? "R2 připraveno" : "čeká na R2",
     note: storageReady
-      ? "Metadata jsou v D1, soubory budou v R2 pres backend."
-      : "Prilohy se zatim nenacitaji ani neukladaji."
+      ? "Metadata jsou v D1, soubory budou v R2 přes backend."
+      : "Přílohy se zatím nenačítají ani neukládají."
   };
 
   return `
@@ -13192,7 +13194,7 @@ function dataBoxMessageRows(direction) {
   if (dataBoxState.loading && !dataBoxState.loaded) {
     return `
       <tr>
-        <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">Nacitam metadata z cloud API...</td>
+        <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">Načítám metadata z cloud API...</td>
       </tr>
     `;
   }
@@ -13210,7 +13212,7 @@ function dataBoxMessageRows(direction) {
     return `
       <tr>
         <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">
-          Zadna ostra zprava neni nactena. Frontend nevola ISDS a neobsahuje provozni data.
+          Žádná ostrá zpráva není načtena. Frontend nevolá ISDS a neobsahuje provozní data.
         </td>
       </tr>
     `;
@@ -13219,9 +13221,9 @@ function dataBoxMessageRows(direction) {
   return rows.map((message) => `
     <tr>
       <td>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "-")}</td>
-      <td>${escapeHtml(message.direction === "sent" ? "odeslana" : "prijata")}</td>
+      <td>${escapeHtml(message.direction === "sent" ? "odeslaná" : "přijatá")}</td>
       <td>${escapeHtml(dataBoxMessageActor(message))}</td>
-      <td>${escapeHtml(message.subject || "(bez predmetu)")}</td>
+      <td>${escapeHtml(message.subject || "(bez předmětu)")}</td>
       <td>${escapeHtml(message.status || "-")}</td>
       <td>${escapeHtml(String(message.attachmentsCount || 0))}</td>
       <td>${escapeHtml(dataBoxAiStatusLabel(message.aiStatus))}</td>
@@ -13232,14 +13234,14 @@ function dataBoxMessageRows(direction) {
 
 function dataBoxMessageTable(title, direction) {
   const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
-  const statusLabel = dataBoxState.apiStatus === "ready" ? "API aktivni" : (dataBoxState.loading ? "nacitam API" : "ceka na API");
+  const statusLabel = dataBoxState.apiStatus === "ready" ? "API aktivní" : (dataBoxState.loading ? "načítám API" : "čeká na API");
 
   return `
     <section class="data-box-panel" id="${escapeHtml(direction)}" aria-labelledby="data-box-${escapeHtml(direction)}-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(title)}</h2>
-          <p>Seznam cte pouze metadata z interniho API. Ostre ISDS pripojeni neni v teto fazi aktivni.</p>
+          <p>Seznam čte pouze metadata z interního API. Ostré ISDS připojení není v této fázi aktivní.</p>
         </div>
         <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
@@ -13291,7 +13293,7 @@ function dataBoxAiPanel() {
 function dataBoxArchitecturePanel() {
   const status = dataBoxState.status || {};
   const summary = status.summary || {};
-  const lastSync = summary.lastSyncAt ? formatDateTime(summary.lastSyncAt) : "zatim neprobehla";
+  const lastSync = summary.lastSyncAt ? formatDateTime(summary.lastSyncAt) : "zatím neproběhla";
 
   return `
     <section class="data-box-panel" id="overview" aria-labelledby="data-box-overview-title">
@@ -13300,11 +13302,20 @@ function dataBoxArchitecturePanel() {
           <h2 id="data-box-overview-title">Provozní realita</h2>
           <p>Rozpad na fáze a cílové cloudové části, aby UI nevypadalo jako ostré ISDS napojení.</p>
         </div>
-        <span class="employee-card-status employee-card-status--waiting">ISDS neaktivni</span>
+        <span class="employee-card-status employee-card-status--waiting">ISDS neaktivní</span>
       </div>
       <div class="data-box-warning" role="status">
-        <strong>Posledni synchronizace: ${escapeHtml(lastSync)}</strong>
-        <span>${escapeHtml(status.message || "ISDS integrace neni aktivni. Pripraveny je pouze vlastni cloudovy model dat.")}</span>
+        <strong>Poslední synchronizace: ${escapeHtml(lastSync)}</strong>
+        <span>${escapeHtml(status.message || "ISDS integrace není aktivní. Připravený je pouze vlastní cloudový model dat.")}</span>
+      </div>
+      <div class="data-box-reality-grid" aria-label="Co v modulu Datová schránka skutečně funguje">
+        ${DATA_BOX_REALITY_ITEMS.map((item) => `
+          <article>
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value)}</strong>
+            <small>${escapeHtml(item.note)}</small>
+          </article>
+        `).join("")}
       </div>
       <div class="data-box-phase-grid">
         ${DATA_BOX_PHASES.map((phase) => `
@@ -13328,9 +13339,15 @@ function dataBoxArchitecturePanel() {
           </dl>
         </section>
         <section>
-          <h3>Plánované API</h3>
+          <h3>Existující čtecí API</h3>
           <ul>
-            ${DATA_BOX_PLANNED_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
+            ${DATA_BOX_EXISTING_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
+          </ul>
+        </section>
+        <section>
+          <h3>Další fáze API</h3>
+          <ul>
+            ${DATA_BOX_FUTURE_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
           </ul>
         </section>
       </div>
@@ -13340,7 +13357,7 @@ function dataBoxArchitecturePanel() {
 
 function dataBoxSyncRunsPanel() {
   const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
-  const statusLabel = dataBoxState.apiStatus === "ready" ? "D1 log pripraven" : "ceka na D1";
+  const statusLabel = dataBoxState.apiStatus === "ready" ? "D1 log připraven" : "čeká na D1";
   const rows = dataBoxState.syncRuns.length
     ? dataBoxState.syncRuns.map((run) => `
       <tr>
@@ -13354,7 +13371,7 @@ function dataBoxSyncRunsPanel() {
     `).join("")
     : `
       <tr>
-        <td colspan="6">Zadny beh synchronizace zatim neni zapsany. Cloud automatizace a ISDS adapter nejsou aktivni.</td>
+        <td colspan="6">Žádný běh synchronizace zatím není zapsaný. Cloud automatizace a ISDS adapter nejsou aktivní.</td>
       </tr>
     `;
 
@@ -13363,7 +13380,7 @@ function dataBoxSyncRunsPanel() {
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-sync-title">Log synchronizaci</h2>
-          <p>Evidence budoucich manualnich nebo cloudovych behu. V teto fazi se zadna ISDS synchronizace nespousti.</p>
+          <p>Evidence budoucích ručních nebo cloudových běhů. V této fázi se žádná ISDS synchronizace nespouští.</p>
         </div>
         <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
@@ -13400,7 +13417,7 @@ function dataBoxRulesAutomation(user) {
 function dataBoxPage(moduleItem, user) {
   ensureDataBoxData();
   const apiReady = dataBoxState.apiStatus === "ready";
-  const heroStatus = apiReady ? "Funkcni pres API" : "UI navrh";
+  const heroStatus = apiReady ? "Funkční přes API" : "UI návrh / čeká na API";
 
   return `
     <main class="app-shell module-page module-theme-scope data-box-page" ${moduleThemeStyleAttribute()}>
@@ -13420,9 +13437,22 @@ function dataBoxPage(moduleItem, user) {
             <span>Stav</span>
             <strong>${escapeHtml(heroStatus)}</strong>
           </div>
-          <div class="module-actions">
-            <button class="primary-action" type="button" disabled title="Čeká na backend ISDS adapter">Synchronizovat</button>
-            <button class="secondary-link" type="button" disabled title="Odesílání bude až po samostatném potvrzení">Nová odpověď</button>
+          <div class="data-box-safe-actions" aria-label="Neaktivní provozní akce">
+            <article>
+              <span>Synchronizace</span>
+              <strong>vypnuto</strong>
+              <small>Čeká na samostatný ISDS adapter a schválené secrets.</small>
+            </article>
+            <article>
+              <span>Odesílání</span>
+              <strong>blokováno</strong>
+              <small>Žádná odpověď se z frontendu ani API neposílá.</small>
+            </article>
+            <article>
+              <span>Automatizace</span>
+              <strong>neběží</strong>
+              <small>Není worker, cron ani queue.</small>
+            </article>
           </div>
         </div>
       </section>

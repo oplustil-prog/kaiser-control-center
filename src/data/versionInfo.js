@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.190"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.191"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Datová schránka: jasný stav pilotu",
+    text: "Modul teď jasně rozlišuje existující čtecí API, neaktivní ISDS synchronizaci a blokované odesílání, aby bylo vidět, že jde zatím o read-only pilot."
+  },
   {
     title: "Karta zaměstnance: hromadný import dokumentů",
     text: "Dokumenty stažené nebo exportované z Pinya lze hromadně spárovat podle názvu souboru a potvrzené shody uložit do stávajícího cloudového úložiště zaměstnaneckých dokumentů."
