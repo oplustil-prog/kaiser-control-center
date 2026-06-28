@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.173"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.174"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -21,8 +21,8 @@ export const versionInfo = {
 
 export const versionNews = [
   {
-    title: "Dovolená / Nemoc: přehlednější zaměstnanci",
-    text: "Stránka Zaměstnanci má pracovní přehled s hledáním, filtry, souhrny a čitelnými štítky stavů nad existující Kartou zaměstnance bez změny DB nebo API."
+    title: "Karta zaměstnance: bez horního přehledu",
+    text: "Stránka Zaměstnanci je vrácená do původního rozložení Karty zaměstnance bez nového horního přehledu a filtrů."
   },
   {
     title: "Karta zaměstnance: import HR Excelu",
