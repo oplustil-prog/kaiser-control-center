@@ -17,6 +17,9 @@ Interní provozní systém pro správu odpadových služeb, vozového parku, ser
 - Filtrování menu a akcí podle role.
 - Lokální mock režim bez Twilio účtu.
 
+Návrh bezpečného read-only preview napojení Pinya dokumentů zaměstnanců je v
+[`docs/PINYA_EMPLOYEE_DOCUMENTS_PREVIEW.md`](docs/PINYA_EMPLOYEE_DOCUMENTS_PREVIEW.md).
+
 ## Pneumatiky
 
 Modul Pneumatiky není v tomto projektu přepisovaný ani refaktorovaný. V aplikaci je karta se štítkem `HOTOVO` a stránka `/pneumatiky`, která otevírá hotovou externí aplikaci:
