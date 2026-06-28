@@ -13887,7 +13887,7 @@ function dataBoxActiveContextLabel() {
   const configured = Number(dataBoxState.status?.isds?.configuredAccounts || dataBoxState.status?.summary?.configuredDataBoxes || 0);
   return {
     title: "Všechny datové schránky",
-    text: configured ? `${configured} nakonfigurovaných DS účtů` : "Vyber konkrétní chlívek pro čistý kontext jedné DS."
+    text: configured ? `${configured} nakonfigurovaných DS účtů` : "Vyber konkrétní schránku."
   };
 }
 
@@ -14100,7 +14100,7 @@ function dataBoxConnectionState() {
   return {
     label: "Čeká na konfiguraci",
     tone: "waiting",
-    note: dataBoxState.status?.message || "ISDS účet nebo cloud stav zatím není kompletní."
+    note: "Čeká na bezpečné nastavení."
   };
 }
 
@@ -14841,7 +14841,6 @@ function dataBoxAccountFilterOptions(selected) {
 
 function dataBoxMessageFilters(direction) {
   const filters = dataBoxState.messageFilters;
-  const selectedAccount = dataBoxSelectedAccount();
 
   return `
     <form class="data-box-filters" data-data-box-filters>
@@ -14855,12 +14854,6 @@ function dataBoxMessageFilters(direction) {
         <span>Priorita</span>
         <select name="priority" data-data-box-filter>
           ${dataBoxFilterOptions(DATA_BOX_PRIORITY_OPTIONS, filters.priority)}
-        </select>
-      </label>
-      <label>
-        <span>Typ</span>
-        <select name="type" data-data-box-filter>
-          ${dataBoxFilterOptions(DATA_BOX_TYPE_OPTIONS, filters.type)}
         </select>
       </label>
       <label>
@@ -14885,21 +14878,23 @@ function dataBoxMessageFilters(direction) {
           ], filters.attachment)}
         </select>
       </label>
-      <label>
-        <span>Datová schránka</span>
-        <select name="dataBox" data-data-box-filter ${selectedAccount ? "disabled" : ""}>
-          ${dataBoxAccountFilterOptions(selectedAccount ? selectedAccount.id : filters.dataBox)}
-        </select>
-      </label>
-      <label>
-        <span>Od</span>
-        <input type="date" name="dateFrom" value="${escapeHtml(filters.dateFrom)}" data-data-box-filter />
-      </label>
-      <label>
-        <span>Do</span>
-        <input type="date" name="dateTo" value="${escapeHtml(filters.dateTo)}" data-data-box-filter />
-      </label>
     </form>
+  `;
+}
+
+function dataBoxInboxSearch() {
+  const filters = dataBoxState.messageFilters;
+
+  return `
+    <label class="data-box-inbox-search">
+      <span>Hledat</span>
+      <input
+        name="query"
+        value="${escapeHtml(filters.query)}"
+        placeholder="Odesílatel, předmět, ID, příloha..."
+        data-data-box-filter
+      />
+    </label>
   `;
 }
 
@@ -14937,7 +14932,7 @@ function dataBoxInboxNotice(direction, allRows, filteredRows) {
     return {
       tone: "info",
       title: "Načítám datové zprávy...",
-      text: "Metadata se čtou z chráněného backend API."
+      text: "Probíhá načítání."
     };
   }
 
@@ -14953,7 +14948,7 @@ function dataBoxInboxNotice(direction, allRows, filteredRows) {
     return {
       tone: "warning",
       title: "Datová schránka zatím není nakonfigurovaná.",
-      text: "Čeká se na cloud API, D1 nebo bezpečné nastavení ISDS účtů."
+      text: "Čeká na bezpečné nastavení."
     };
   }
 
@@ -14963,8 +14958,8 @@ function dataBoxInboxNotice(direction, allRows, filteredRows) {
       tone: "muted",
       title: "V datové schránce nejsou žádné zprávy k zobrazení.",
       text: selectedAccount
-        ? `Chlívek ${selectedAccount.label} zatím nemá načtené ${direction === "sent" ? "odeslané" : "přijaté"} zprávy.`
-        : "Frontend neobsahuje falešná provozní data a nevolá ISDS přímo."
+        ? `${selectedAccount.label} zatím nemá načtené ${direction === "sent" ? "odeslané" : "přijaté"} zprávy.`
+        : "Vyber schránku nebo spusť načtení."
     };
   }
 
@@ -15028,18 +15023,6 @@ function dataBoxMessageCard(message, selected) {
           </span>
         </span>
       </button>
-      <div class="data-box-message-card__actions">
-        <span>${escapeHtml(dataBoxMessageNextStep(message))}</span>
-        <button
-          class="secondary-link"
-          type="button"
-          data-data-box-message-detail="${escapeHtml(message.id)}"
-          aria-controls="data-box-message-detail"
-          aria-haspopup="dialog"
-        >
-          Detail
-        </button>
-      </div>
     </article>
   `;
 }
@@ -15055,7 +15038,7 @@ function dataBoxSelectedPreviewMessage(rows) {
 function dataBoxMessageContentPreview(message) {
   const text = dataBoxMessageRawPreview(message);
 
-  return text || "Náhled obsahu není v metadatech dostupný. Pro úplný detail se používá chráněné backend API.";
+  return text || "Náhled obsahu není dostupný.";
 }
 
 function dataBoxReadingPane(message, direction) {
@@ -15112,22 +15095,82 @@ function dataBoxReadingPane(message, direction) {
         <h4>Obsah / náhled</h4>
         <p>${escapeHtml(dataBoxMessageContentPreview(message))}</p>
       </section>
-      <section class="data-box-reading-section data-box-reading-section--next-step">
-        <h4>Návrh vyřízení</h4>
-        <p>${escapeHtml(dataBoxMessageNextStep(message))}</p>
-        <small>Návrh je odvozený z dostupných metadat a nenahrazuje právní kontrolu.</small>
-      </section>
       <section class="data-box-reading-section data-box-reading-section--attachments">
         <h4>Přílohy</h4>
         <ul class="data-box-attachment-list">${dataBoxAttachmentRows(attachments, attachmentCount)}</ul>
       </section>
-      <section class="data-box-reading-section data-box-reading-section--tasks">
-        <h4>Typické úkony</h4>
-        <p>Zkontrolovat lhůtu, projít přílohy, ověřit odpovědnou osobu a teprve po ručním potvrzení řešit další krok mimo tento read-only pohled.</p>
+    </aside>
+  `;
+}
+
+function dataBoxSupportTasks(message) {
+  if (!message) {
+    return ["Vyber zprávu", "Zkontroluj stav ISDS", "Sleduj lhůty"];
+  }
+
+  const attachmentCount = dataBoxAttachmentCount(message);
+  const priority = dataBoxMessagePriority(message);
+  const tasks = [];
+
+  if (priority.id === "urgent" || priority.id === "legal") {
+    tasks.push("Předat Radimovi");
+  }
+
+  if (attachmentCount) {
+    tasks.push("Zkontrolovat přílohu");
+  }
+
+  tasks.push(dataBoxMessageNextStep(message));
+  tasks.push("Čeká na ruční kontrolu");
+
+  return [...new Set(tasks)].slice(0, 4);
+}
+
+function dataBoxSupportPane(message, direction) {
+  const connection = dataBoxConnectionState();
+  const status = dataBoxState.status || {};
+  const metrics = dataBoxInboxMetrics(direction);
+  const selectedAccount = dataBoxSelectedAccount();
+  const context = dataBoxActiveContextLabel();
+  const notificationStatus = status.notifications?.enabled ? "Zapnuto" : "Není aktivní";
+  const scheduleStatus = status.isds?.scheduledSyncEnabled ? "Cloud plán aktivní" : "Pouze návrh";
+  const vaultLabel = Number.isFinite(metrics.vaultCapacity) ? `${Math.round(metrics.vaultCapacity)} %` : "není v datech";
+  const nextStep = message ? dataBoxMessageNextStep(message) : "Vyber zprávu ze seznamu.";
+
+  return `
+    <aside class="data-box-side-pane" aria-label="Návrh vyřízení a stav">
+      <section class="data-box-side-card data-box-side-card--next">
+        <span>Návrh vyřízení</span>
+        <strong>${escapeHtml(nextStep)}</strong>
+        <small>Návrh z metadat, ne právní závěr.</small>
       </section>
-      <section class="data-box-reading-section data-box-reading-section--notes">
-        <h4>Interní poznámky a historie</h4>
-        <p>Bez interních poznámek v dostupných metadatech. Zápis poznámek čeká na potvrzené API.</p>
+      <section class="data-box-side-card">
+        <span>Typické úkony</span>
+        <ul class="data-box-action-list">
+          ${dataBoxSupportTasks(message).map((task) => `<li>${escapeHtml(task)}</li>`).join("")}
+        </ul>
+      </section>
+      ${dataBoxOperationalKpis(direction)}
+      <section class="data-box-side-card">
+        <span>Stav ISDS</span>
+        <dl class="data-box-side-status">
+          <div><dt>Napojení</dt><dd>${escapeHtml(connection.label)}</dd></div>
+          <div><dt>Synchronizace</dt><dd>${escapeHtml(dataBoxLastSyncLabel())}</dd></div>
+          <div><dt>Schránka</dt><dd>${escapeHtml(selectedAccount ? selectedAccount.label : context.title)}</dd></div>
+        </dl>
+      </section>
+      <section class="data-box-side-card">
+        <span>Datový trezor</span>
+        <strong>${escapeHtml(vaultLabel)}</strong>
+        <small>${Number.isFinite(metrics.vaultCapacity) && metrics.vaultCapacity >= 90 ? "Doporučení: předat Radimovi." : "Kapacita pouze read-only."}</small>
+      </section>
+      <section class="data-box-side-card">
+        <span>Notifikace a stahování</span>
+        <dl class="data-box-side-status">
+          <div><dt>Notifikace</dt><dd>${escapeHtml(notificationStatus)}</dd></div>
+          <div><dt>Plán</dt><dd>30 minut</dd></div>
+          <div><dt>Režim</dt><dd>${escapeHtml(scheduleStatus)}</dd></div>
+        </dl>
       </section>
     </aside>
   `;
@@ -15144,24 +15187,24 @@ function dataBoxMessageInbox(title, direction) {
   const notice = dataBoxInboxNotice(direction, allRows, rows);
 
   return `
-    <section class="data-box-panel data-box-message-inbox" id="data-box-${escapeHtml(direction)}-panel" aria-labelledby="data-box-${escapeHtml(direction)}-title">
-      <div class="data-box-panel__head">
-        <div>
-          <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
-          <p>Read-only pracovní inbox. Z této obrazovky se nic neposílá ani nemaže.</p>
+    <div class="data-box-workbench" id="data-box-${escapeHtml(direction)}-panel">
+      <section class="data-box-panel data-box-message-inbox" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+          </div>
+          <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
         </div>
-        <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
-      </div>
-      ${dataBoxOperationalKpis(direction)}
-      ${dataBoxQuickFilters()}
-      ${dataBoxMessageFilters(direction)}
-      <div class="data-box-workbench">
+        ${dataBoxInboxSearch()}
+        ${dataBoxQuickFilters()}
+        ${dataBoxMessageFilters(direction)}
         <div class="data-box-message-list" aria-label="${escapeHtml(sectionTitle)}">
           ${notice ? dataBoxInboxNoticeMarkup(notice) : rows.map((message) => dataBoxMessageCard(message, selectedPreview?.id === message.id)).join("")}
         </div>
-        ${dataBoxReadingPane(notice ? null : selectedPreview, direction)}
-      </div>
-    </section>
+      </section>
+      ${dataBoxReadingPane(notice ? null : selectedPreview, direction)}
+      ${dataBoxSupportPane(notice ? null : selectedPreview, direction)}
+    </div>
   `;
 }
 
@@ -15521,7 +15564,6 @@ function dataBoxPage(moduleItem, user) {
   ensureDataBoxData();
   const connection = dataBoxConnectionState();
   const context = dataBoxActiveContextLabel();
-  const filters = dataBoxState.messageFilters;
 
   return `
     <main class="app-shell module-page module-theme-scope data-box-page" ${moduleThemeStyleAttribute()}>
@@ -15544,14 +15586,9 @@ function dataBoxPage(moduleItem, user) {
             <span>${escapeHtml(context.text)}</span>
           </div>
         </div>
-        <label class="data-box-header-search">
-          <span>Hledat</span>
-          <input name="query" value="${escapeHtml(filters.query)}" placeholder="Odesílatel, předmět, ID, náhled, příloha..." data-data-box-filter />
-        </label>
         ${dataBoxHeaderActions(user)}
       </section>
 
-      ${dataBoxNotificationsStrip()}
       ${dataBoxAccountsSwitcher()}
       ${dataBoxTabs()}
       ${dataBoxActivePanel(user)}
