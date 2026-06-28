@@ -561,6 +561,20 @@ h1 {
   text-transform: uppercase;
 }
 
+.version-news-info__summary {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+}
+
+.version-news-info__range {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .version-news-info h2 {
   margin: 0;
   font-size: 1.18rem;
@@ -595,6 +609,73 @@ h1 {
   font-size: 0.86rem;
   font-weight: 500;
   line-height: 1.42;
+}
+
+.version-news-info__pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(66, 80, 74, 0.1);
+}
+
+.version-news-info__pages {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.version-news-info__page {
+  display: inline-flex;
+  min-width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid rgba(66, 80, 74, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(36, 45, 34, 0.06);
+}
+
+.version-news-info__page:hover,
+.version-news-info__page:focus-visible {
+  border-color: rgba(66, 80, 74, 0.28);
+  background: #fff;
+}
+
+.version-news-info__page[aria-current="page"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.version-news-info__page--control {
+  min-width: 98px;
+}
+
+.version-news-info__page--disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.version-news-info__ellipsis {
+  display: inline-flex;
+  min-width: 18px;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 900;
 }
 
 .module-grid {
@@ -11509,8 +11590,31 @@ body:has(.absence-page--employee-card) {
     gap: 2px;
   }
 
+  .version-news-info__summary {
+    justify-items: start;
+  }
+
   .version-news-info h2 {
     font-size: 1.05rem;
+  }
+
+  .version-news-info__pagination {
+    justify-content: flex-start;
+    gap: 7px;
+  }
+
+  .version-news-info__pages {
+    justify-content: flex-start;
+  }
+
+  .version-news-info__page {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 9px;
+  }
+
+  .version-news-info__page--control {
+    min-width: 92px;
   }
 
   .kaiser-logo {
