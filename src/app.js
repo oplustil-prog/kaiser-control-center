@@ -14753,42 +14753,45 @@ function dataBoxMessageFilters(direction) {
   const filters = dataBoxState.messageFilters;
 
   return `
-    <form class="data-box-filters" data-data-box-filters>
-      <label>
-        <span>Stav</span>
-        <select name="status" data-data-box-filter>
-          ${dataBoxFilterOptions(DATA_BOX_STATUS_OPTIONS, filters.status)}
-        </select>
-      </label>
-      <label>
-        <span>Priorita</span>
-        <select name="priority" data-data-box-filter>
-          ${dataBoxFilterOptions(DATA_BOX_PRIORITY_OPTIONS, filters.priority)}
-        </select>
-      </label>
-      <label>
-        <span>Lhůta</span>
-        <select name="deadline" data-data-box-filter>
-          ${dataBoxFilterOptions([
-            ["all", "Všechny"],
-            ["with", "Jen s lhůtou"],
-            ["due_3", "Do 3 dnů"],
-            ["overdue", "Po lhůtě"],
-            ["none", "Bez lhůty"]
-          ], filters.deadline)}
-        </select>
-      </label>
-      <label>
-        <span>Přílohy</span>
-        <select name="attachment" data-data-box-filter>
-          ${dataBoxFilterOptions([
-            ["all", "Všechny"],
-            ["with", "S přílohou"],
-            ["without", "Bez příloh"]
-          ], filters.attachment)}
-        </select>
-      </label>
-    </form>
+    <details class="data-box-advanced-filters">
+      <summary>Rozšířené filtry</summary>
+      <form class="data-box-filters" data-data-box-filters>
+        <label>
+          <span>Stav</span>
+          <select name="status" data-data-box-filter>
+            ${dataBoxFilterOptions(DATA_BOX_STATUS_OPTIONS, filters.status)}
+          </select>
+        </label>
+        <label>
+          <span>Priorita</span>
+          <select name="priority" data-data-box-filter>
+            ${dataBoxFilterOptions(DATA_BOX_PRIORITY_OPTIONS, filters.priority)}
+          </select>
+        </label>
+        <label>
+          <span>Lhůta</span>
+          <select name="deadline" data-data-box-filter>
+            ${dataBoxFilterOptions([
+              ["all", "Všechny"],
+              ["with", "Jen s lhůtou"],
+              ["due_3", "Do 3 dnů"],
+              ["overdue", "Po lhůtě"],
+              ["none", "Bez lhůty"]
+            ], filters.deadline)}
+          </select>
+        </label>
+        <label>
+          <span>Přílohy</span>
+          <select name="attachment" data-data-box-filter>
+            ${dataBoxFilterOptions([
+              ["all", "Všechny"],
+              ["with", "S přílohou"],
+              ["without", "Bez příloh"]
+            ], filters.attachment)}
+          </select>
+        </label>
+      </form>
+    </details>
   `;
 }
 
@@ -14907,13 +14910,14 @@ function dataBoxInboxIsEmptyState(notice, allRows) {
 }
 
 function dataBoxMessageCard(message, selected) {
-  const status = dataBoxWorkflowStatus(message);
   const priority = dataBoxMessagePriority(message);
   const type = dataBoxMessageType(message);
   const deadline = dataBoxDeadlineInfo(message);
   const attachmentCount = dataBoxAttachmentCount(message);
   const deliveredAt = formatDateTime(dataBoxMessageTimestamp(message));
   const deadlineLabel = deadline.date ? deadline.label : "bez lhůty";
+  const preview = dataBoxMessageRawPreview(message);
+  const avatarLabel = String(priority.label || type.label || "DS").trim().slice(0, 1).toUpperCase();
 
   return `
     <article class="data-box-message-card data-box-message-card--priority-${escapeHtml(priority.id)} ${selected ? "data-box-message-card--selected" : ""}">
@@ -14923,22 +14927,21 @@ function dataBoxMessageCard(message, selected) {
         data-data-box-preview-message="${escapeHtml(message.id)}"
         aria-pressed="${selected ? "true" : "false"}"
       >
-        <span class="data-box-message-card__top">
-          <span class="data-box-message-card__actor">${escapeHtml(dataBoxMessageActor(message))}</span>
-          <span class="data-box-message-card__date">${escapeHtml(deliveredAt || "-")}</span>
-        </span>
-        <span class="data-box-message-card__priority">
-          ${dataBoxPriorityBadge(priority)}
-          <span>${escapeHtml(type.label)}</span>
-        </span>
-        <strong>${escapeHtml(message.subject || "(bez předmětu)")}</strong>
-        <span class="data-box-message-card__preview">${escapeHtml(dataBoxMessageContentPreview(message))}</span>
-        <span class="data-box-message-card__meta">
-          ${dataBoxBadge(status.label, status.tone)}
-          <span>${escapeHtml(dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel))}</span>
-          <span>${escapeHtml(attachmentCount ? `${attachmentCount} příloh` : "bez příloh")}</span>
-          <span class="data-box-message-card__deadline data-box-message-card__deadline--${escapeHtml(deadline.tone)}">
-            ${escapeHtml(deadlineLabel)}
+        <span class="data-box-message-card__avatar" aria-hidden="true">${escapeHtml(avatarLabel || "D")}</span>
+        <span class="data-box-message-card__body">
+          <span class="data-box-message-card__top">
+            <span class="data-box-message-card__actor">${escapeHtml(dataBoxMessageActor(message))}</span>
+            <span class="data-box-message-card__date">${escapeHtml(deliveredAt || "-")}</span>
+          </span>
+          <span class="data-box-message-card__subject">${escapeHtml(message.subject || "(bez předmětu)")}</span>
+          ${preview ? `<span class="data-box-message-card__preview">${escapeHtml(preview)}</span>` : ""}
+          <span class="data-box-message-card__meta">
+            ${dataBoxPriorityBadge(priority)}
+            <span>${escapeHtml(type.label)}</span>
+            <span>${escapeHtml(attachmentCount ? `${attachmentCount} příloh` : "bez příloh")}</span>
+            <span class="data-box-message-card__deadline data-box-message-card__deadline--${escapeHtml(deadline.tone)}">
+              ${escapeHtml(deadlineLabel)}
+            </span>
           </span>
         </span>
       </button>
@@ -14947,11 +14950,11 @@ function dataBoxMessageCard(message, selected) {
 }
 
 function dataBoxSelectedPreviewMessage(rows) {
-  if (!rows.length) {
+  if (!rows.length || !dataBoxState.selectedPreviewMessageId) {
     return null;
   }
 
-  return rows.find((message) => message.id === dataBoxState.selectedPreviewMessageId) || rows[0];
+  return rows.find((message) => message.id === dataBoxState.selectedPreviewMessageId) || null;
 }
 
 function dataBoxMessageContentPreview(message) {
@@ -14964,9 +14967,15 @@ function dataBoxReadingPane(message, direction) {
   if (!message) {
     return `
       <aside class="data-box-reading-pane" aria-label="Detail zprávy">
-        <div class="data-box-reading-pane__empty">
-          <strong>Vyber zprávu</strong>
-          <span>${escapeHtml(direction === "sent" ? "Detail odeslané zprávy se zobrazí tady." : "Detail přijaté zprávy se zobrazí tady.")}</span>
+        <div class="data-box-reading-pane__empty data-box-reading-pane__empty--premium">
+          <span class="data-box-empty-icon" aria-hidden="true">DS</span>
+          <strong>Vyberte zprávu</strong>
+          <span>Detail zprávy, přílohy a návrh vyřízení se zobrazí tady.</span>
+          <div class="data-box-empty-chips" aria-label="Co se zobrazí v detailu">
+            <span>Přílohy</span>
+            <span>Návrh vyřízení</span>
+            <span>Typické úkony</span>
+          </div>
         </div>
       </aside>
     `;
@@ -15051,6 +15060,9 @@ function dataBoxSupportPane(message, direction) {
   const context = dataBoxActiveContextLabel();
   const vaultLabel = Number.isFinite(metrics.vaultCapacity) ? `${Math.round(metrics.vaultCapacity)} %` : "není v datech";
   const nextStep = message ? dataBoxMessageNextStep(message) : "Vyber zprávu ze seznamu.";
+  const vaultPercent = Number.isFinite(metrics.vaultCapacity)
+    ? Math.max(0, Math.min(100, Math.round(metrics.vaultCapacity)))
+    : null;
 
   return `
     <aside class="data-box-side-pane" aria-label="Návrh vyřízení a stav">
@@ -15064,22 +15076,23 @@ function dataBoxSupportPane(message, direction) {
           ${dataBoxSupportTasks(message).map((task) => `<li>${escapeHtml(task)}</li>`).join("")}
         </ul>
       </section>
-      ${dataBoxOperationalKpis(direction)}
-      <section class="data-box-side-card">
+      <section class="data-box-side-card data-box-side-card--isds">
         <span>Stav ISDS</span>
+        <div class="data-box-status-ring data-box-status-ring--${escapeHtml(connection.tone)}" aria-hidden="true"></div>
         <dl class="data-box-side-status">
           <div><dt>Napojení</dt><dd>${escapeHtml(connection.label)}</dd></div>
           <div><dt>Synchronizace</dt><dd>${escapeHtml(dataBoxLastSyncLabel())}</dd></div>
           <div><dt>Schránka</dt><dd>${escapeHtml(selectedAccount ? selectedAccount.label : context.title)}</dd></div>
+          <div><dt>Plán</dt><dd>Stahování každých 30 minut pouze read-only</dd></div>
         </dl>
       </section>
-      ${Number.isFinite(metrics.vaultCapacity) && metrics.vaultCapacity >= 90 ? `
-        <section class="data-box-side-card">
-          <span>Datový trezor</span>
-          <strong>${escapeHtml(vaultLabel)}</strong>
-          <small>Doporučení: předat Radimovi.</small>
-        </section>
-      ` : ""}
+      <section class="data-box-side-card data-box-side-card--vault">
+        <span>Datový trezor</span>
+        <div class="data-box-vault-meter" style="--data-box-vault-value: ${escapeHtml(String(vaultPercent ?? 0))};">
+          <strong>${escapeHtml(vaultPercent === null ? "?" : `${vaultPercent}`)}</strong>
+        </div>
+        <small>${escapeHtml(vaultPercent === null ? vaultLabel : `${vaultLabel} kapacity`)}</small>
+      </section>
     </aside>
   `;
 }
@@ -15097,36 +15110,44 @@ function dataBoxMessageInbox(title, direction) {
 
   if (emptyState) {
     return `
-      <section class="data-box-panel data-box-message-inbox data-box-message-inbox--empty" id="data-box-${escapeHtml(direction)}-panel" aria-labelledby="data-box-${escapeHtml(direction)}-title">
-        <div class="data-box-panel__head">
-          <div>
-            <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
-          </div>
+      <section class="data-box-glass-shell" id="data-box-${escapeHtml(direction)}-panel">
+        <div class="data-box-workbench">
+          <section class="data-box-panel data-box-message-inbox data-box-message-inbox--empty" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+            <div class="data-box-panel__head">
+              <div>
+                <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+              </div>
+            </div>
+            ${dataBoxInboxNoticeMarkup(notice)}
+          </section>
+          ${dataBoxReadingPane(null, direction)}
+          ${dataBoxSupportPane(null, direction)}
         </div>
-        ${dataBoxInboxNoticeMarkup(notice)}
       </section>
     `;
   }
 
   return `
-    <div class="data-box-workbench" id="data-box-${escapeHtml(direction)}-panel">
-      <section class="data-box-panel data-box-message-inbox" aria-labelledby="data-box-${escapeHtml(direction)}-title">
-        <div class="data-box-panel__head">
-          <div>
-            <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+    <section class="data-box-glass-shell" id="data-box-${escapeHtml(direction)}-panel">
+      <div class="data-box-workbench">
+        <section class="data-box-panel data-box-message-inbox" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+          <div class="data-box-panel__head">
+            <div>
+              <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+            </div>
+            <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
           </div>
-          <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
-        </div>
-        ${dataBoxInboxSearch()}
-        ${dataBoxQuickFilters()}
-        ${dataBoxMessageFilters(direction)}
-        <div class="data-box-message-list" aria-label="${escapeHtml(sectionTitle)}">
-          ${notice ? dataBoxInboxNoticeMarkup(notice) : rows.map((message) => dataBoxMessageCard(message, selectedPreview?.id === message.id)).join("")}
-        </div>
-      </section>
-      ${notice ? "" : dataBoxReadingPane(selectedPreview, direction)}
-      ${notice ? "" : dataBoxSupportPane(selectedPreview, direction)}
-    </div>
+          ${dataBoxInboxSearch()}
+          ${dataBoxQuickFilters()}
+          ${dataBoxMessageFilters(direction)}
+          <div class="data-box-message-list" aria-label="${escapeHtml(sectionTitle)}">
+            ${notice ? dataBoxInboxNoticeMarkup(notice) : rows.map((message) => dataBoxMessageCard(message, selectedPreview?.id === message.id)).join("")}
+          </div>
+        </section>
+        ${notice ? dataBoxReadingPane(null, direction) : dataBoxReadingPane(selectedPreview, direction)}
+        ${notice ? dataBoxSupportPane(null, direction) : dataBoxSupportPane(selectedPreview, direction)}
+      </div>
+    </section>
   `;
 }
 
@@ -22248,8 +22269,9 @@ document.addEventListener("click", async (event) => {
 
   const dataBoxPreviewMessage = event.target.closest("[data-data-box-preview-message]");
   if (dataBoxPreviewMessage) {
-    dataBoxState.selectedPreviewMessageId = dataBoxPreviewMessage.dataset.dataBoxPreviewMessage || "";
-    render();
+    const messageId = dataBoxPreviewMessage.dataset.dataBoxPreviewMessage || "";
+    dataBoxState.selectedPreviewMessageId = messageId;
+    void loadDataBoxMessageDetail(messageId);
     return;
   }
 
