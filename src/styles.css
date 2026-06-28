@@ -39,6 +39,13 @@ body {
   letter-spacing: 0;
 }
 
+body:has(.home-hero) {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(125, 135, 146, 0.16), transparent 32%),
+    radial-gradient(circle at 82% 8%, rgba(168, 177, 185, 0.18), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f3f5f6 46%, #e8ecef 100%);
+}
+
 a {
   color: inherit;
 }
