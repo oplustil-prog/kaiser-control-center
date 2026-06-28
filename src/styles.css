@@ -11085,11 +11085,10 @@ body:has(.data-box-page) {
 }
 
 .data-box-message-card__select {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 12px;
-  align-items: center;
-  padding: 12px 0;
+  position: relative;
+  display: block;
+  min-height: 58px;
+  padding: 12px 128px 12px 0;
   text-align: left;
 }
 
@@ -11100,11 +11099,11 @@ body:has(.data-box-page) {
 }
 
 .data-box-message-card__top {
-  display: contents;
+  display: block;
 }
 
 .data-box-message-card__actor {
-  grid-column: 1;
+  display: block;
   min-width: 0;
   overflow: hidden;
   color: var(--data-box-text, var(--text));
@@ -11116,8 +11115,8 @@ body:has(.data-box-page) {
 }
 
 .data-box-message-card__date {
-  grid-column: 2;
-  justify-self: end;
+  position: absolute;
+  inset: 13px 0 auto auto;
   color: var(--data-box-muted, var(--muted));
   font-size: 0.84rem;
   font-weight: 600;
@@ -11126,8 +11125,9 @@ body:has(.data-box-page) {
 }
 
 .data-box-message-card__subject {
-  grid-column: 1;
+  display: block;
   min-width: 0;
+  margin-top: 5px;
   overflow: hidden;
   color: var(--data-box-text, var(--text));
   font-size: 0.92rem;
@@ -11138,7 +11138,8 @@ body:has(.data-box-page) {
 }
 
 .data-box-message-card__extras {
-  grid-column: 2;
+  position: absolute;
+  inset: auto 0 12px auto;
   display: inline-flex;
   gap: 6px;
   align-items: center;
