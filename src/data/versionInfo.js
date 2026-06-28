@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.179"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.180"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "HP: nove kompaktni logo",
+    text: "Homepage pouziva dodane obrazkove logo Smart odpady misto samostatneho Kaiser boxu a velkeho textoveho nadpisu, aby uvodni header zabiral mene mista."
+  },
   {
     title: "Vzhled: sede povrchy misto zeleneho nadechu",
     text: "Dynamicky theme surface uz nepouziva zelenou primarni barvu v pozadi; stary zelenkavy default #f7f9f4 se meni na neutralni sedy povrch."

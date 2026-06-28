@@ -3947,8 +3947,12 @@ function homePage(user) {
       ${userBar(user)}
       <section class="home-hero" aria-labelledby="home-title">
         <div class="home-hero__main">
-          <a class="kaiser-logo" href="${routeHref("/")}" data-link aria-label="${APP_NAME}">kaiser.</a>
-          <h1 id="home-title">${APP_NAME}</h1>
+          <h1 id="home-title" class="home-brand-title">
+            <a class="home-brand-logo" href="${routeHref("/")}" data-link aria-label="${APP_NAME}">
+              <img src="smart-odpady-logo.png" alt="${APP_NAME}" width="492" height="216" />
+            </a>
+            <span class="sr-only">${APP_NAME}</span>
+          </h1>
           <p class="home-subtitle">${HOME_SUBTITLE}</p>
         </div>
         <div class="home-status" aria-label="Stav modulů">
