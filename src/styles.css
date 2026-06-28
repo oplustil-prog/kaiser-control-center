@@ -51,6 +51,10 @@ body:has(.home-hero) {
     linear-gradient(180deg, #ffffff 0%, #f3f5f6 46%, #e8ecef 100%);
 }
 
+body:has(.home-hero) .app-shell {
+  width: min(1240px, calc(100% - 30px));
+}
+
 body:has(.home-hero) .module-card {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 249, 250, 0.98) 100%),
