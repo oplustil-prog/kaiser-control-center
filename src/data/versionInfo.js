@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.185"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.186"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Dovolená / Nemoc: barvy z Nastavení vzhledu",
+    text: "Modul Dovolená / Nemoc nově používá firemní paletu z globálního Nastavení vzhledu i pro záložky, panely, pravidla a Kartu zaměstnance."
+  },
   {
     title: "UI: upraveny status badge",
     text: "Status badge na kartach ma posunutou pozici a kompaktnejsi padding podle posledni vizualni kontroly."

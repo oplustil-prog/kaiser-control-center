@@ -10426,22 +10426,29 @@ body:has(.ai-assistant-promo-modal) {
 }
 
 .absence-page {
-  --color-primary: #75bd25;
-  --color-primary-dark: #579718;
-  --color-text: #1f2921;
-  --color-muted: #667064;
-  --color-bg: #f7f9f4;
-  --color-card: #ffffff;
-  --color-border: #d8e2d3;
+  --color-primary: var(--theme-primary, #75bd25);
+  --color-primary-dark: var(--theme-secondary, #3f4a45);
+  --color-text: var(--theme-text, #1f2921);
+  --color-muted: var(--theme-muted, #667064);
+  --color-bg: var(--theme-bg, #f7f8f9);
+  --color-card: var(--theme-card, #ffffff);
+  --color-border: var(--theme-border, #d8e2d3);
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
-  --radius-card: 18px;
-  --shadow-card: 0 18px 45px rgba(31, 41, 33, 0.1);
+  --color-surface: color-mix(in srgb, var(--color-card) 84%, var(--color-bg));
+  --color-surface-strong: color-mix(in srgb, var(--color-primary) 10%, var(--color-card));
+  --color-primary-soft: color-mix(in srgb, var(--color-primary) 14%, var(--color-card));
+  --color-primary-softer: color-mix(in srgb, var(--color-primary) 8%, var(--color-card));
+  --color-primary-border: color-mix(in srgb, var(--color-primary) 38%, transparent);
+  --color-primary-focus: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  --radius-card: var(--theme-card-radius, 18px);
+  --radius-button: var(--theme-button-radius, 14px);
+  --shadow-card: var(--theme-shadow-card, 0 18px 45px rgba(31, 41, 33, 0.1));
   color: var(--color-text);
 }
 
 body:has(.absence-page--employee-card) {
-  background: #f7f9f4;
+  background: var(--theme-bg-surface, #f7f8f9);
 }
 
 .absence-page .topbar {
@@ -10450,10 +10457,11 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .primary-action {
   min-height: 48px;
-  border-radius: 14px;
-  background: var(--color-primary);
-  color: #ffffff;
-  box-shadow: 0 14px 30px rgba(117, 189, 37, 0.24);
+  border: var(--theme-button-border, 1px solid transparent);
+  border-radius: var(--radius-button);
+  background: var(--theme-button-background, var(--color-primary));
+  color: var(--theme-button-color, #ffffff);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--color-primary) 24%, transparent);
 }
 
 .absence-page .primary-action:hover,
@@ -10464,7 +10472,7 @@ body:has(.absence-page--employee-card) {
 .absence-page .secondary-link,
 .absence-page .back-button {
   border-color: var(--color-border);
-  border-radius: 14px;
+  border-radius: var(--radius-button);
 }
 
 .absence-page .module-detail__eyebrow {
@@ -10501,9 +10509,9 @@ body:has(.absence-page--employee-card) {
 }
 
 .absence-page .absence-hero__meta {
-  border-color: rgba(117, 189, 37, 0.32);
+  border-color: var(--color-primary-border);
   border-radius: var(--radius-card);
-  background: linear-gradient(180deg, #ffffff 0%, #f5fbef 100%);
+  background: linear-gradient(180deg, var(--color-card) 0%, var(--color-primary-softer) 100%);
   box-shadow: var(--shadow-card);
 }
 
@@ -10526,7 +10534,7 @@ body:has(.absence-page--employee-card) {
 .absence-page .absence-tab,
 .absence-page .absence-icon-button {
   border-color: var(--color-border);
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   color: var(--color-text);
 }
 
@@ -10537,9 +10545,9 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .absence-tab--active {
   border-color: var(--color-primary);
-  background: #eef9e6;
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
-  box-shadow: inset 0 0 0 1px rgba(117, 189, 37, 0.35);
+  box-shadow: inset 0 0 0 1px var(--color-primary-border);
 }
 
 .absence-page .absence-dashboard {
@@ -10547,7 +10555,11 @@ body:has(.absence-page--employee-card) {
   border: 1px solid var(--color-border);
   border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(117, 189, 37, 0.16), rgba(247, 249, 244, 0.42) 340px),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-primary) 16%, transparent),
+      color-mix(in srgb, var(--color-bg) 42%, transparent) 340px
+    ),
     var(--color-bg);
 }
 
@@ -10572,10 +10584,10 @@ body:has(.absence-page--employee-card) {
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  background: #e8f7df;
+  background: var(--color-primary-softer);
   box-shadow:
-    inset 0 0 0 8px #ffffff,
-    0 0 0 1px rgba(117, 189, 37, 0.38);
+    inset 0 0 0 8px var(--color-card),
+    0 0 0 1px var(--color-primary-border);
   content: "";
 }
 
@@ -10634,7 +10646,7 @@ body:has(.absence-page--employee-card) {
 .absence-page .absence-report-history li {
   border-color: var(--color-border);
   border-radius: 14px;
-  background: #fbfdf9;
+  background: var(--color-surface);
 }
 
 .absence-page .absence-badge,
@@ -10651,7 +10663,7 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .absence-badge--approved,
 .absence-page .absence-badge--recorded {
-  background: rgba(117, 189, 37, 0.18);
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
 }
 
@@ -10666,13 +10678,13 @@ body:has(.absence-page--employee-card) {
 }
 
 .absence-page .absence-badge--new {
-  background: #eef9e6;
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
 }
 
 .absence-page .absence-type--vacation,
 .absence-page .absence-type--timeoff {
-  background: #eef9e6;
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
 }
 
@@ -10696,7 +10708,7 @@ body:has(.absence-page--employee-card) {
 .absence-page .module-feedback__field select {
   min-height: 50px;
   border-color: var(--color-border);
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   color: var(--color-text);
 }
 
@@ -10708,7 +10720,7 @@ body:has(.absence-page--employee-card) {
 .absence-page .module-feedback__field textarea:focus,
 .absence-page .module-feedback__field select:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 4px rgba(117, 189, 37, 0.16);
+  box-shadow: 0 0 0 4px var(--color-primary-focus);
 }
 
 .absence-page .absence-checkbox,
@@ -10716,13 +10728,13 @@ body:has(.absence-page--employee-card) {
 .absence-page .absence-module-note,
 .absence-page .absence-filters {
   border-color: var(--color-border);
-  border-radius: 14px;
-  background: #fbfdf9;
+  border-radius: var(--radius-button);
+  background: var(--color-surface);
 }
 
 .absence-page .absence-filter-button {
-  border-radius: 14px;
-  background: #ffffff;
+  border-radius: var(--radius-button);
+  background: var(--color-card);
 }
 
 .absence-page .absence-calendar {
@@ -10743,7 +10755,7 @@ body:has(.absence-page--employee-card) {
 }
 
 .absence-page .absence-calendar__day--today {
-  background: #eef9e6;
+  background: var(--color-primary-soft);
   box-shadow: inset 0 0 0 2px var(--color-primary);
 }
 
@@ -10759,7 +10771,7 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .absence-calendar__event--vacation,
 .absence-page .absence-calendar__event--recorded {
-  background: #e8f7df;
+  background: var(--color-primary-soft);
   color: var(--color-primary-dark);
 }
 
@@ -10778,7 +10790,7 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .module-feedback {
   border-radius: var(--radius-card);
-  background: #ffffff;
+  background: var(--color-card);
 }
 
 .absence-page .module-feedback::before {
@@ -10792,6 +10804,121 @@ body:has(.absence-page--employee-card) {
 
 .absence-page .module-feedback h2 {
   color: var(--color-text);
+}
+
+.absence-page .medical-exam-rules-summary article,
+.absence-page .medical-exam-rules-table-wrap,
+.absence-page .medical-exam-rules-note,
+.absence-page .module-rules-toolbar input,
+.absence-page .module-rules-toolbar select,
+.absence-page .module-rules-status-grid article,
+.absence-page .module-rules-empty,
+.absence-page .module-rules-detail,
+.absence-page .module-rules-detail-grid article,
+.absence-page .module-rules-json-grid pre,
+.absence-page .module-rules-audit li,
+.absence-page .module-rules-runs li,
+.absence-page .module-rules-endpoints code,
+.absence-page .employee-card-header,
+.absence-page .employee-card-section,
+.absence-page .employee-card-kpi,
+.absence-page .employee-vacation-overview,
+.absence-page .employee-vacation-overview__stats span,
+.absence-page .employee-card-readonly,
+.absence-page .employee-medical-exam-overview article,
+.absence-page .employee-medical-exam-alert,
+.absence-page .employee-medical-exam-note,
+.absence-page .employee-medical-exam-pdf,
+.absence-page .employee-card-document-types span,
+.absence-page .employee-document-upload-form,
+.absence-page .employee-import-form,
+.absence-page .employee-import-summary article,
+.absence-page .employee-import-column,
+.absence-page .employee-hr-profile-group {
+  border-color: var(--color-border);
+}
+
+.absence-page .medical-exam-rules-summary article,
+.absence-page .medical-exam-rules-note,
+.absence-page .module-rules-detail-grid article,
+.absence-page .module-rules-json-grid pre,
+.absence-page .module-rules-endpoints code,
+.absence-page .employee-vacation-overview,
+.absence-page .employee-card-readonly,
+.absence-page .employee-medical-exam-note,
+.absence-page .employee-card-document-types span,
+.absence-page .employee-document-upload-form,
+.absence-page .employee-import-form,
+.absence-page .employee-import-summary article,
+.absence-page .employee-import-column,
+.absence-page .employee-hr-profile-group {
+  background: var(--color-surface);
+}
+
+.absence-page .medical-exam-rules-table-wrap,
+.absence-page .module-rules-status-grid article,
+.absence-page .module-rules-empty,
+.absence-page .module-rules-detail,
+.absence-page .module-rules-audit li,
+.absence-page .module-rules-runs li,
+.absence-page .employee-card-header,
+.absence-page .employee-card-section,
+.absence-page .employee-card-kpi,
+.absence-page .employee-vacation-overview__stats span,
+.absence-page .employee-medical-exam-overview article,
+.absence-page .employee-medical-exam-pdf {
+  background: var(--color-card);
+}
+
+.absence-page .employee-medical-exam-section {
+  background: linear-gradient(180deg, var(--color-card) 0%, var(--color-surface) 100%);
+}
+
+.absence-page .employee-medical-exam-overview__main,
+.absence-page .employee-medical-exam-alert--enabled {
+  background: var(--color-primary-softer);
+}
+
+.absence-page .employee-card-status--ready,
+.absence-page .employee-medical-exam-status--ready,
+.absence-page .employee-medical-exam-rule-badge--required,
+.absence-page .employee-medical-exam-alert--enabled .employee-medical-exam-alert__icon {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+
+.absence-page .employee-medical-exam-alert--enabled {
+  border-left-color: var(--color-primary);
+}
+
+.absence-page .module-rules-status-chip--active,
+.absence-page .absence-icon-button--approve {
+  border-color: var(--color-primary-border);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+
+.absence-page .employee-card-switcher,
+.absence-page .employee-card-field input,
+.absence-page .employee-card-field select,
+.absence-page .employee-card-field textarea,
+.absence-page .employee-import-form input,
+.absence-page .employee-work-history-form input,
+.absence-page .employee-work-history-form textarea,
+.absence-page .employee-medical-exam-form input,
+.absence-page .employee-medical-exam-form select,
+.absence-page .employee-medical-exam-form textarea {
+  border-color: var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.absence-page .employee-card-field input:disabled,
+.absence-page .employee-card-field select:disabled,
+.absence-page .employee-card-field textarea:disabled,
+.absence-page .employee-import-form input:disabled {
+  background: var(--color-surface);
+  color: var(--color-muted);
 }
 
 .absence-page--quick .absence-hero,
@@ -10826,7 +10953,7 @@ body:has(.absence-page--employee-card) {
 .quick-absence-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  background: #ffffff;
+  background: var(--color-card);
   box-shadow: var(--shadow-card);
 }
 
@@ -10870,7 +10997,7 @@ body:has(.absence-page--employee-card) {
   min-height: 52px;
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  background: #fbfdf9;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
   font-weight: 900;
@@ -10907,7 +11034,7 @@ body:has(.absence-page--employee-card) {
 .quick-absence-option-toggle:hover,
 .quick-absence-option-toggle:focus-visible {
   border-color: var(--color-primary);
-  background: #eef9e6;
+  background: var(--color-primary-soft);
   outline: none;
 }
 
@@ -10928,7 +11055,7 @@ body:has(.absence-page--employee-card) {
   justify-self: start;
   min-height: 42px;
   padding: 0 14px;
-  background: #ffffff;
+  background: var(--color-card);
 }
 
 .quick-absence-custom-date {
@@ -10974,7 +11101,7 @@ body:has(.absence-page--employee-card) {
   padding: 14px;
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  background: #fbfdf9;
+  background: var(--color-surface);
 }
 
 .quick-absence-summary span,
@@ -11008,7 +11135,7 @@ body:has(.absence-page--employee-card) {
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: #fbfdf9;
+  background: var(--color-surface);
 }
 
 .quick-absence-error {
