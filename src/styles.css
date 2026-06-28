@@ -7561,6 +7561,85 @@ body:has(.ai-assistant-promo-modal) {
   font-weight: 800;
 }
 
+.data-box-message-detail {
+  scroll-margin-top: 16px;
+}
+
+.data-box-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.data-box-detail-field,
+.data-box-detail-subject {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 0 12px;
+  border-top: 1px solid rgba(40, 55, 47, 0.12);
+}
+
+.data-box-detail-field span,
+.data-box-detail-subject span,
+.data-box-detail-columns h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.data-box-detail-field strong,
+.data-box-detail-subject strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.data-box-detail-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.data-box-detail-columns section {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(40, 55, 47, 0.12);
+}
+
+.data-box-detail-columns ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.data-box-detail-columns li,
+.data-box-detail-columns p {
+  margin: 0;
+  color: var(--steel);
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.data-box-detail-columns li {
+  display: grid;
+  gap: 3px;
+}
+
+.data-box-detail-columns li span {
+  color: var(--muted);
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
 .data-box-architecture-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -13824,7 +13903,9 @@ body:has(.absence-page--employee-card) {
   .data-box-phase-grid,
   .data-box-ai-grid,
   .data-box-reality-grid,
-  .data-box-safe-actions {
+  .data-box-safe-actions,
+  .data-box-detail-grid,
+  .data-box-detail-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -13842,7 +13923,9 @@ body:has(.absence-page--employee-card) {
   .data-box-phase-grid,
   .data-box-ai-grid,
   .data-box-reality-grid,
-  .data-box-safe-actions {
+  .data-box-safe-actions,
+  .data-box-detail-grid,
+  .data-box-detail-columns {
     grid-template-columns: 1fr;
   }
 

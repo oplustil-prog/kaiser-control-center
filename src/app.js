@@ -734,6 +734,10 @@ const dataBoxState = {
   status: null,
   messages: [],
   syncRuns: [],
+  selectedMessageId: "",
+  selectedMessage: null,
+  detailLoading: false,
+  detailError: "",
   error: ""
 };
 const quickAbsenceState = {
@@ -13190,6 +13194,10 @@ function dataBoxAiStatusLabel(value) {
   return labels[String(value || "").trim().toLowerCase()] || String(value || "-");
 }
 
+function dataBoxDirectionLabel(value) {
+  return value === "sent" ? "odeslaná" : "přijatá";
+}
+
 function dataBoxMessageRows(direction) {
   if (dataBoxState.loading && !dataBoxState.loaded) {
     return `
@@ -13221,13 +13229,22 @@ function dataBoxMessageRows(direction) {
   return rows.map((message) => `
     <tr>
       <td>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "-")}</td>
-      <td>${escapeHtml(message.direction === "sent" ? "odeslaná" : "přijatá")}</td>
+      <td>${escapeHtml(dataBoxDirectionLabel(message.direction))}</td>
       <td>${escapeHtml(dataBoxMessageActor(message))}</td>
       <td>${escapeHtml(message.subject || "(bez předmětu)")}</td>
       <td>${escapeHtml(message.status || "-")}</td>
       <td>${escapeHtml(String(message.attachmentsCount || 0))}</td>
       <td>${escapeHtml(dataBoxAiStatusLabel(message.aiStatus))}</td>
-      <td><button class="secondary-link" type="button" disabled>Detail</button></td>
+      <td>
+        <button
+          class="secondary-link"
+          type="button"
+          data-data-box-message-detail="${escapeHtml(message.id)}"
+          aria-controls="data-box-message-detail"
+        >
+          Detail
+        </button>
+      </td>
     </tr>
   `).join("");
 }
@@ -13257,6 +13274,147 @@ function dataBoxMessageTable(title, direction) {
       </div>
     </section>
   `;
+}
+
+function dataBoxDetailField(label, value) {
+  return `
+    <div class="data-box-detail-field">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "neuvedeno")}</strong>
+    </div>
+  `;
+}
+
+function dataBoxAttachmentRows(attachments = []) {
+  if (!attachments.length) {
+    return `<li>Bez příloh v metadatech.</li>`;
+  }
+
+  return attachments.map((attachment) => `
+    <li>
+      <strong>${escapeHtml(attachment.filename || "Příloha bez názvu")}</strong>
+      <span>${escapeHtml([
+        attachment.contentType || "",
+        formatFileSize(attachment.sizeBytes),
+        attachment.status || ""
+      ].filter(Boolean).join(" · ") || "metadata")}</span>
+    </li>
+  `).join("");
+}
+
+function dataBoxAiEvaluationDetail(evaluation) {
+  if (!evaluation) {
+    return "Bez AI vyhodnocení.";
+  }
+
+  return [
+    evaluation.label ? `štítek: ${evaluation.label}` : "",
+    evaluation.priority ? `priorita: ${evaluation.priority}` : "",
+    evaluation.status ? `stav: ${evaluation.status}` : "",
+    evaluation.confidence !== null && evaluation.confidence !== undefined ? `jistota: ${evaluation.confidence}` : ""
+  ].filter(Boolean).join(" · ") || "AI vyhodnocení bez detailu.";
+}
+
+function dataBoxMessageDetailPanel() {
+  const message = dataBoxState.selectedMessage;
+  const selectedId = dataBoxState.selectedMessageId;
+
+  if (!selectedId) {
+    return `
+      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
+            <p>Vyberte Detail u přijaté nebo odeslané zprávy. Detail čte pouze metadata z interního API.</p>
+          </div>
+          <span class="employee-card-status employee-card-status--waiting">read-only</span>
+        </div>
+      </section>
+    `;
+  }
+
+  if (dataBoxState.detailLoading) {
+    return `
+      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
+            <p>Načítám detail zprávy z cloud API...</p>
+          </div>
+          <span class="employee-card-status employee-card-status--waiting">načítám</span>
+        </div>
+      </section>
+    `;
+  }
+
+  if (dataBoxState.detailError) {
+    return `
+      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
+            <p>${escapeHtml(dataBoxState.detailError)}</p>
+          </div>
+          <button class="secondary-link" type="button" data-data-box-message-detail-close>Zavřít</button>
+        </div>
+      </section>
+    `;
+  }
+
+  if (!message) {
+    return "";
+  }
+
+  const actorLabel = message.direction === "sent" ? "Příjemce" : "Odesílatel";
+  const actorValue = dataBoxMessageActor(message);
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+
+  return `
+    <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
+      <div class="data-box-panel__head">
+        <div>
+          <h2 id="data-box-message-detail-title">Detail zprávy</h2>
+          <p>Read-only metadata z backendu. ISDS synchronizace, stahování příloh a odesílání zůstávají vypnuté.</p>
+        </div>
+        <button class="secondary-link" type="button" data-data-box-message-detail-close>Zavřít</button>
+      </div>
+      <div class="data-box-detail-grid">
+        ${dataBoxDetailField("Směr", dataBoxDirectionLabel(message.direction))}
+        ${dataBoxDetailField(actorLabel, actorValue)}
+        ${dataBoxDetailField("Stav", message.status)}
+        ${dataBoxDetailField("Priorita", message.priority)}
+        ${dataBoxDetailField("Doručeno", formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt))}
+        ${dataBoxDetailField("Přečteno", formatDateTime(message.readAt))}
+        ${dataBoxDetailField("ISDS stav", message.isdsState)}
+        ${dataBoxDetailField("Zdroj", message.source)}
+      </div>
+      <div class="data-box-detail-subject">
+        <span>Předmět</span>
+        <strong>${escapeHtml(message.subject || "(bez předmětu)")}</strong>
+      </div>
+      <div class="data-box-detail-columns">
+        <section>
+          <h3>Přílohy</h3>
+          <ul>${dataBoxAttachmentRows(attachments)}</ul>
+        </section>
+        <section>
+          <h3>AI vyhodnocení</h3>
+          <p>${escapeHtml(dataBoxAiEvaluationDetail(message.latestAiEvaluation))}</p>
+          ${message.latestAiEvaluation?.summary ? `<p>${escapeHtml(message.latestAiEvaluation.summary)}</p>` : ""}
+          ${message.latestAiEvaluation?.suggestedAction ? `<p>${escapeHtml(message.latestAiEvaluation.suggestedAction)}</p>` : ""}
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function scrollDataBoxMessageDetailIntoView() {
+  window.requestAnimationFrame(() => {
+    document.getElementById("data-box-message-detail")?.scrollIntoView({
+      block: "start",
+      behavior: "smooth"
+    });
+  });
 }
 
 function dataBoxAiPanel() {
@@ -13467,6 +13625,7 @@ function dataBoxPage(moduleItem, user) {
       ${dataBoxArchitecturePanel()}
       ${dataBoxMessageTable("Přijaté zprávy", "received")}
       ${dataBoxMessageTable("Odeslané zprávy", "sent")}
+      ${dataBoxMessageDetailPanel()}
       ${dataBoxAiPanel()}
       ${dataBoxSyncRunsPanel()}
       <div id="rules">
@@ -15045,6 +15204,10 @@ function resetDataBoxState() {
   dataBoxState.status = null;
   dataBoxState.messages = [];
   dataBoxState.syncRuns = [];
+  dataBoxState.selectedMessageId = "";
+  dataBoxState.selectedMessage = null;
+  dataBoxState.detailLoading = false;
+  dataBoxState.detailError = "";
   dataBoxState.error = "";
 }
 
@@ -15118,6 +15281,33 @@ function ensureDataBoxData() {
   }
 
   void loadDataBoxData();
+}
+
+async function loadDataBoxMessageDetail(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id || dataBoxState.detailLoading) {
+    return;
+  }
+
+  dataBoxState.selectedMessageId = id;
+  dataBoxState.selectedMessage = null;
+  dataBoxState.detailLoading = true;
+  dataBoxState.detailError = "";
+  render();
+  scrollDataBoxMessageDetailIntoView();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}`);
+    dataBoxState.selectedMessage = result.message || null;
+  } catch (error) {
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
+  } finally {
+    dataBoxState.detailLoading = false;
+  }
+
+  render();
+  scrollDataBoxMessageDetailIntoView();
 }
 
 async function loadVehicleTrackingStatus(options = {}) {
@@ -20048,6 +20238,21 @@ document.addEventListener("click", async (event) => {
   const notificationDetailClose = event.target.closest("[data-notification-detail-close]");
   if (notificationDetailClose) {
     notificationCenterState.selectedId = "";
+    render();
+    return;
+  }
+
+  const dataBoxMessageDetail = event.target.closest("[data-data-box-message-detail]");
+  if (dataBoxMessageDetail) {
+    void loadDataBoxMessageDetail(dataBoxMessageDetail.dataset.dataBoxMessageDetail || "");
+    return;
+  }
+
+  const dataBoxMessageDetailClose = event.target.closest("[data-data-box-message-detail-close]");
+  if (dataBoxMessageDetailClose) {
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = "";
     render();
     return;
   }
