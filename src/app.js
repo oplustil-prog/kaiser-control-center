@@ -735,6 +735,7 @@ const dataBoxState = {
   messages: [],
   syncRuns: [],
   selectedDataBoxId: "",
+  activeTab: "overview",
   syncLoading: false,
   syncMessage: "",
   syncError: "",
@@ -13432,13 +13433,60 @@ function dataBoxStatusCards() {
 }
 
 function dataBoxTabs() {
+  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
+    ? dataBoxState.activeTab
+    : "overview";
+
   return `
-    <nav class="data-box-tabs" aria-label="Menu modulu Datová schránka">
+    <div class="data-box-tabs" role="tablist" aria-label="Menu modulu Datová schránka">
       ${DATA_BOX_TABS.map((tab) => `
-        <a class="data-box-tab" href="${routeHref(`${DATA_BOX_ROUTE}#${tab.id}`)}">${escapeHtml(tab.label)}</a>
+        <button
+          class="data-box-tab ${activeTab === tab.id ? "data-box-tab--active" : ""}"
+          type="button"
+          role="tab"
+          aria-selected="${activeTab === tab.id ? "true" : "false"}"
+          data-data-box-tab="${escapeHtml(tab.id)}"
+        >
+          ${escapeHtml(tab.label)}
+        </button>
       `).join("")}
-    </nav>
+    </div>
   `;
+}
+
+function dataBoxActivePanel(user) {
+  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
+    ? dataBoxState.activeTab
+    : "overview";
+
+  if (activeTab === "received") {
+    return `
+      ${dataBoxMessageTable("Přijaté zprávy", "received")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
+
+  if (activeTab === "sent") {
+    return `
+      ${dataBoxMessageTable("Odeslané zprávy", "sent")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
+
+  if (activeTab === "ai") {
+    return dataBoxAiPanel();
+  }
+
+  if (activeTab === "rules") {
+    return `
+      ${dataBoxSyncRunsPanel()}
+      <div id="data-box-rules-panel">
+        ${dataBoxRulesAutomation(user)}
+      </div>
+    `;
+  }
+
+  return dataBoxArchitecturePanel();
 }
 
 function dataBoxMessageActor(message) {
@@ -13525,7 +13573,7 @@ function dataBoxMessageTable(title, direction) {
   const sectionTitle = selectedAccount ? `${title}: ${selectedAccount.label}` : title;
 
   return `
-    <section class="data-box-panel" id="${escapeHtml(direction)}" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+    <section class="data-box-panel" id="data-box-${escapeHtml(direction)}-panel" aria-labelledby="data-box-${escapeHtml(direction)}-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
@@ -13691,7 +13739,7 @@ function scrollDataBoxMessageDetailIntoView() {
 
 function dataBoxAiPanel() {
   return `
-    <section class="data-box-panel" id="ai" aria-labelledby="data-box-ai-title">
+    <section class="data-box-panel" id="data-box-ai-panel" aria-labelledby="data-box-ai-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-ai-title">AI vyhodnocení</h2>
@@ -13731,7 +13779,7 @@ function dataBoxArchitecturePanel() {
     : "čeká na secrets";
 
   return `
-    <section class="data-box-panel" id="overview" aria-labelledby="data-box-overview-title">
+    <section class="data-box-panel" id="data-box-overview-panel" aria-labelledby="data-box-overview-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-overview-title">Provozní realita</h2>
@@ -13923,15 +13971,7 @@ function dataBoxPage(moduleItem, user) {
       ${dataBoxStatusCards()}
       ${dataBoxAccountsSwitcher()}
       ${dataBoxTabs()}
-      ${dataBoxArchitecturePanel()}
-      ${dataBoxMessageTable("Přijaté zprávy", "received")}
-      ${dataBoxMessageTable("Odeslané zprávy", "sent")}
-      ${dataBoxMessageDetailPanel()}
-      ${dataBoxAiPanel()}
-      ${dataBoxSyncRunsPanel()}
-      <div id="rules">
-        ${dataBoxRulesAutomation(user)}
-      </div>
+      ${dataBoxActivePanel(user)}
       ${moduleFeedbackBoxFor(moduleItem, user, {
         moduleId: DATA_BOX_MODULE_KEY,
         moduleName: "Datová schránka",
@@ -15506,6 +15546,7 @@ function resetDataBoxState() {
   dataBoxState.messages = [];
   dataBoxState.syncRuns = [];
   dataBoxState.selectedDataBoxId = "";
+  dataBoxState.activeTab = "overview";
   dataBoxState.syncLoading = false;
   dataBoxState.syncMessage = "";
   dataBoxState.syncError = "";
@@ -20680,6 +20721,20 @@ document.addEventListener("click", async (event) => {
     dataBoxState.selectedMessageId = "";
     dataBoxState.selectedMessage = null;
     dataBoxState.detailError = "";
+    render();
+    return;
+  }
+
+  const dataBoxTab = event.target.closest("[data-data-box-tab]");
+  if (dataBoxTab) {
+    dataBoxState.activeTab = dataBoxTab.dataset.dataBoxTab || "overview";
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = "";
+    if (normalizePath(window.location.pathname) === DATA_BOX_ROUTE && window.location.hash) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      lastRenderedUrl = window.location.href;
+    }
     render();
     return;
   }

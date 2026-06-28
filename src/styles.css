@@ -7499,17 +7499,26 @@ body:has(.ai-assistant-promo-modal) {
 .data-box-tab {
   min-height: 40px;
   padding: 10px 12px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: #eef5f1;
   color: var(--ink);
+  font: inherit;
   font-size: 0.88rem;
   font-weight: 700;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .data-box-tab:focus-visible,
 .data-box-tab:hover {
   background: #dfece6;
+}
+
+.data-box-tab--active {
+  border-color: rgba(63, 115, 91, 0.38);
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(38, 48, 42, 0.06);
 }
 
 .data-box-accounts {
