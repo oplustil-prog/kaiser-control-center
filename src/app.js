@@ -14730,6 +14730,7 @@ function dataBoxMessageCard(message, selected) {
           <span class="data-box-message-card__date">${escapeHtml(deliveredAt || "-")}</span>
         </span>
         <strong>${escapeHtml(message.subject || "(bez předmětu)")}</strong>
+        <span class="data-box-message-card__preview">${escapeHtml(dataBoxMessageContentPreview(message))}</span>
         <span class="data-box-message-card__meta">
           ${dataBoxBadge(status.label, status.tone)}
           <span>${escapeHtml(dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel))}</span>
@@ -14819,19 +14820,23 @@ function dataBoxReadingPane(message, direction) {
         <div><dt>Schránka</dt><dd>${escapeHtml(dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel))}</dd></div>
         <div><dt>Přílohy</dt><dd>${escapeHtml(attachmentCount ? `${attachmentCount} v metadatech` : "Bez příloh")}</dd></div>
       </dl>
-      <section class="data-box-reading-section">
+      <section class="data-box-reading-section data-box-reading-section--content">
         <h4>Obsah / náhled</h4>
         <p>${escapeHtml(dataBoxMessageContentPreview(message))}</p>
       </section>
-      <section class="data-box-reading-section">
+      <section class="data-box-reading-section data-box-reading-section--next-step">
         <h4>Doporučený další krok</h4>
         <p>${escapeHtml(dataBoxMessageNextStep(message))}</p>
       </section>
-      <section class="data-box-reading-section">
+      <section class="data-box-reading-section data-box-reading-section--attachments">
         <h4>Přílohy</h4>
         <ul class="data-box-attachment-list">${dataBoxAttachmentRows(attachments, attachmentCount)}</ul>
       </section>
-      <section class="data-box-reading-section">
+      <section class="data-box-reading-section data-box-reading-section--tasks">
+        <h4>Typické úkony</h4>
+        <p>Zkontrolovat lhůtu, projít přílohy, ověřit odpovědnou osobu a teprve po ručním potvrzení řešit další krok mimo tento read-only pohled.</p>
+      </section>
+      <section class="data-box-reading-section data-box-reading-section--notes">
         <h4>Interní poznámky a historie</h4>
         <p>Bez interních poznámek v dostupných metadatech. Zápis poznámek čeká na potvrzené API.</p>
       </section>
@@ -14994,6 +14999,10 @@ function dataBoxMessageDetailPanel() {
           <section>
             <h3>Doporučený další krok</h3>
             <p>${escapeHtml(dataBoxMessageNextStep(message))}</p>
+          </section>
+          <section>
+            <h3>Typické úkony</h3>
+            <p>Zkontrolovat lhůtu, projít přílohy, ověřit odpovědnou osobu a další krok řešit až po ručním potvrzení.</p>
           </section>
         </div>
       </div>
