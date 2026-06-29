@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.220"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.222"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,14 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: stav signed-url napojení",
+    text: "Nastavení má nový read-only panel Šarlota a chráněný backendový status endpoint pro kontrolu ElevenLabs konfigurace, intro_announcement, personalizace, vocativu a lokálních client tools bez vracení signed URL nebo secretů."
+  },
+  {
+    title: "Šarlota: serverový voice endpoint",
+    text: "Hlasová Šarlota má nový backend endpoint /api/voice/sarlota pro ElevenLabs webhook, server-side OpenAI rozhodování, ověření Smart odpady identity a bezpečné připravené nástroje bez ostrých SMS."
+  },
   {
     title: "Datová schránka: otevření příloh",
     text: "Tlačítko Otevřít nyní u příloh lépe rozpozná PDF, obrázky, XML a text i při obecném MIME typu a pokusí se je otevřít v nové kartě místo prostého stažení."
