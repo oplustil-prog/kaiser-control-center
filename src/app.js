@@ -14942,6 +14942,10 @@ function dataBoxSelectedPreviewMessage(rows) {
     return null;
   }
 
+  if (dataBoxState.selectedMessage?.id === dataBoxState.selectedPreviewMessageId) {
+    return dataBoxState.selectedMessage;
+  }
+
   return rows.find((message) => message.id === dataBoxState.selectedPreviewMessageId) || rows[0];
 }
 
@@ -14982,10 +14986,8 @@ function dataBoxReadingPane(message, direction) {
           class="secondary-link"
           type="button"
           data-data-box-message-detail="${escapeHtml(message.id)}"
-          aria-controls="data-box-message-detail"
-          aria-haspopup="dialog"
         >
-          Otevřít detail
+          Načíst detail
         </button>
       </div>
       <div class="data-box-reading-pane__badges">
@@ -17097,6 +17099,38 @@ async function loadDataBoxMessageDetail(messageId) {
     dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
   } finally {
     dataBoxState.detailLoading = false;
+  }
+
+  render();
+}
+
+async function loadDataBoxMessageInlineDetail(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) {
+    return;
+  }
+
+  dataBoxState.selectedPreviewMessageId = id;
+  dataBoxState.selectedMessageId = "";
+  dataBoxState.selectedMessage = dataBoxState.selectedMessage?.id === id ? dataBoxState.selectedMessage : null;
+  dataBoxState.detailLoading = true;
+  dataBoxState.detailError = "";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}`);
+    if (dataBoxState.selectedPreviewMessageId === id && !dataBoxState.selectedMessageId) {
+      dataBoxState.selectedMessage = result.message || null;
+    }
+  } catch (error) {
+    if (dataBoxState.selectedPreviewMessageId === id && !dataBoxState.selectedMessageId) {
+      dataBoxState.selectedMessage = null;
+      dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
+    }
+  } finally {
+    if (dataBoxState.selectedPreviewMessageId === id && !dataBoxState.selectedMessageId) {
+      dataBoxState.detailLoading = false;
+    }
   }
 
   render();
@@ -22239,17 +22273,13 @@ document.addEventListener("click", async (event) => {
   const dataBoxPreviewMessage = event.target.closest("[data-data-box-preview-message]");
   if (dataBoxPreviewMessage) {
     const messageId = dataBoxPreviewMessage.dataset.dataBoxPreviewMessage || "";
-    dataBoxState.selectedPreviewMessageId = messageId;
-    dataBoxState.selectedMessageId = "";
-    dataBoxState.selectedMessage = null;
-    dataBoxState.detailError = "";
-    render();
+    void loadDataBoxMessageInlineDetail(messageId);
     return;
   }
 
   const dataBoxMessageDetail = event.target.closest("[data-data-box-message-detail]");
   if (dataBoxMessageDetail) {
-    void loadDataBoxMessageDetail(dataBoxMessageDetail.dataset.dataBoxMessageDetail || "");
+    void loadDataBoxMessageInlineDetail(dataBoxMessageDetail.dataset.dataBoxMessageDetail || "");
     return;
   }
 
