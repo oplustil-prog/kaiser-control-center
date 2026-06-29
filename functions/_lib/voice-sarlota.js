@@ -1,6 +1,7 @@
 import { recordAiAction } from "./ai-action-log-store.js";
 import { createAbsenceRequestRecord } from "./absence-requests-store.js";
 import { getUsers } from "./auth.js";
+import { sarlotaHumanTouchContext } from "./sarlota-human-touch.js";
 import { hasPermission } from "../../src/permissions.js";
 
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
@@ -776,6 +777,8 @@ function systemPrompt() {
     "Pro předání používej formulaci: předám to kolegyni Jarce.",
     "E-maily nehláskuj a neposílej do odpovědi žádné API klíče, tokeny ani interní secrets.",
     "Pro dovolenou použij intent absence_vacation_request. Nezapisuj ji bez jasného potvrzení uživatele; když chybí den nebo rozsah celý den/půlden, polož jen jednu otázku.",
+    "Blok Firemní lidskost: pokud request.humanTouch.enabled obsahuje návrhy, můžeš nenásilně použít maximálně jednu krátkou poznámku. Použij jen dodaný ověřený návrh, nikdy si nevymýšlej počasí, svátky, narozeniny ani dovolené.",
+    "Firemní lidskost nepoužívej při reklamaci, stížnosti, spěchu, stresu, chybě, nemoci, OČR, lékaři ani u citlivé absence. Nikdy nezmiňuj důvod absence, věk ani soukromé údaje. Nepoužívej texty známých písní.",
     "Vrať výhradně JSON."
   ].join(" ");
 }
@@ -806,6 +809,7 @@ async function requestOpenAiDecision(env, input) {
               intent: "order_status|tracking|sms_link|handoff_jarka|product_advice|complaint_return|absence_vacation_request|call_log|business_hours|general|unsupported",
               reply: "1 až 2 krátké věty česky, tykání",
               needsHuman: true,
+              humanTouchUsed: false,
               confidence: 0.0
             },
             request: input
@@ -829,6 +833,7 @@ async function requestOpenAiDecision(env, input) {
     intent: normalizeIntent(parsed.intent || parsed.tool || input.context.requestedIntent),
     reply: sanitizeSarlotaReply(parsed.reply || parsed.response || ""),
     needsHuman: boolValue(parsed.needsHuman),
+    humanTouchUsed: boolValue(parsed.humanTouchUsed || parsed.human_touch_used),
     confidence: Math.max(0, Math.min(numberValue(parsed.confidence, 0), 1)),
     model
   };
@@ -1169,10 +1174,12 @@ export async function handleSarlotaVoiceRequest(env, user, payload = {}, options
   const speechText = speechTextFromPayload(payload);
   const context = contextFromPayload(payload);
   const businessHours = businessHoursStatus(env);
+  const humanTouch = await sarlotaHumanTouchContext(env, user, payload);
   const input = {
     text: speechText,
     context,
     businessHours,
+    humanTouch,
     user: publicUserContext(user),
     authSource: cleanString(options.authSource || "unknown")
   };
@@ -1201,7 +1208,9 @@ export async function handleSarlotaVoiceRequest(env, user, payload = {}, options
       smsConsent: context.smsConsent,
       absenceDateFrom: context.absenceDateFrom,
       absenceDayPart: context.absenceDayPart,
-      absenceConfirmed: context.absenceConfirmed
+      absenceConfirmed: context.absenceConfirmed,
+      humanTouchAvailable: Boolean(humanTouch.enabled),
+      humanTouchTypes: humanTouch.suggestions?.map((item) => item.type) || []
     },
     result: {
       intent: decision.intent,
@@ -1212,7 +1221,8 @@ export async function handleSarlotaVoiceRequest(env, user, payload = {}, options
       preparedActions: toolResult.preparedActions?.length || 0,
       businessHours: businessHours.isBusinessHours,
       absenceRequestId: cleanString(toolResult.absenceRequest?.id),
-      notificationsSent: toolResult.notificationsSent === true
+      notificationsSent: toolResult.notificationsSent === true,
+      humanTouchUsed: decision.humanTouchUsed === true
     },
     status: "ok"
   });
@@ -1233,6 +1243,11 @@ export async function handleSarlotaVoiceRequest(env, user, payload = {}, options
     notificationsSent: toolResult.notificationsSent === true,
     missingInternalApi: toolResult.missingInternalApi || "",
     businessHours: toolResult.businessHours || businessHours,
+    humanTouch: {
+      available: Boolean(humanTouch.enabled),
+      used: decision.humanTouchUsed === true,
+      types: humanTouch.suggestions?.map((item) => item.type) || []
+    },
     callLog: {
       logged: Boolean(logResult.logged),
       id: cleanString(logResult.id),
