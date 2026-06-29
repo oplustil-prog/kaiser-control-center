@@ -15579,13 +15579,44 @@ function dataBoxAiBoostCard(action = {}) {
   `;
 }
 
+function dataBoxAiBoostGroupSection({ title, countLabel, emptyTitle, emptyText, actions = [], batchType = "", batchLabel = "", canManage = false }) {
+  const batchButton = canManage && batchType && actions.length ? `
+    <button class="secondary-action" type="button" data-data-box-ai-confirm-group="${escapeHtml(batchType)}" ${dataBoxState.aiBoostLoading ? "disabled" : ""}>
+      ${escapeHtml(batchLabel)}
+    </button>
+  ` : "";
+
+  return `
+    <section class="data-box-ai-boost-section" aria-label="${escapeHtml(title)}">
+      <div class="data-box-ai-boost-section__head">
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <span>${escapeHtml(countLabel)}</span>
+        </div>
+        ${batchButton}
+      </div>
+      <div class="data-box-ai-boost-list">
+        ${actions.length ? actions.map(dataBoxAiBoostCard).join("") : `
+          <div class="data-box-ai-boost-empty">
+            <strong>${escapeHtml(emptyTitle)}</strong>
+            <span>${escapeHtml(emptyText)}</span>
+          </div>
+        `}
+      </div>
+    </section>
+  `;
+}
+
 function dataBoxAiBoostPanel(user) {
   const canManage = hasPermission(user, DATA_BOX_MODULE_KEY, "manage");
   const actions = [...dataBoxState.aiBoostActions].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const waitingActions = actions.filter(dataBoxAiBoostIsWaiting);
+  const waitingEmailActions = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "email");
+  const waitingArchiveActions = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "archive");
+  const waitingOtherActions = waitingActions.filter((action) => !["email", "archive"].includes(String(action.actionType || "").toLowerCase()));
   const historyActions = actions.filter(dataBoxAiBoostIsDone);
-  const waitingArchive = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "archive").length;
-  const waitingEmail = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "email").length;
+  const waitingArchive = waitingArchiveActions.length;
+  const waitingEmail = waitingEmailActions.length;
   const completed = historyActions.filter((action) => ["sent", "archived"].includes(String(action.status || "").toLowerCase())).length;
   const mappingWarnings = dataBoxAiBoostMappingWarnings(actions);
 
@@ -15616,20 +15647,34 @@ function dataBoxAiBoostPanel(user) {
       ` : ""}
       ${dataBoxState.aiBoostError ? `<div class="data-box-action-feedback data-box-action-feedback--error" role="alert">${escapeHtml(dataBoxState.aiBoostError)}</div>` : ""}
       ${dataBoxState.aiBoostMessage ? `<div class="data-box-action-feedback data-box-action-feedback--success" role="status">${escapeHtml(dataBoxState.aiBoostMessage)}</div>` : ""}
-      <section class="data-box-ai-boost-section" aria-label="AI Boost koncepty čekající na rozhodnutí">
-        <div class="data-box-ai-boost-section__head">
-          <h3>Čeká na rozhodnutí</h3>
-          <span>${waitingActions.length} konceptů</span>
-        </div>
-        <div class="data-box-ai-boost-list">
-          ${waitingActions.length ? waitingActions.map(dataBoxAiBoostCard).join("") : `
-            <div class="data-box-ai-boost-empty">
-              <strong>Nic nečeká na rozhodnutí.</strong>
-              <span>Nové koncepty připraví tlačítko Spustit AI Boost nebo cloudová pravidla.</span>
-            </div>
-          `}
-        </div>
-      </section>
+      ${dataBoxAiBoostGroupSection({
+        title: "E-maily k odeslání",
+        countLabel: `${waitingEmailActions.length} čeká na potvrzení`,
+        emptyTitle: "Žádný e-mail nečeká.",
+        emptyText: "E-mailové koncepty se objeví až po shodě pravidla nebo AI Boost doporučení.",
+        actions: waitingEmailActions,
+        batchType: "email",
+        batchLabel: "Potvrdit všechny e-maily",
+        canManage
+      })}
+      ${dataBoxAiBoostGroupSection({
+        title: "Archivace k potvrzení",
+        countLabel: `${waitingArchiveActions.length} čeká na potvrzení`,
+        emptyTitle: "Žádná archivace nečeká.",
+        emptyText: "Archivace se provede až po ručním potvrzení.",
+        actions: waitingArchiveActions,
+        batchType: "archive",
+        batchLabel: "Potvrdit všechny archivace",
+        canManage
+      })}
+      ${waitingOtherActions.length ? dataBoxAiBoostGroupSection({
+        title: "Ostatní koncepty",
+        countLabel: `${waitingOtherActions.length} čeká na kontrolu`,
+        emptyTitle: "Žádné další koncepty nečekají.",
+        emptyText: "Ostatní návrhy jsou jen k ruční kontrole.",
+        actions: waitingOtherActions,
+        canManage
+      }) : ""}
       <details class="data-box-ai-boost-history" ${waitingActions.length ? "" : "open"}>
         <summary>
           <span>Hotovo / historie</span>
@@ -18790,6 +18835,75 @@ async function confirmDataBoxAiBoostAction(actionId) {
     dataBoxState.activeTab = "ai-boost";
   } catch (error) {
     dataBoxState.aiBoostError = error?.payload?.error || error?.message || "AI Boost koncept se nepodařilo potvrdit.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+async function confirmDataBoxAiBoostGroup(actionType) {
+  const type = String(actionType || "").trim().toLowerCase();
+  if (!["archive", "email"].includes(type) || dataBoxState.aiBoostLoading) {
+    return;
+  }
+
+  const actions = dataBoxState.aiBoostActions.filter((action) => (
+    dataBoxAiBoostIsWaiting(action)
+    && String(action.actionType || "").toLowerCase() === type
+    && action.id
+  ));
+
+  if (!actions.length) {
+    dataBoxState.aiBoostMessage = type === "email" ? "Žádný e-mail nečeká na potvrzení." : "Žádná archivace nečeká na potvrzení.";
+    dataBoxState.aiBoostError = "";
+    render();
+    return;
+  }
+
+  const confirmText = type === "email"
+    ? `Opravdu odeslat ${actions.length} e-mailových konceptů?\n\nE-maily se skutečně odešlou přes napojený backend. Bez tohoto potvrzení se nic neodešle.`
+    : `Opravdu potvrdit ${actions.length} archivací?\n\nZprávy se označí jako archivované přes napojený backend. Bez tohoto potvrzení se nic neprovede.`;
+
+  if (!window.confirm(confirmText)) {
+    return;
+  }
+
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = type === "email" ? "Potvrzuji e-mailové koncepty..." : "Potvrzuji archivace...";
+  render();
+
+  const failures = [];
+
+  try {
+    for (const action of actions) {
+      try {
+        await apiJson(`/api/data-box/actions/${encodeURIComponent(action.id)}/confirm`, {
+          method: "POST",
+          body: JSON.stringify({ confirmed: true })
+        });
+      } catch (error) {
+        failures.push({
+          subject: action.subject || action.messageId || action.id,
+          error: error?.payload?.error || error?.message || "Potvrzení selhalo."
+        });
+      }
+    }
+
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+    if (failures.length) {
+      dataBoxState.aiBoostError = `${failures.length} z ${actions.length} akcí se nepodařilo potvrdit. První chyba: ${failures[0].error}`;
+      dataBoxState.aiBoostMessage = `${actions.length - failures.length} akcí bylo potvrzeno.`;
+    } else {
+      dataBoxState.aiBoostMessage = type === "email"
+        ? `${actions.length} e-mailových konceptů bylo potvrzeno.`
+        : `${actions.length} archivací bylo potvrzeno.`;
+      dataBoxState.aiBoostError = "";
+    }
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "Dávkové potvrzení se nepodařilo dokončit.";
     dataBoxState.aiBoostMessage = "";
   } finally {
     dataBoxState.aiBoostLoading = false;
@@ -24226,6 +24340,12 @@ document.addEventListener("click", async (event) => {
   const dataBoxAiConfirm = event.target.closest("[data-data-box-ai-confirm]");
   if (dataBoxAiConfirm) {
     void confirmDataBoxAiBoostAction(dataBoxAiConfirm.dataset.dataBoxAiConfirm || "");
+    return;
+  }
+
+  const dataBoxAiConfirmGroup = event.target.closest("[data-data-box-ai-confirm-group]");
+  if (dataBoxAiConfirmGroup) {
+    void confirmDataBoxAiBoostGroup(dataBoxAiConfirmGroup.dataset.dataBoxAiConfirmGroup || "");
     return;
   }
 

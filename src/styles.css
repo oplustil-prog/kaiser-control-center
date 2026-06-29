@@ -18881,6 +18881,10 @@ body:has(.data-box-page) .data-box-ai-boost-list {
 body:has(.data-box-page) .data-box-ai-boost-section {
   display: grid;
   gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 16%, var(--theme-border, var(--line)));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-card, #ffffff) 96%, var(--theme-bg-surface, #f6faf4));
 }
 
 body:has(.data-box-page) .data-box-ai-boost-section__head,
@@ -18889,6 +18893,12 @@ body:has(.data-box-page) .data-box-ai-boost-history summary {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+
+body:has(.data-box-page) .data-box-ai-boost-section__head > div {
+  display: grid;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -19911,6 +19921,16 @@ body:has(.data-box-page) .data-box-side-status__ai small {
   body:has(.data-box-page) .data-box-ai-boost-summary,
   body:has(.data-box-page) .data-box-ai-boost-card {
     grid-template-columns: 1fr;
+  }
+
+  body:has(.data-box-page) .data-box-ai-boost-section__head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body:has(.data-box-page) .data-box-ai-boost-section__head .secondary-action {
+    width: 100%;
+    justify-content: center;
   }
 
   body:has(.data-box-page) .data-box-ai-boost-card__actions {
