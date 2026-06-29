@@ -22240,7 +22240,10 @@ document.addEventListener("click", async (event) => {
   if (dataBoxPreviewMessage) {
     const messageId = dataBoxPreviewMessage.dataset.dataBoxPreviewMessage || "";
     dataBoxState.selectedPreviewMessageId = messageId;
-    void loadDataBoxMessageDetail(messageId);
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = "";
+    render();
     return;
   }
 
