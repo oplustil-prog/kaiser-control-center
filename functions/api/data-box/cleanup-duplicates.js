@@ -40,3 +40,36 @@ export async function onRequestPost({ request, env }) {
     return json(result.payload, result.status);
   }
 }
+
+export async function onRequestGet({ request, env }) {
+  const { user, response } = await requireUserPermission(env, request, "data-box", "manage");
+  if (response) return response;
+
+  if (!canCleanupDataBox(user)) {
+    return json({ error: "Nemate opravneni cistit zpravy Datove schranky." }, 403);
+  }
+
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get("dryRun") !== "false";
+  const confirm = String(url.searchParams.get("confirm") || "");
+
+  if (!dryRun && confirm !== CLEANUP_CONFIRMATION) {
+    return json({
+      error: "Cleanup vyzaduje potvrzeni.",
+      requiredConfirm: CLEANUP_CONFIRMATION
+    }, 400);
+  }
+
+  try {
+    const result = await cleanupDuplicatedDataBoxMessages(env, {
+      dryRun,
+      sourceDataBoxId: url.searchParams.get("sourceDataBoxId") || "kaiser-primary",
+      targetDataBoxId: url.searchParams.get("targetDataBoxId") || "kaiser-data-box-3",
+      changedByUserId: user?.id || user?.email || "system"
+    });
+    return json(result);
+  } catch (error) {
+    const result = dataBoxStoreErrorResponse(error);
+    return json(result.payload, result.status);
+  }
+}
