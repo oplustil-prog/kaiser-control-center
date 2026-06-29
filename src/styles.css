@@ -7549,6 +7549,10 @@ body:has(.ai-assistant-promo-modal) {
   box-shadow: 0 8px 18px rgba(38, 48, 42, 0.06);
 }
 
+.data-box-tab__label--short {
+  display: none;
+}
+
 .data-box-accounts {
   display: grid;
   gap: 12px;
@@ -19484,9 +19488,9 @@ body:has(.data-box-page) .data-box-side-status__ai small {
   body:has(.data-box-page) .data-box-side-pane,
   body:has(.data-box-page) .module-feedback,
   body:has(.data-box-page) .data-box-sync-panel,
-  body:has(.data-box-page) #data-box-rules-panel,
   body:has(.data-box-page) .data-box-technical-details,
-  body:has(.data-box-page) .data-box-detail-columns {
+  body:has(.data-box-page) .data-box-detail-columns,
+  body:has(.data-box-page) .data-box-reading-facts {
     display: none !important;
   }
 
@@ -19539,13 +19543,40 @@ body:has(.data-box-page) .data-box-side-status__ai small {
   }
 
   body:has(.data-box-page) .data-box-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 4px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    border: 0;
+    background: transparent;
+    -webkit-overflow-scrolling: touch;
   }
 
-  body:has(.data-box-page) .data-box-tab[data-data-box-tab="rules"] {
+  body:has(.data-box-page) .data-box-tab {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 88px;
+    min-height: 36px;
+    padding: 8px 11px;
+    white-space: nowrap;
+  }
+
+  body:has(.data-box-page) .data-box-tab__label--full {
     display: none;
+  }
+
+  body:has(.data-box-page) .data-box-tab__label--short {
+    display: inline;
+  }
+
+  body:has(.data-box-page) #data-box-rules-panel {
+    display: block;
+    min-width: 0;
+  }
+
+  body:has(.data-box-page) #data-box-rules-panel .data-box-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   body:has(.data-box-page) .data-box-workbench {
@@ -19563,6 +19594,25 @@ body:has(.data-box-page) .data-box-side-status__ai small {
 
   body:has(.data-box-page) .data-box-panel {
     padding: 10px;
+  }
+
+  body:has(.data-box-page) .data-box-inbox-search,
+  body:has(.data-box-page) .data-box-inbox-search input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body:has(.data-box-page) .data-box-quick-filters {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body:has(.data-box-page) .data-box-quick-filter {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   body:has(.data-box-page) .data-box-panel__head {

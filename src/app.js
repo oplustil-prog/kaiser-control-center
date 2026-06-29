@@ -14452,7 +14452,8 @@ function dataBoxTabs() {
           aria-selected="${activeTab === tab.id ? "true" : "false"}"
           data-data-box-tab="${escapeHtml(tab.id)}"
         >
-          ${escapeHtml(tab.label)}
+          <span class="data-box-tab__label data-box-tab__label--full">${escapeHtml(tab.label)}</span>
+          <span class="data-box-tab__label data-box-tab__label--short">${escapeHtml(tab.shortLabel || tab.label)}</span>
         </button>
       `).join("")}
     </div>
@@ -15454,6 +15455,8 @@ function dataBoxMessageInbox(title, direction) {
             <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
           </div>
         </div>
+        ${dataBoxInboxSearch()}
+        ${dataBoxQuickFilters()}
         ${dataBoxInboxNoticeMarkup(notice)}
         ${dataBoxState.apiStatus === "ready" ? dataBoxInboxPaginationMarkup(allRows, rows, pagination) : ""}
       </section>
@@ -16444,10 +16447,10 @@ function systemCheckDataBoxItems(data) {
 
 function systemCheckMobileItems() {
   return [
-    { label: "Mobil zobrazuje hlavně DS a zprávy", status: "OK", detail: "Na breakpointu 720px se schovává horní technická vrstva." },
-    { label: "Technické boxy jsou na mobilu schované", status: "OK", detail: "Stavové/side panely jsou na mobilu skryté." },
+    { label: "Mobil zobrazuje hlavně DS a zprávy", status: "OK", detail: "Na breakpointu 720px je nahoře přepínač DS, záložky, hledání, filtry a seznam." },
+    { label: "Technické boxy jsou na mobilu schované", status: "OK", detail: "Stavové/side panely jsou skryté, pravidla zůstávají dostupná přes záložku Pravidla." },
     { label: "Přílohy jsou v detailu nahoře", status: "OK", detail: "Sekce příloh je před obsahem a technickými detaily." },
-    { label: "Hlavní akce jsou do 2–3 kliků", status: "NEOVĚŘENO", detail: "Automatická browser kontrola kliků zatím není napojená." },
+    { label: "Hlavní akce jsou do 2–3 kliků", status: "WARNING", detail: "UI cesty jsou krátké; e-mail, archivace a ostré DS odeslání čekají na backend." },
     { label: "Nechtěný horizontální scroll", status: "NEOVĚŘENO", detail: "Vyžaduje vizuální mobilní kontrolu v prohlížeči." }
   ];
 }
