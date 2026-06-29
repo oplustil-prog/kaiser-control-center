@@ -675,6 +675,14 @@ const moduleRulesState = {
   typeFilter: "all",
   statusFilter: "all"
 };
+const systemCheckState = {
+  loaded: false,
+  loading: false,
+  apiStatus: "waiting",
+  data: null,
+  error: "",
+  message: ""
+};
 const collectionRoutesPilotState = {
   loaded: false,
   loading: false,
@@ -16350,6 +16358,224 @@ function dataBoxPage(moduleItem, user) {
   `;
 }
 
+function systemCheckStatusClass(status) {
+  const normalized = String(status || "NEOVĚŘENO").trim().toUpperCase();
+  if (normalized === "OK") return "system-check-status--ok";
+  if (normalized === "WARNING") return "system-check-status--warning";
+  if (normalized === "ERROR") return "system-check-status--error";
+  return "system-check-status--unknown";
+}
+
+function systemCheckStatusLabel(status) {
+  const normalized = String(status || "NEOVĚŘENO").trim().toUpperCase();
+  return ["OK", "WARNING", "ERROR", "NEOVĚŘENO"].includes(normalized) ? normalized : "NEOVĚŘENO";
+}
+
+function systemCheckBadge(status) {
+  const label = systemCheckStatusLabel(status);
+  return `<span class="system-check-status ${systemCheckStatusClass(label)}">${escapeHtml(label)}</span>`;
+}
+
+function systemCheckItem({ label, status = "NEOVĚŘENO", detail = "" }) {
+  return `
+    <li class="system-check-item">
+      ${systemCheckBadge(status)}
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+      </div>
+    </li>
+  `;
+}
+
+function systemCheckSection(title, items) {
+  return `
+    <section class="system-check-card" aria-labelledby="system-check-${escapeHtml(dataBoxSearchText(title).replace(/\s+/g, "-"))}">
+      <h2 id="system-check-${escapeHtml(dataBoxSearchText(title).replace(/\s+/g, "-"))}">${escapeHtml(title)}</h2>
+      <ul class="system-check-list">
+        ${items.map(systemCheckItem).join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function systemCheckProductionItems(data) {
+  const latest = data?.production?.latestMonitor || null;
+  return [
+    {
+      label: "Produkční web běží",
+      status: latest ? data.production.status : "NEOVĚŘENO",
+      detail: latest
+        ? `${latest.targetUrl || "produkce"} · HTTP ${latest.httpStatus || "-"} · ${formatDateTime(latest.createdAt)} · bez zápisu do DB`
+        : "Živá read-only kontrola zatím neproběhla."
+    },
+    {
+      label: "Poslední build / commit",
+      status: latest?.commitHash || latest?.buildVersion ? "OK" : "NEOVĚŘENO",
+      detail: latest ? `Verze ${latest.buildVersion || "-"} · commit ${latest.commitHash || "-"}` : "Build metadata zatím nejsou načtená."
+    },
+    {
+      label: "GitHub Actions výsledek",
+      status: data?.githubActions?.status || "NEOVĚŘENO",
+      detail: data?.githubActions?.note || "Stav GitHub Actions zatím není napojený přes API."
+    }
+  ];
+}
+
+function systemCheckDataBoxItems(data) {
+  return [
+    { label: "Výchozí DS je KS", status: "OK", detail: "Frontend používá default `kaiser-primary`." },
+    { label: "Volba Všechny DS neexistuje v přepínači", status: "OK", detail: "Přepínač používá jednu aktivní schránku." },
+    { label: "Aktivní DS je probarvená, ostatní šedé", status: "OK", detail: "Řešeno CSS stavem aktivní/neaktivní DS." },
+    { label: "Nanolab Plus nezobrazuje zprávy KS", status: "NEOVĚŘENO", detail: "Vyžaduje živou kontrolu konkrétních dat DS podle mailboxId." },
+    { label: "Filtr DS jede podle mailboxId", status: "OK", detail: "Seznam filtruje podle `message.dataBoxId === activeAccount.id`." },
+    { label: "Stránkování default 5", status: "OK", detail: "Výchozí velikost stránky je 5." },
+    { label: "Hledání dovolí více znaků", status: "OK", detail: "Search stav je samostatný a nerestartuje DS filtr." },
+    { label: "Přečtené/netučné a nepřečtené/tučné", status: "OK", detail: "Řádek používá stav workflow `new` pro tučné zobrazení." },
+    { label: "Příznak DS je před datem", status: "OK", detail: "Badge firmy je v druhém řádku před datem." },
+    { label: "Otevřít nyní není stejné jako Stáhnout", status: "OK", detail: "Otevřít používá blob/object URL, Stáhnout používá odkaz s download." },
+    {
+      label: "Přílohy v DB",
+      status: Number(data?.dataBox?.attachments || 0) > 0 ? "OK" : "WARNING",
+      detail: `${Number(data?.dataBox?.attachments || 0)} příloh v dostupných datech.`
+    }
+  ];
+}
+
+function systemCheckMobileItems() {
+  return [
+    { label: "Mobil zobrazuje hlavně DS a zprávy", status: "OK", detail: "Na breakpointu 720px se schovává horní technická vrstva." },
+    { label: "Technické boxy jsou na mobilu schované", status: "OK", detail: "Stavové/side panely jsou na mobilu skryté." },
+    { label: "Přílohy jsou v detailu nahoře", status: "OK", detail: "Sekce příloh je před obsahem a technickými detaily." },
+    { label: "Hlavní akce jsou do 2–3 kliků", status: "NEOVĚŘENO", detail: "Automatická browser kontrola kliků zatím není napojená." },
+    { label: "Nechtěný horizontální scroll", status: "NEOVĚŘENO", detail: "Vyžaduje vizuální mobilní kontrolu v prohlížeči." }
+  ];
+}
+
+function systemCheckAutomationItems(data) {
+  const automation = data?.automation || {};
+  const rulesTotal = Number(automation.rulesTotal || 0);
+  const activeRules = Number(automation.activeRules || 0);
+  const automationsTotal = Number(automation.automationsTotal || 0);
+  const latestRunner = automation.latestRunnerRun || null;
+  return [
+    {
+      label: "Pravidla jsou v cloud DB",
+      status: rulesTotal > 0 ? "OK" : "WARNING",
+      detail: `${rulesTotal} pravidel, ${activeRules} aktivních.`
+    },
+    {
+      label: "Automatizace DS",
+      status: automationsTotal > 0 ? "OK" : "WARNING",
+      detail: `${automationsTotal} automatizací, ${Number(automation.activeAutomations || 0)} aktivních.`
+    },
+    {
+      label: "Runner běží / poslední běh",
+      status: latestRunner ? (String(latestRunner.status || "").toLowerCase() === "completed" ? "OK" : "WARNING") : "WARNING",
+      detail: latestRunner ? `${latestRunner.status || "-"} · ${formatDateTime(latestRunner.startedAt)}` : "DS runner zatím nemá zapsaný běh."
+    },
+    {
+      label: "Historie akcí existuje",
+      status: automation.actionHistory?.status || "NEOVĚŘENO",
+      detail: automation.actionHistory?.note || "Samostatná historie akcí zatím není napojená."
+    },
+    {
+      label: "E-maily/SMS z AI Boostu jsou evidované",
+      status: "NEOVĚŘENO",
+      detail: "Bez ostrého odesílání a bez napojené historie AI Boost akcí."
+    },
+    {
+      label: "Idempotence brání duplicitám",
+      status: "NEOVĚŘENO",
+      detail: "Pro DS akce není ověřená samostatná idempotence v historii akcí."
+    }
+  ];
+}
+
+function systemCheckAccountsItems(data) {
+  const accounts = Array.isArray(data?.dataBox?.accounts) ? data.dataBox.accounts : [];
+  if (!accounts.length) {
+    return [{
+      label: "DS účty",
+      status: "NEOVĚŘENO",
+      detail: "V dostupných datech nejsou načtené účty DS."
+    }];
+  }
+
+  return accounts.map((account) => ({
+    label: account.label || account.id || "DS účet",
+    status: String(account.lastSyncStatus || "").toLowerCase() === "success" ? "OK" : "WARNING",
+    detail: `ID DS: ${account.isdsIdConfigured ? "uloženo" : "není v datech"} · Heslo: ${account.passwordStatus || "NEOVĚŘENO"} · Přihlášení: ${account.loginStatus || "Neověřeno"}`
+  }));
+}
+
+function systemCheckExternalCard(data) {
+  const latest = data?.externalAssignmentCheck?.latest || null;
+  return `
+    <section class="system-check-card system-check-card--external">
+      <div class="system-check-card__head">
+        <div>
+          <h2>Externí kontrola zadání</h2>
+          <p>Slot pro hodinovou kontrolu z ChatGPT. Bez schválené DB migrace se nový záznam neukládá.</p>
+        </div>
+        ${systemCheckBadge(latest?.status || "NEOVĚŘENO")}
+      </div>
+      <dl class="system-check-facts">
+        <div><dt>Čas kontroly</dt><dd>${escapeHtml(formatDateTime(latest?.checkedAt) || "NEOVĚŘENO")}</dd></div>
+        <div><dt>Zdroj</dt><dd>${escapeHtml(latest?.source || "ChatGPT")}</dd></div>
+        <div><dt>Poznámka</dt><dd>${escapeHtml(latest?.note || data?.externalAssignmentCheck?.note || "Zatím není uložený žádný výsledek.")}</dd></div>
+      </dl>
+    </section>
+  `;
+}
+
+function systemCheckPage(moduleItem, user) {
+  ensureSystemCheckData();
+  const data = systemCheckState.data;
+  const status = data?.production?.status || "NEOVĚŘENO";
+  const generatedAt = data?.generatedAt ? formatDateTime(data.generatedAt) : "čeká na načtení";
+
+  return `
+    <main class="app-shell module-page module-theme-scope system-check-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="module-detail system-check-hero" aria-labelledby="module-title">
+        <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
+        <div class="module-detail__body">
+          <div class="module-detail__eyebrow">Interní dohled</div>
+          <h1 id="module-title">Kontrola systému</h1>
+          <p>Pravdivý stav produkce, Datové schránky, mobilního UI a automatizací. Neověřené věci zůstávají šedé.</p>
+          <div class="module-actions">
+            <button class="primary-action" type="button" data-system-check-refresh ${systemCheckState.loading ? "disabled" : ""}>
+              ${systemCheckState.loading ? "Načítám..." : "Obnovit stav"}
+            </button>
+          </div>
+        </div>
+        <div class="system-check-hero__status">
+          ${systemCheckBadge(status)}
+          <span>Aktualizováno: ${escapeHtml(generatedAt)}</span>
+        </div>
+      </section>
+
+      ${systemCheckState.error ? `<p class="module-feedback__error" role="alert">${escapeHtml(systemCheckState.error)}</p>` : ""}
+      ${systemCheckState.message ? `<p class="module-feedback__notice" role="status">${escapeHtml(systemCheckState.message)}</p>` : ""}
+
+      <section class="system-check-grid" aria-label="Checklist systému">
+        ${systemCheckSection("Produkce", systemCheckProductionItems(data))}
+        ${systemCheckSection("DS modul", systemCheckDataBoxItems(data))}
+        ${systemCheckSection("Mobil", systemCheckMobileItems())}
+        ${systemCheckSection("Automatizace", systemCheckAutomationItems(data))}
+        ${systemCheckSection("DS účty", systemCheckAccountsItems(data))}
+        ${systemCheckExternalCard(data)}
+      </section>
+    </main>
+  `;
+}
+
 function modulePage(moduleItem, user, isDashboard = false) {
   if (moduleItem.id === "absence") {
     return absenceModulePage(moduleItem, user, isDashboard);
@@ -16369,6 +16595,10 @@ function modulePage(moduleItem, user, isDashboard = false) {
 
   if (moduleItem.id === DATA_BOX_MODULE_KEY) {
     return dataBoxPage(moduleItem, user);
+  }
+
+  if (moduleItem.id === "system-check") {
+    return systemCheckPage(moduleItem, user);
   }
 
   const isTyres = moduleItem.id === "tyres";
@@ -19395,6 +19625,55 @@ async function loadModuleRuleAudit(moduleKey, ruleId, options = {}) {
   }
 }
 
+function resetSystemCheckState() {
+  systemCheckState.loaded = false;
+  systemCheckState.loading = false;
+  systemCheckState.apiStatus = "waiting";
+  systemCheckState.data = null;
+  systemCheckState.error = "";
+  systemCheckState.message = "";
+}
+
+function ensureSystemCheckData(options = {}) {
+  if (!authState.user || systemCheckState.loading || !hasPermission(authState.user, "system-check", "view")) {
+    return;
+  }
+
+  if (!systemCheckState.loaded || options.force) {
+    void loadSystemCheckStatus(options);
+  }
+}
+
+async function loadSystemCheckStatus(options = {}) {
+  if (!authState.user || systemCheckState.loading || !hasPermission(authState.user, "system-check", "view")) {
+    return;
+  }
+
+  systemCheckState.loading = true;
+  systemCheckState.error = "";
+
+  try {
+    const result = await apiJson("/api/system-check/status");
+    systemCheckState.data = result;
+    systemCheckState.apiStatus = result.apiStatus || "ready";
+    systemCheckState.loaded = true;
+    if (options.force) {
+      systemCheckState.message = "Stav systému byl obnoven.";
+    }
+  } catch (error) {
+    systemCheckState.data = null;
+    systemCheckState.loaded = true;
+    systemCheckState.apiStatus = error.payload?.apiStatus || "waiting";
+    systemCheckState.error = error.payload?.error || "Kontrolu systému se teď nepodařilo načíst.";
+  } finally {
+    systemCheckState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
 function openModuleRuleForm(type = "rule", id = "") {
   moduleRulesState.formOpen = true;
   moduleRulesState.formType = type === "automation" ? "automation" : "rule";
@@ -19743,6 +20022,7 @@ async function logout() {
   absenceSettingsState.error = "";
   absenceSettingsState.missingEndpoint = "PATCH /api/absence-settings";
   resetModuleRulesState();
+  resetSystemCheckState();
   resetDataBoxState();
   resetVehicleTrackingLiveState();
   navigateToUrl(routeHref("/"));
@@ -19911,6 +20191,9 @@ function renderAuthenticatedApp(user) {
     }
     if (moduleItem.id === COLLECTION_ROUTES_MODULE_KEY) {
       void loadCollectionRoutesPilot();
+    }
+    if (moduleItem.id === "system-check") {
+      ensureSystemCheckData();
     }
     return;
   }
@@ -22673,6 +22956,13 @@ document.addEventListener("pointerup", (event) => {
 }, true);
 
 document.addEventListener("click", async (event) => {
+  const systemCheckRefresh = event.target.closest("[data-system-check-refresh]");
+  if (systemCheckRefresh) {
+    event.preventDefault();
+    await loadSystemCheckStatus({ force: true });
+    return;
+  }
+
   const neumorphicAccent = event.target.closest("[data-neumorphic-accent]");
   if (neumorphicAccent) {
     event.preventDefault();

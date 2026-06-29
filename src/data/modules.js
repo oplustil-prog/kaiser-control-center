@@ -190,6 +190,17 @@ export const modules = [
     active: true,
     disabled: false,
     order: 13
+  },
+  {
+    id: "system-check",
+    title: "Kontrola systému",
+    description: "Produkční monitoring, DS checklist, stav automatizací a ověřenost běhů.",
+    route: "/kontrola-systemu",
+    icon: SettingsIcon,
+    status: "NEOVĚŘENO",
+    active: true,
+    disabled: false,
+    order: 13.5
   }
 ];
 
