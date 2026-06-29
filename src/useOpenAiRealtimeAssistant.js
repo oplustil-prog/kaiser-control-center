@@ -3,7 +3,6 @@ import { routeForAiModule } from "./elevenLabsClientTools.js";
 
 const OPENAI_REALTIME_WEBRTC_ENDPOINT = "https://api.openai.com/v1/realtime/calls";
 const VOICE_MICROPHONE_ERROR_CODE = "voice_microphone_denied";
-const SILENT_AUDIO_DATA_URL = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -40,7 +39,6 @@ function createHiddenAudioElement() {
   audio.autoplay = true;
   audio.playsInline = true;
   audio.controls = false;
-  audio.preload = "auto";
   audio.style.position = "fixed";
   audio.style.width = "1px";
   audio.style.height = "1px";
@@ -52,167 +50,8 @@ function createHiddenAudioElement() {
   return audio;
 }
 
-function unlockBrowserAudio(audioElement) {
-  if (!audioElement) {
-    return;
-  }
-
-  try {
-    const originalMuted = audioElement.muted;
-    audioElement.muted = true;
-    audioElement.src = SILENT_AUDIO_DATA_URL;
-    const playResult = audioElement.play?.();
-    Promise.resolve(playResult)
-      .catch(() => {})
-      .finally(() => {
-        audioElement.pause?.();
-        audioElement.removeAttribute("src");
-        audioElement.load?.();
-        audioElement.muted = originalMuted;
-      });
-  } catch {
-    // iOS audio unlock is a best-effort helper; connection must continue without it.
-  }
-}
-
-async function playRemoteAudio(audioElement) {
-  try {
-    await audioElement.play?.();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function safeToolOutput(value) {
   return JSON.stringify(value ?? {});
-}
-
-function normalizeKey(value) {
-  return cleanString(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-function pragueIsoDate(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Prague",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(date);
-  const part = (type) => parts.find((item) => item.type === type)?.value || "";
-
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function addIsoDays(isoDate, amount) {
-  const match = cleanString(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return "";
-  }
-
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + amount, 12));
-  return date.toISOString().slice(0, 10);
-}
-
-function czechDateFromText(text, baseIso = pragueIsoDate()) {
-  const raw = cleanString(text);
-  const normalized = normalizeKey(raw);
-
-  if (!raw) {
-    return "";
-  }
-
-  if (/\bpozitri\b/.test(normalized)) {
-    return addIsoDays(baseIso, 2);
-  }
-
-  if (/\bzitra\b/.test(normalized)) {
-    return addIsoDays(baseIso, 1);
-  }
-
-  if (/\bdnes\b/.test(normalized)) {
-    return baseIso;
-  }
-
-  const isoMatch = raw.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  if (isoMatch) {
-    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-  }
-
-  const czechMatch = raw.match(/\b(\d{1,2})\.\s*(\d{1,2})\.(?:\s*(\d{2,4}))?/);
-  if (czechMatch) {
-    const baseYear = Number(baseIso.slice(0, 4));
-    let year = czechMatch[3] ? Number(czechMatch[3]) : baseYear;
-    if (year < 100) {
-      year += 2000;
-    }
-    let date = new Date(Date.UTC(year, Number(czechMatch[2]) - 1, Number(czechMatch[1]), 12));
-    if (!czechMatch[3] && date.toISOString().slice(0, 10) < baseIso) {
-      date = new Date(Date.UTC(year + 1, Number(czechMatch[2]) - 1, Number(czechMatch[1]), 12));
-    }
-    return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
-  }
-
-  return "";
-}
-
-function dayPartFromText(text) {
-  const normalized = normalizeKey(text);
-
-  if (/\b(pulden|pul dne|puldne|dopoledne|odpoledne|half|half day)\b/.test(normalized)) {
-    return "half_day";
-  }
-
-  if (/\b(cely den|celou smenu|cela smena|celodenni|full day|full_day|celej den|cele dopoledne|cele odpoledne)\b/.test(normalized)) {
-    return "full_day";
-  }
-
-  if (/\b(cely|celou|celej|cele)\b/.test(normalized) && !/\btyden|mesic|rok\b/.test(normalized)) {
-    return "full_day";
-  }
-
-  return "";
-}
-
-function confirmationFromText(text) {
-  const normalized = normalizeKey(text);
-
-  if (/\b(ne|nezapisuj|neukladej|zrus|storno|stop)\b/.test(normalized)) {
-    return "rejected";
-  }
-
-  if (/\b(ano|jo|jasne|souhlas|souhlasim|potvrzuji|zapis|zapis to|uloz|vytvor|muzes|muze byt|plati|spravne|udelej)\b/.test(normalized)) {
-    return "confirmed";
-  }
-
-  return "";
-}
-
-function isVacationRelatedText(text) {
-  const normalized = normalizeKey(text);
-  return /\b(dovolen|dovcu|dovca|volno|volna|volny|absenci|absence)\b/.test(normalized);
-}
-
-function isAbsenceRelatedText(text, draft = {}) {
-  return Boolean(
-    isVacationRelatedText(text) ||
-    draft.active ||
-    (draft.awaiting && (dayPartFromText(text) || confirmationFromText(text) || czechDateFromText(text)))
-  );
-}
-
-function createAbsenceDraft() {
-  return {
-    active: false,
-    dateFrom: "",
-    dateTo: "",
-    dayPart: "",
-    awaiting: "",
-    note: ""
-  };
 }
 
 export function useOpenAiRealtimeAssistant({
@@ -280,45 +119,32 @@ export function useOpenAiRealtimeAssistant({
 
   async function callAbsenceTool(args = {}, context = {}) {
     const confirmed = args.confirmed === true;
-    const rejected = args.rejected === true;
     const dayPart = cleanString(args.dayPart);
     const dateFrom = cleanString(args.dateFrom);
     const dateTo = cleanString(args.dateTo || args.dateFrom);
     const summary = cleanString(args.spokenSummary);
     const note = cleanString(args.note);
     const text = summary || `Zapiš dovolenou ${dateFrom || ""} ${dayPart || ""}`.trim();
-    const parameters = {
-      type: "vacation",
-      dateFrom,
-      dateTo,
-      dayPart,
-      note
-    };
-    const contextPayload = {
-      conversationId: context.conversationId || "",
-      requestedIntent: "absence_vacation_request",
-      absenceType: "vacation",
-      absenceDateFrom: dateFrom,
-      absenceDateTo: dateTo,
-      absenceDayPart: dayPart
-    };
-
-    if (confirmed) {
-      parameters.confirmed = true;
-      contextPayload.absenceConfirmed = true;
-    }
-
-    if (rejected) {
-      parameters.confirmed = false;
-      contextPayload.absenceRejected = true;
-    }
-
     const payload = {
       transcript: text,
       text,
       intent: "absence_vacation_request",
-      parameters,
-      context: contextPayload,
+      parameters: {
+        type: "vacation",
+        dateFrom,
+        dateTo,
+        dayPart,
+        confirmed,
+        note
+      },
+      context: {
+        conversationId: context.conversationId || "",
+        absenceType: "vacation",
+        absenceDateFrom: dateFrom,
+        absenceDateTo: dateTo,
+        absenceDayPart: dayPart,
+        absenceConfirmed: confirmed
+      },
       metadata: {
         source: "openai_realtime",
         callId: context.callId || ""
@@ -339,115 +165,6 @@ export function useOpenAiRealtimeAssistant({
       absenceRequest: result.absenceRequest || null,
       notificationsSent: result.notificationsSent === true
     };
-  }
-
-  function speakText(session, text) {
-    const answerText = cleanString(text);
-    if (!answerText || session.dataChannel?.readyState !== "open") {
-      return false;
-    }
-
-    session.assistantTranscript = "";
-    session.callbacks?.onAgentResponse?.({
-      text: answerText,
-      conversationId: session.conversationId
-    });
-    session.dataChannel.send(JSON.stringify({
-      type: "response.create",
-      response: {
-        modalities: ["text", "audio"],
-        instructions: `Řekni česky, stručně a přirozeně tuto odpověď. Neměň význam: ${answerText}`
-      }
-    }));
-    return true;
-  }
-
-  function requestModelResponse(session) {
-    if (session.dataChannel?.readyState !== "open") {
-      return false;
-    }
-
-    session.dataChannel.send(JSON.stringify({
-      type: "response.create",
-      response: {
-        modalities: ["text", "audio"]
-      }
-    }));
-    return true;
-  }
-
-  function updateAbsenceDraftFromResult(session, args, result) {
-    const draft = session.absenceDraft || createAbsenceDraft();
-    draft.active = true;
-    draft.dateFrom = cleanString(args.dateFrom || draft.dateFrom);
-    draft.dateTo = cleanString(args.dateTo || draft.dateTo || draft.dateFrom);
-    draft.dayPart = cleanString(args.dayPart || draft.dayPart);
-
-    if (result.status === "needs_input") {
-      draft.awaiting = draft.dateFrom ? "day_part" : "date";
-    } else if (result.status === "needs_confirmation") {
-      draft.awaiting = "confirmation";
-    } else if (["created", "cancelled", "failed", "forbidden"].includes(result.status)) {
-      session.absenceDraft = createAbsenceDraft();
-      return;
-    } else {
-      draft.awaiting = "";
-    }
-
-    session.absenceDraft = draft;
-  }
-
-  async function handleDeterministicAbsence(session, transcript) {
-    const text = cleanString(transcript);
-    const draft = session.absenceDraft || createAbsenceDraft();
-
-    if (!isAbsenceRelatedText(text, draft)) {
-      return false;
-    }
-
-    const nextDateFrom = czechDateFromText(text) || draft.dateFrom;
-    const nextDateTo = nextDateFrom || draft.dateTo;
-    const nextDayPart = dayPartFromText(text) || draft.dayPart;
-    const confirmation = draft.awaiting === "confirmation" ? confirmationFromText(text) : "";
-    const confirmed = confirmation === "confirmed";
-    const rejected = confirmation === "rejected";
-
-    const args = {
-      dateFrom: nextDateFrom,
-      dateTo: nextDateTo,
-      dayPart: nextDayPart,
-      confirmed,
-      rejected,
-      note: "",
-      spokenSummary: confirmed
-        ? "ano, zapiš to"
-        : rejected
-          ? "ne, nezapisuj"
-          : text
-    };
-
-    session.absenceDraft = {
-      active: true,
-      dateFrom: nextDateFrom,
-      dateTo: nextDateTo,
-      dayPart: nextDayPart,
-      awaiting: draft.awaiting,
-      note: ""
-    };
-
-    const result = await callAbsenceTool(args, {
-      conversationId: session.conversationId,
-      callId: "deterministic_absence"
-    });
-
-    updateAbsenceDraftFromResult(session, args, result);
-    session.callbacks?.onToolResult?.({
-      name: "create_absence_request",
-      status: result.status,
-      text: result.answerText || ""
-    });
-    speakText(session, result.answerText || "Rozumím.");
-    return true;
   }
 
   async function callOpenModuleTool(args = {}) {
@@ -590,17 +307,6 @@ export function useOpenAiRealtimeAssistant({
           text: session.userTranscript,
           conversationId: session.conversationId
         });
-        void handleDeterministicAbsence(session, session.userTranscript)
-          .then((handled) => {
-            if (!handled) {
-              requestModelResponse(session);
-            }
-          })
-          .catch((error) => {
-            const message = error?.payload?.error || error?.message || "Zápis se nepodařil.";
-            session.callbacks?.onError?.({ message, status: message });
-            speakText(session, message);
-          });
       }
       return;
     }
@@ -668,24 +374,14 @@ export function useOpenAiRealtimeAssistant({
 
     closeVoiceSession("new-openai-realtime-session");
 
-    const audioElement = createHiddenAudioElement();
-    unlockBrowserAudio(audioElement);
-
-    let sessionConfig;
-    try {
-      sessionConfig = await requester()("/api/sarlota/realtime-session", {
-        method: "POST",
-        body: JSON.stringify({
-          currentModule: typeof window !== "undefined" ? window.location.pathname : ""
-        })
-      });
-    } catch (error) {
-      audioElement.remove();
-      throw error;
-    }
+    const sessionConfig = await requester()("/api/sarlota/realtime-session", {
+      method: "POST",
+      body: JSON.stringify({
+        currentModule: typeof window !== "undefined" ? window.location.pathname : ""
+      })
+    });
     const clientSecret = cleanString(sessionConfig.clientSecret);
     if (!clientSecret) {
-      audioElement.remove();
       throw new Error("OpenAI Realtime nevrátil krátkodobý token.");
     }
 
@@ -699,12 +395,12 @@ export function useOpenAiRealtimeAssistant({
         }
       });
     } catch (error) {
-      audioElement.remove();
       throw microphoneError(error);
     }
 
     const peerConnection = new RTCPeerConnection();
     const dataChannel = peerConnection.createDataChannel("oai-events");
+    const audioElement = createHiddenAudioElement();
     const session = {
       assistant,
       callbacks,
@@ -715,9 +411,7 @@ export function useOpenAiRealtimeAssistant({
       conversationId: "",
       userTranscript: "",
       assistantTranscript: "",
-      absenceDraft: createAbsenceDraft(),
       handledToolCalls: new Set(),
-      audioPlaybackStarted: false,
       closed: false
     };
     activeVoiceSession = session;
@@ -727,41 +421,26 @@ export function useOpenAiRealtimeAssistant({
     });
 
     peerConnection.ontrack = (event) => {
-      callbacks.onAudio?.({
-        audioTrackReceived: true,
-        audioPlaybackStarted: false,
-        audioPlaybackFailed: false
-      });
-      audioElement.muted = false;
       audioElement.srcObject = event.streams[0];
-      void playRemoteAudio(audioElement).then((started) => {
-        session.audioPlaybackStarted = started;
-        callbacks.onAudio?.({
-          audioTrackReceived: true,
-          audioPlaybackStarted: started,
-          audioPlaybackFailed: !started
-        });
-        if (!started) {
-          callbacks.onAudioWarning?.("Odpověď mám, ale iPhone nepovolil přehrání zvuku. Zkontroluj tichý režim, hlasitost a klepni na Obnovit spojení.");
-        }
+      audioElement.play?.().catch(() => {
+        callbacks.onAudioWarning?.("Zvuk odpovědi se nepodařilo automaticky přehrát. Zkontroluj hlasitost a tichý režim.");
+      });
+      callbacks.onAudio?.({
+        audioPlaybackStarted: true,
+        audioPlaybackFailed: false
       });
     };
 
     peerConnection.onconnectionstatechange = () => {
       if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState) && !session.closed) {
-        closeVoiceSession(`openai-realtime-${peerConnection.connectionState}`);
+        callbacks.onDisconnected?.({
+          reason: peerConnection.connectionState
+        });
       }
     };
 
     dataChannel.onmessage = (messageEvent) => {
-      try {
-        handleRealtimeEvent(session, parseJson(messageEvent.data, {}));
-      } catch (error) {
-        callbacks.onError?.({
-          message: error?.message || "OpenAI hlasový režim se přerušil při zpracování odpovědi.",
-          status: "Chyba hlasu"
-        });
-      }
+      handleRealtimeEvent(session, parseJson(messageEvent.data, {}));
     };
     dataChannel.onerror = () => {
       callbacks.onError?.({
