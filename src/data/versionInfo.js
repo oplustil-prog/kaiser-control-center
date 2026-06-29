@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.232"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.233"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: stabilnější OpenAI hlas na iPhonu",
+    text: "OpenAI hlas zůstává hlavní režim, ale audio se předem odjišťuje pro iOS, UI rozlišuje přípravu a skutečné přehrávání zvuku a dovolená lépe rozpozná české fráze jako volno, celý den nebo jo zapiš."
+  },
   {
     title: "Šarlota: spolehlivější zápis dovolené hlasem",
     text: "OpenAI hlas Šarloty má deterministický KSO tok pro dovolenou: přepis řeči s dovolenou, rozsahem nebo potvrzením jde rovnou do backendu, takže zápis není závislý na tom, jestli model sám zavolá tool."

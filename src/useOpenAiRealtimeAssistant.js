@@ -3,6 +3,7 @@ import { routeForAiModule } from "./elevenLabsClientTools.js";
 
 const OPENAI_REALTIME_WEBRTC_ENDPOINT = "https://api.openai.com/v1/realtime/calls";
 const VOICE_MICROPHONE_ERROR_CODE = "voice_microphone_denied";
+const SILENT_AUDIO_DATA_URL = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -39,6 +40,7 @@ function createHiddenAudioElement() {
   audio.autoplay = true;
   audio.playsInline = true;
   audio.controls = false;
+  audio.preload = "auto";
   audio.style.position = "fixed";
   audio.style.width = "1px";
   audio.style.height = "1px";
@@ -48,6 +50,38 @@ function createHiddenAudioElement() {
   audio.setAttribute("aria-hidden", "true");
   document.body.appendChild(audio);
   return audio;
+}
+
+function unlockBrowserAudio(audioElement) {
+  if (!audioElement) {
+    return;
+  }
+
+  try {
+    const originalMuted = audioElement.muted;
+    audioElement.muted = true;
+    audioElement.src = SILENT_AUDIO_DATA_URL;
+    const playResult = audioElement.play?.();
+    Promise.resolve(playResult)
+      .catch(() => {})
+      .finally(() => {
+        audioElement.pause?.();
+        audioElement.removeAttribute("src");
+        audioElement.load?.();
+        audioElement.muted = originalMuted;
+      });
+  } catch {
+    // iOS audio unlock is a best-effort helper; connection must continue without it.
+  }
+}
+
+async function playRemoteAudio(audioElement) {
+  try {
+    await audioElement.play?.();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeToolOutput(value) {
@@ -132,7 +166,11 @@ function dayPartFromText(text) {
     return "half_day";
   }
 
-  if (/\b(cely den|celou smenu|cela smena|celodenni|full day|full_day)\b/.test(normalized)) {
+  if (/\b(cely den|celou smenu|cela smena|celodenni|full day|full_day|celej den|cele dopoledne|cele odpoledne)\b/.test(normalized)) {
+    return "full_day";
+  }
+
+  if (/\b(cely|celou|celej|cele)\b/.test(normalized) && !/\btyden|mesic|rok\b/.test(normalized)) {
     return "full_day";
   }
 
@@ -146,17 +184,21 @@ function confirmationFromText(text) {
     return "rejected";
   }
 
-  if (/\b(ano|jo|jasne|souhlas|souhlasim|potvrzuji|zapis|zapis to|uloz|vytvor)\b/.test(normalized)) {
+  if (/\b(ano|jo|jasne|souhlas|souhlasim|potvrzuji|zapis|zapis to|uloz|vytvor|muzes|muze byt|plati|spravne|udelej)\b/.test(normalized)) {
     return "confirmed";
   }
 
   return "";
 }
 
-function isAbsenceRelatedText(text, draft = {}) {
+function isVacationRelatedText(text) {
   const normalized = normalizeKey(text);
+  return /\b(dovolen|dovcu|dovca|volno|volna|volny|absenci|absence)\b/.test(normalized);
+}
+
+function isAbsenceRelatedText(text, draft = {}) {
   return Boolean(
-    /\bdovolen/.test(normalized) ||
+    isVacationRelatedText(text) ||
     draft.active ||
     (draft.awaiting && (dayPartFromText(text) || confirmationFromText(text) || czechDateFromText(text)))
   );
@@ -254,6 +296,7 @@ export function useOpenAiRealtimeAssistant({
     };
     const contextPayload = {
       conversationId: context.conversationId || "",
+      requestedIntent: "absence_vacation_request",
       absenceType: "vacation",
       absenceDateFrom: dateFrom,
       absenceDateTo: dateTo,
@@ -625,14 +668,24 @@ export function useOpenAiRealtimeAssistant({
 
     closeVoiceSession("new-openai-realtime-session");
 
-    const sessionConfig = await requester()("/api/sarlota/realtime-session", {
-      method: "POST",
-      body: JSON.stringify({
-        currentModule: typeof window !== "undefined" ? window.location.pathname : ""
-      })
-    });
+    const audioElement = createHiddenAudioElement();
+    unlockBrowserAudio(audioElement);
+
+    let sessionConfig;
+    try {
+      sessionConfig = await requester()("/api/sarlota/realtime-session", {
+        method: "POST",
+        body: JSON.stringify({
+          currentModule: typeof window !== "undefined" ? window.location.pathname : ""
+        })
+      });
+    } catch (error) {
+      audioElement.remove();
+      throw error;
+    }
     const clientSecret = cleanString(sessionConfig.clientSecret);
     if (!clientSecret) {
+      audioElement.remove();
       throw new Error("OpenAI Realtime nevrátil krátkodobý token.");
     }
 
@@ -646,12 +699,12 @@ export function useOpenAiRealtimeAssistant({
         }
       });
     } catch (error) {
+      audioElement.remove();
       throw microphoneError(error);
     }
 
     const peerConnection = new RTCPeerConnection();
     const dataChannel = peerConnection.createDataChannel("oai-events");
-    const audioElement = createHiddenAudioElement();
     const session = {
       assistant,
       callbacks,
@@ -664,6 +717,7 @@ export function useOpenAiRealtimeAssistant({
       assistantTranscript: "",
       absenceDraft: createAbsenceDraft(),
       handledToolCalls: new Set(),
+      audioPlaybackStarted: false,
       closed: false
     };
     activeVoiceSession = session;
@@ -673,26 +727,41 @@ export function useOpenAiRealtimeAssistant({
     });
 
     peerConnection.ontrack = (event) => {
-      audioElement.srcObject = event.streams[0];
-      audioElement.play?.().catch(() => {
-        callbacks.onAudioWarning?.("Zvuk odpovědi se nepodařilo automaticky přehrát. Zkontroluj hlasitost a tichý režim.");
-      });
       callbacks.onAudio?.({
-        audioPlaybackStarted: true,
+        audioTrackReceived: true,
+        audioPlaybackStarted: false,
         audioPlaybackFailed: false
+      });
+      audioElement.muted = false;
+      audioElement.srcObject = event.streams[0];
+      void playRemoteAudio(audioElement).then((started) => {
+        session.audioPlaybackStarted = started;
+        callbacks.onAudio?.({
+          audioTrackReceived: true,
+          audioPlaybackStarted: started,
+          audioPlaybackFailed: !started
+        });
+        if (!started) {
+          callbacks.onAudioWarning?.("Odpověď mám, ale iPhone nepovolil přehrání zvuku. Zkontroluj tichý režim, hlasitost a klepni na Obnovit spojení.");
+        }
       });
     };
 
     peerConnection.onconnectionstatechange = () => {
       if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState) && !session.closed) {
-        callbacks.onDisconnected?.({
-          reason: peerConnection.connectionState
-        });
+        closeVoiceSession(`openai-realtime-${peerConnection.connectionState}`);
       }
     };
 
     dataChannel.onmessage = (messageEvent) => {
-      handleRealtimeEvent(session, parseJson(messageEvent.data, {}));
+      try {
+        handleRealtimeEvent(session, parseJson(messageEvent.data, {}));
+      } catch (error) {
+        callbacks.onError?.({
+          message: error?.message || "OpenAI hlasový režim se přerušil při zpracování odpovědi.",
+          status: "Chyba hlasu"
+        });
+      }
     };
     dataChannel.onerror = () => {
       callbacks.onError?.({

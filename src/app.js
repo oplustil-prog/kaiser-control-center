@@ -2379,14 +2379,25 @@ async function startAiVoiceRecognition() {
         }
         aiAssistantState.isListening = false;
         aiAssistantState.voiceAnswer = event.text || "";
-        setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, ["Šarlota odpovídá", "Zvuk přehrávám", "OpenAI hlas"]);
+        setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, ["Šarlota odpovídá", "Zvuk připravuji", "OpenAI hlas"]);
         renderAiAssistantLayerOnly();
       },
-      onAudio: () => {
+      onAudio: (event = {}) => {
         if (requestId !== aiTextRequestId) {
           return;
         }
-        setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, ["Zvuk přehrávám", "OpenAI hlas", "Realtime"]);
+        if (event.audioPlaybackFailed) {
+          aiAssistantState.voiceNotice = "Odpověď mám, ale zvuk se na iPhonu nepodařilo přehrát. Zkontroluj tichý režim a klepni na Obnovit spojení.";
+          setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, ["Zvuk blokován", "Obnovit spojení", "OpenAI hlas"]);
+          renderAiAssistantLayerOnly();
+          return;
+        }
+
+        setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, [
+          event.audioPlaybackStarted ? "Zvuk přehrávám" : "Zvuk připravuji",
+          "OpenAI hlas",
+          "Realtime"
+        ]);
         renderAiAssistantLayerOnly();
       },
       onToolResult: (event) => {

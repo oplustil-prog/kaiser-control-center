@@ -329,7 +329,7 @@ function requestedAbsenceType(payload = {}) {
   );
   const normalized = normalizeKey(raw);
 
-  if (["dovolena", "vacation", "leave", "holiday"].includes(normalized)) {
+  if (["dovolena", "vacation", "leave", "holiday", "volno", "absence"].includes(normalized)) {
     return "vacation";
   }
 
@@ -404,7 +404,11 @@ function absenceDayPart(payload, speechText) {
     return "half_day";
   }
 
-  if (/\b(cely den|celou smenu|cela smena|celodenni|full|full_day|all_day)\b/.test(normalized)) {
+  if (/\b(cely den|celou smenu|cela smena|celodenni|full|full_day|all_day|celej den|cele dopoledne|cele odpoledne)\b/.test(normalized)) {
+    return "full_day";
+  }
+
+  if (/\b(cely|celou|celej|cele)\b/.test(normalized) && !/\btyden|mesic|rok\b/.test(normalized)) {
     return "full_day";
   }
 
@@ -442,10 +446,23 @@ function absenceConfirmation(payload, speechText) {
     return "rejected";
   }
 
+  const hasAbsenceContext = Boolean(
+    parameters.dateFrom ||
+    parameters.date_from ||
+    context.absenceDateFrom ||
+    context.absence_date_from ||
+    context.requestedIntent === "absence_vacation_request" ||
+    requestedAbsenceType(payload) === "vacation"
+  );
+
   if (
     /\b(ano|souhlasim|potvrzuji)\b.*\b(zapis|uloz|vytvor|odešli|odesli|posli)\b/.test(normalized) ||
     /\b(zapis|uloz|vytvor)\b.*\b(to|dovolenou|zadost)\b/.test(normalized)
   ) {
+    return "confirmed";
+  }
+
+  if (hasAbsenceContext && /\b(ano|jo|jasne|souhlas|souhlasim|potvrzuji|muzes|muze byt|plati|spravne|udelej)\b/.test(normalized)) {
     return "confirmed";
   }
 
@@ -471,8 +488,9 @@ function absenceNote(payload) {
 
 function isVacationRequestText(speechText) {
   const normalized = normalizeKey(speechText);
+  const hasVacationKeyword = /\b(dovolen|dovcu|dovca|volno|volna|volny|absenci|absence)\b/.test(normalized);
 
-  if (!/\bdovolen/.test(normalized)) {
+  if (!hasVacationKeyword) {
     return false;
   }
 
