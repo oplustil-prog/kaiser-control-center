@@ -733,7 +733,7 @@ const dataBoxState = {
   status: null,
   messages: [],
   syncRuns: [],
-  selectedDataBoxId: "",
+  selectedDataBoxId: "kaiser-primary",
   activeTab: "received",
   syncLoading: false,
   syncMessage: "",
@@ -13806,6 +13806,8 @@ const DATA_BOX_ACCOUNT_BOXES = [
   { id: "kaiser-data-box-6", shortLabel: "KN", label: "Kaisermanův nadační fond" }
 ];
 
+const DATA_BOX_DEFAULT_ACCOUNT_ID = "kaiser-primary";
+
 const DATA_BOX_QUICK_FILTERS = [
   { id: "all", label: "Vše" },
   { id: "new", label: "Nepřečtené" },
@@ -13931,15 +13933,17 @@ function dataBoxActiveContextLabel() {
     };
   }
 
-  const configured = Number(dataBoxState.status?.isds?.configuredAccounts || dataBoxState.status?.summary?.configuredDataBoxes || 0);
   return {
-    title: "Všechny datové schránky",
-    text: configured ? `${configured} nakonfigurovaných DS účtů` : "Vyber konkrétní schránku."
+    title: "Datová schránka",
+    text: "Vyber konkrétní schránku."
   };
 }
 
 function dataBoxSelectedAccount() {
-  return dataBoxAccountById(dataBoxState.selectedDataBoxId);
+  return dataBoxAccountById(dataBoxState.selectedDataBoxId)
+    || dataBoxAccountById(DATA_BOX_DEFAULT_ACCOUNT_ID)
+    || DATA_BOX_ACCOUNT_BOXES[0]
+    || null;
 }
 
 function dataBoxMessageFitsSelectedAccount(message) {
@@ -14126,12 +14130,13 @@ function dataBoxAccountSummary(stats) {
   return `${stats.received} přijatých · ${stats.sent} odeslaných`;
 }
 
-function dataBoxAccountButton(account, stats) {
+function dataBoxAccountButton(account, stats, active = false) {
   return `
     <button
-      class="data-box-account-chip ${dataBoxAccountConnectionClass(stats)}"
+      class="data-box-account-chip ${dataBoxAccountConnectionClass(stats)} ${active ? "data-box-account-chip--active" : ""}"
       type="button"
       data-data-box-account="${escapeHtml(account.id)}"
+      aria-pressed="${active ? "true" : "false"}"
       aria-label="${escapeHtml(`Otevřít datovou schránku ${account.label}`)}"
     >
       <span class="data-box-account-chip__mark">${escapeHtml(account.shortLabel)}</span>
@@ -14149,32 +14154,21 @@ function dataBoxAccountButton(account, stats) {
 function dataBoxAccountsSwitcher() {
   const activeAccount = dataBoxSelectedAccount();
   const accountStatusMap = dataBoxAccountStatusMap();
-
-  if (activeAccount) {
-    const stats = dataBoxAccountStats(activeAccount, accountStatusMap);
-
-    return `
-      <section class="data-box-account-strip data-box-account-strip--selected" aria-labelledby="data-box-accounts-title">
-        <div class="data-box-account-strip__label">
-          <span>Schránka</span>
-          <strong id="data-box-accounts-title">${escapeHtml(activeAccount.label)}</strong>
-          <small>${escapeHtml(dataBoxAccountSummary(stats))} · ${escapeHtml(stats.statusLabel)}</small>
-        </div>
-        <button class="secondary-link" type="button" data-data-box-account-reset>
-          Všechny schránky
-        </button>
-      </section>
-    `;
-  }
+  const activeStats = activeAccount ? dataBoxAccountStats(activeAccount, accountStatusMap) : null;
 
   return `
     <section class="data-box-account-strip" aria-labelledby="data-box-accounts-title">
       <div class="data-box-account-strip__label">
         <span>Schránka</span>
-        <strong id="data-box-accounts-title">Všechny</strong>
+        <strong id="data-box-accounts-title">${escapeHtml(activeAccount?.label || "Datová schránka")}</strong>
+        ${activeStats ? `<small>${escapeHtml(dataBoxAccountSummary(activeStats))} · ${escapeHtml(activeStats.statusLabel)}</small>` : ""}
       </div>
       <div class="data-box-account-strip__chips">
-        ${DATA_BOX_ACCOUNT_BOXES.map((account) => dataBoxAccountButton(account, dataBoxAccountStats(account, accountStatusMap))).join("")}
+        ${DATA_BOX_ACCOUNT_BOXES.map((account) => dataBoxAccountButton(
+          account,
+          dataBoxAccountStats(account, accountStatusMap),
+          activeAccount?.id === account.id
+        )).join("")}
       </div>
     </section>
   `;
@@ -14182,8 +14176,9 @@ function dataBoxAccountsSwitcher() {
 
 function dataBoxLastSyncLabel() {
   const summary = dataBoxState.status?.summary || {};
-  const lastRun = dataBoxFilteredSyncRuns()[0] || dataBoxState.syncRuns[0] || null;
-  const value = summary.lastSyncAt || lastRun?.finishedAt || lastRun?.startedAt || "";
+  const selectedAccount = dataBoxSelectedAccount();
+  const lastRun = dataBoxFilteredSyncRuns()[0] || null;
+  const value = lastRun?.finishedAt || lastRun?.startedAt || (selectedAccount ? "" : summary.lastSyncAt) || "";
   return value ? formatDateTime(value) : "zatím neproběhla";
 }
 
@@ -15283,21 +15278,8 @@ function dataBoxReadingPane(message, direction) {
           <span>${escapeHtml(dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel))}</span>
           <h3>${escapeHtml(message.subject || "(bez předmětu)")}</h3>
         </div>
-        <button
-          class="secondary-link"
-          type="button"
-          data-data-box-message-detail="${escapeHtml(message.id)}"
-        >
-          Načíst detail
-        </button>
-        <button
-          class="secondary-link"
-          type="button"
-          data-data-box-message-reply="${escapeHtml(message.id)}"
-        >
-          Odpovědět
-        </button>
       </div>
+      ${dataBoxMessageSafeActions(message, { includeDetail: true })}
       <div class="data-box-reading-pane__badges">
         ${dataBoxPriorityBadge(priority)}
         ${dataBoxBadge(status.label, status.tone)}
@@ -15482,6 +15464,44 @@ function dataBoxReplyDraftPanel(message) {
       </div>
       <small>Odeslání vyžaduje schválený backend krok a samostatný potvrzovací modal.</small>
     </section>
+  `;
+}
+
+function dataBoxMessageSafeActions(message, options = {}) {
+  if (!message) {
+    return "";
+  }
+
+  const includeDetail = Boolean(options.includeDetail);
+  const id = escapeHtml(message.id || "");
+
+  return `
+    <div class="data-box-message-safe-actions" aria-label="Základní akce zprávy">
+      ${includeDetail ? `
+        <button class="secondary-link" type="button" data-data-box-message-detail="${id}">
+          Otevřít detail
+        </button>
+      ` : ""}
+      <button class="secondary-link" type="button" data-data-box-message-reply="${id}">
+        Odpovědět
+      </button>
+      <button
+        class="secondary-link"
+        type="button"
+        disabled
+        title="Odeslání e-mailem čeká na schválený backend krok."
+      >
+        Poslat e-mailem
+      </button>
+      <button
+        class="secondary-link"
+        type="button"
+        disabled
+        title="Archivace čeká na schválený backend krok."
+      >
+        Archivovat
+      </button>
+    </div>
   `;
 }
 
@@ -15714,6 +15734,7 @@ function dataBoxMessageDetailOverlayMarkup() {
           <p class="data-box-detail-summary__context">Schránka: <strong>${escapeHtml(mailboxLabel)}</strong></p>
           <p>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "bez data")} · ${escapeHtml(priority.label)} · ${escapeHtml(workflow.label)}</p>
         </section>
+        ${dataBoxMessageSafeActions(message)}
         ${dataBoxAttachmentsSection(message)}
         <div class="data-box-detail-subject">
           <span>Obsah / náhled</span>
@@ -15840,7 +15861,7 @@ function dataBoxSyncRunsPanel() {
     `;
 
   return `
-    <section class="data-box-panel" aria-labelledby="data-box-sync-title">
+    <section class="data-box-panel data-box-sync-panel" aria-labelledby="data-box-sync-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-sync-title">Log synchronizaci</h2>
@@ -17493,7 +17514,7 @@ function resetDataBoxState() {
   dataBoxState.status = null;
   dataBoxState.messages = [];
   dataBoxState.syncRuns = [];
-  dataBoxState.selectedDataBoxId = "";
+  dataBoxState.selectedDataBoxId = DATA_BOX_DEFAULT_ACCOUNT_ID;
   dataBoxState.activeTab = "received";
   dataBoxState.syncLoading = false;
   dataBoxState.syncMessage = "";
@@ -22980,27 +23001,8 @@ document.addEventListener("click", async (event) => {
 
   const dataBoxAccountButton = event.target.closest("[data-data-box-account]");
   if (dataBoxAccountButton) {
-    const nextAccountId = dataBoxAccountButton.dataset.dataBoxAccount || "";
+    const nextAccountId = dataBoxAccountButton.dataset.dataBoxAccount || DATA_BOX_DEFAULT_ACCOUNT_ID;
     dataBoxState.selectedDataBoxId = nextAccountId;
-    resetDataBoxPagination();
-    dataBoxState.messageFilters = {
-      ...dataBoxState.messageFilters,
-      dataBox: "all"
-    };
-    dataBoxState.selectedMessageId = "";
-    dataBoxState.selectedMessage = null;
-    dataBoxState.selectedPreviewMessageId = "";
-    dataBoxState.detailError = "";
-    dataBoxState.replyDraftOpen = false;
-    dataBoxState.replyDraftText = "";
-    dataBoxState.replyDraftError = "";
-    render();
-    return;
-  }
-
-  const dataBoxAccountReset = event.target.closest("[data-data-box-account-reset]");
-  if (dataBoxAccountReset) {
-    dataBoxState.selectedDataBoxId = "";
     resetDataBoxPagination();
     dataBoxState.messageFilters = {
       ...dataBoxState.messageFilters,

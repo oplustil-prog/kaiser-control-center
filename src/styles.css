@@ -18642,6 +18642,31 @@ body:has(.data-box-page) .data-box-status-main .data-box-status-ring {
   order: 2;
 }
 
+body:has(.data-box-page) .data-box-account-chip:not(.data-box-account-chip--active) {
+  opacity: 0.58;
+  filter: grayscale(0.75);
+  background: color-mix(in srgb, var(--theme-card, #ffffff) 72%, var(--theme-muted, #eef2ea));
+}
+
+body:has(.data-box-page) .data-box-account-chip:not(.data-box-account-chip--active):hover,
+body:has(.data-box-page) .data-box-account-chip:not(.data-box-account-chip--active):focus-visible {
+  opacity: 0.78;
+  filter: grayscale(0.35);
+}
+
+body:has(.data-box-page) .data-box-account-chip--active {
+  opacity: 1;
+  filter: none;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 46%, var(--theme-border, var(--line)));
+  background: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 10%, var(--theme-card, #ffffff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 12%, transparent);
+}
+
+body:has(.data-box-page) .data-box-account-chip--active .data-box-account-chip__mark {
+  background: var(--theme-primary, var(--kaiser-green));
+  color: #ffffff;
+}
+
 body:has(.data-box-page) .data-box-account-chip--disconnected {
   opacity: 0.52;
   filter: grayscale(0.85);
@@ -18656,6 +18681,14 @@ body:has(.data-box-page) .data-box-account-chip--disconnected:focus-visible {
 body:has(.data-box-page) .data-box-account-chip--disconnected .data-box-account-card__status,
 body:has(.data-box-page) .data-box-account-chip--disconnected .data-box-account-chip__body small {
   color: color-mix(in srgb, var(--data-box-muted, var(--muted)) 78%, #ffffff);
+}
+
+body:has(.data-box-page) .data-box-account-chip--active.data-box-account-chip--disconnected {
+  opacity: 1;
+  filter: none;
+  border-color: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 46%, var(--theme-border, var(--line)));
+  background: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 10%, var(--theme-card, #ffffff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 12%, transparent);
 }
 
 body:has(.data-box-page) .data-box-workbench {
@@ -18744,6 +18777,22 @@ body:has(.data-box-page) .data-box-detail-actions p {
   margin: 2px 0 0;
   color: var(--data-box-muted, var(--muted));
   font-size: 0.9rem;
+}
+
+body:has(.data-box-page) .data-box-message-safe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+body:has(.data-box-page) .data-box-message-safe-actions .secondary-link {
+  min-height: 36px;
+}
+
+body:has(.data-box-page) .data-box-message-safe-actions .secondary-link[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 body:has(.data-box-page) .data-box-reply-draft {
@@ -19242,6 +19291,138 @@ body:has(.data-box-page) .data-box-side-status__ai small {
 }
 
 @media (max-width: 720px) {
+  body:has(.data-box-page) {
+    background: var(--theme-bg, var(--page));
+  }
+
+  body:has(.data-box-page) .data-box-page {
+    width: min(100% - 14px, 100%);
+    gap: 10px;
+  }
+
+  body:has(.data-box-page) .data-box-inbox-header,
+  body:has(.data-box-page) .data-box-side-pane,
+  body:has(.data-box-page) .module-feedback,
+  body:has(.data-box-page) .data-box-sync-panel,
+  body:has(.data-box-page) #data-box-rules-panel,
+  body:has(.data-box-page) .data-box-technical-details,
+  body:has(.data-box-page) .data-box-detail-columns {
+    display: none !important;
+  }
+
+  body:has(.data-box-page) .data-box-account-strip {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body:has(.data-box-page) .data-box-account-strip__label {
+    display: none;
+  }
+
+  body:has(.data-box-page) .data-box-account-strip__chips {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 2px 0 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body:has(.data-box-page) .data-box-account-chip {
+    min-width: 96px;
+    max-width: 132px;
+    min-height: 38px;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  body:has(.data-box-page) .data-box-account-chip__mark {
+    width: 27px;
+    height: 27px;
+    border-radius: 7px;
+    font-size: 0.66rem;
+  }
+
+  body:has(.data-box-page) .data-box-account-chip__body {
+    gap: 0;
+  }
+
+  body:has(.data-box-page) .data-box-account-chip__body strong {
+    font-size: 0.75rem;
+  }
+
+  body:has(.data-box-page) .data-box-account-chip__body small,
+  body:has(.data-box-page) .data-box-account-chip .data-box-account-card__status {
+    display: none;
+  }
+
+  body:has(.data-box-page) .data-box-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 4px;
+  }
+
+  body:has(.data-box-page) .data-box-tab[data-data-box-tab="rules"] {
+    display: none;
+  }
+
+  body:has(.data-box-page) .data-box-workbench {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  body:has(.data-box-page) .data-box-message-inbox,
+  body:has(.data-box-page) .data-box-reading-pane {
+    min-height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  body:has(.data-box-page) .data-box-panel {
+    padding: 10px;
+  }
+
+  body:has(.data-box-page) .data-box-panel__head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  body:has(.data-box-page) .data-box-panel__head h2 {
+    font-size: 1.05rem;
+  }
+
+  body:has(.data-box-page) .data-box-message-card__extras {
+    max-width: 44%;
+    gap: 4px;
+  }
+
+  body:has(.data-box-page) .data-box-message-card__extras .data-box-priority,
+  body:has(.data-box-page) .data-box-message-card__attachment {
+    display: none;
+  }
+
+  body:has(.data-box-page) .data-box-company-badge {
+    max-width: 58px;
+    padding-inline: 6px;
+  }
+
+  body:has(.data-box-page) .data-box-message-safe-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:has(.data-box-page) .data-box-message-safe-actions .secondary-link {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
   body:has(.data-box-page) .data-box-detail-overlay {
     align-items: stretch;
     padding: 6px;
