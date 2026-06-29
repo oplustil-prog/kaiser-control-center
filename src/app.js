@@ -19994,7 +19994,7 @@ async function acceptAssistantPromo() {
   try {
     openAiAssistant("voice");
     triggerAiHaptic(15);
-    await startAiVoiceRecognition();
+    await startElevenLabsVoiceRecognition();
   } finally {
     await savePromise;
     assistantPromoState.saving = false;
@@ -24445,7 +24445,7 @@ document.addEventListener("click", async (event) => {
   const aiStartVoice = event.target.closest("[data-ai-start-voice]");
   if (aiStartVoice) {
     triggerAiHaptic(15);
-    await startAiVoiceRecognition();
+    await startElevenLabsVoiceRecognition();
     return;
   }
 
