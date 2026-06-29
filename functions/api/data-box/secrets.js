@@ -14,6 +14,7 @@ const PASSWORD_TARGETS = [
     usernameSecret: "DATA_BOX_ISDS_USERNAME_2",
     passwordSecret: "DATA_BOX_ISDS_PASSWORD_2",
     isdsIdSecret: "DATA_BOX_ISDS_ID_2",
+    requestedUsername: "3rw2ez",
     requestedIsdsId: "3rw2ez"
   },
   {
@@ -24,6 +25,7 @@ const PASSWORD_TARGETS = [
     usernameSecret: "DATA_BOX_ISDS_USERNAME_3",
     passwordSecret: "DATA_BOX_ISDS_PASSWORD_3",
     isdsIdSecret: "DATA_BOX_ISDS_ID_3",
+    requestedUsername: "322p6i",
     requestedIsdsId: "322p6i"
   }
 ];
@@ -79,16 +81,17 @@ function secretStatus(env, target) {
   };
 }
 
-function accountConfigForTest(env, target, passwordOverride = "") {
+function accountConfigForTest(env, target, overrides = {}) {
   const baseUrl = baseUrlFromEnv(env);
-  const username = cleanString(env[target.usernameSecret]);
-  const password = cleanString(passwordOverride || env[target.passwordSecret]);
+  const username = cleanString(overrides.username || env[target.usernameSecret]);
+  const password = cleanString(overrides.password || env[target.passwordSecret]);
+  const isdsId = cleanString(overrides.isdsId || env[target.isdsIdSecret]);
 
   return {
     slot: target.slot,
     id: target.id,
     label: target.label,
-    isdsId: cleanString(env[target.isdsIdSecret]),
+    isdsId,
     enabled: true,
     configured: Boolean(username && password),
     mode: modeFromEnv(env),
@@ -109,8 +112,8 @@ function accountConfigForTest(env, target, passwordOverride = "") {
   };
 }
 
-async function testTarget(env, target, passwordOverride) {
-  const config = accountConfigForTest(env, target, passwordOverride);
+async function testTarget(env, target, overrides) {
+  const config = accountConfigForTest(env, target, overrides);
   if (!config.hasUsername) {
     return {
       target,
@@ -156,7 +159,7 @@ function statusCards(env, results = []) {
           <h2>${escapeHtml(status.label)}</h2>
         </div>
         <dl>
-          <div><dt>Login</dt><dd>${escapeHtml(status.hasUsername ? status.usernameLabel : `Chybí ${status.usernameSecret}`)}</dd></div>
+          <div><dt>Login</dt><dd>${escapeHtml(status.hasUsername ? status.usernameLabel : `Chybí ${status.usernameSecret}`)} · požadovaný: <code>${escapeHtml(status.requestedUsername)}</code></dd></div>
           <div><dt>Heslo</dt><dd>${escapeHtml(status.passwordLabel)}</dd></div>
           <div><dt>ID DS</dt><dd>${escapeHtml(status.isdsIdLabel)} · požadované: <code>${escapeHtml(status.requestedIsdsId)}</code></dd></div>
           <div><dt>Cloudflare secret</dt><dd><code>${escapeHtml(status.passwordSecret)}</code></dd></div>
@@ -229,8 +232,26 @@ function page(env, options = {}) {
       <form method="post" autocomplete="off">
         <div class="grid">
           <label>
+            Login Kaiser technology
+            <input name="username_2" value="${escapeHtml(PASSWORD_TARGETS[0].requestedUsername)}" autocomplete="username" />
+          </label>
+          <label>
+            ID DS Kaiser technology
+            <input name="isds_id_2" value="${escapeHtml(PASSWORD_TARGETS[0].requestedIsdsId)}" autocomplete="off" />
+          </label>
+          <label>
             Heslo Kaiser technology
             <input name="password_2" type="password" autocomplete="new-password" placeholder="DATA_BOX_ISDS_PASSWORD_2" />
+          </label>
+        </div>
+        <div class="grid">
+          <label>
+            Login Nanolab plus
+            <input name="username_3" value="${escapeHtml(PASSWORD_TARGETS[1].requestedUsername)}" autocomplete="username" />
+          </label>
+          <label>
+            ID DS Nanolab plus
+            <input name="isds_id_3" value="${escapeHtml(PASSWORD_TARGETS[1].requestedIsdsId)}" autocomplete="off" />
           </label>
           <label>
             Heslo Nanolab plus
@@ -243,7 +264,9 @@ function page(env, options = {}) {
         </div>
         <p class="hint">Uložení do Cloudflare secrets musí proběhnout přes bezpečný Cloudflare mechanismus. Tato stránka hesla nevypisuje a po odeslání je nevrací zpět.</p>
         <div class="command">
+          <code>wrangler pages secret put DATA_BOX_ISDS_USERNAME_2 --project-name kaiser-control-center # 3rw2ez</code>
           <code>wrangler pages secret put DATA_BOX_ISDS_ID_2 --project-name kaiser-control-center # 3rw2ez</code>
+          <code>wrangler pages secret put DATA_BOX_ISDS_USERNAME_3 --project-name kaiser-control-center # 322p6i</code>
           <code>wrangler pages secret put DATA_BOX_ISDS_ID_3 --project-name kaiser-control-center # 322p6i</code>
           <code>wrangler pages secret put DATA_BOX_ISDS_PASSWORD_2 --project-name kaiser-control-center</code>
           <code>wrangler pages secret put DATA_BOX_ISDS_PASSWORD_3 --project-name kaiser-control-center</code>
@@ -271,16 +294,28 @@ export async function onRequestPost({ request, env }) {
 
   const form = await request.formData();
   const action = cleanString(form.get("action"));
+  const username2 = cleanString(form.get("username_2"));
+  const isdsId2 = cleanString(form.get("isds_id_2"));
   const password2 = cleanString(form.get("password_2"));
+  const username3 = cleanString(form.get("username_3"));
+  const isdsId3 = cleanString(form.get("isds_id_3"));
   const password3 = cleanString(form.get("password_3"));
 
   if (action === "test") {
     const tests = [];
     if (password2) {
-      tests.push(await testTarget(env, PASSWORD_TARGETS[0], password2));
+      tests.push(await testTarget(env, PASSWORD_TARGETS[0], {
+        username: username2,
+        isdsId: isdsId2,
+        password: password2
+      }));
     }
     if (password3) {
-      tests.push(await testTarget(env, PASSWORD_TARGETS[1], password3));
+      tests.push(await testTarget(env, PASSWORD_TARGETS[1], {
+        username: username3,
+        isdsId: isdsId3,
+        password: password3
+      }));
     }
     if (!tests.length) {
       return html(page(env, { error: "Vyplňte aspoň jedno heslo pro test." }), 400);
