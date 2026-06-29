@@ -4734,6 +4734,96 @@ h1 {
   gap: 18px;
 }
 
+.sarlota-status {
+  display: grid;
+  gap: 16px;
+}
+
+.sarlota-status__head {
+  align-items: center;
+}
+
+.sarlota-status__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.sarlota-status__row {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(35, 40, 33, 0.1);
+  border-radius: 8px;
+  background: rgba(247, 249, 244, 0.72);
+}
+
+.sarlota-status__row dt {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sarlota-status__row dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.sarlota-status__row dd span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sarlota-status__badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sarlota-status__badge--ok {
+  background: #eef8e8;
+  color: #2d5a16;
+}
+
+.sarlota-status__badge--error {
+  background: #fff0ed;
+  color: #9a3412;
+}
+
+.sarlota-status__badge--unverified,
+.sarlota-status__badge--waiting {
+  background: #f2f4f0;
+  color: #5f6858;
+}
+
+.sarlota-status__meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.module-theme-scope .sarlota-status__row {
+  border-color: var(--theme-border);
+  background: color-mix(in srgb, var(--theme-card) 86%, var(--theme-bg-surface));
+}
+
 .appearance-scope-badge {
   align-self: start;
   padding: 7px 10px;
@@ -15719,6 +15809,19 @@ body:has(.absence-page--employee-card) {
 }
 
 @media (max-width: 760px) {
+  .sarlota-status__head {
+    align-items: flex-start;
+  }
+
+  .sarlota-status__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sarlota-status__row dd {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .version-backup-info {
     grid-template-columns: 1fr;
     gap: 8px;

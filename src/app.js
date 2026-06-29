@@ -9,6 +9,7 @@ import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
 import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
 import { AppearanceSettingsBox } from "./components/AppearanceSettingsBox.js";
+import { SarlotaStatusPanel } from "./components/SarlotaStatusPanel.js";
 import { QuickAbsenceIcon, ReportsIcon } from "./components/icons/index.js";
 import { useSpeechRecognition } from "./useSpeechRecognition.js";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard.js";
@@ -552,6 +553,12 @@ const themeState = {
   draft: normalizeThemeSettings(DEFAULT_THEME_SETTINGS),
   preview: null,
   message: "",
+  error: ""
+};
+const sarlotaStatusState = {
+  loaded: false,
+  loading: false,
+  data: null,
   error: ""
 };
 
@@ -4206,15 +4213,24 @@ function settingsManagementSection(user) {
     return "";
   }
 
-  return AppearanceSettingsBox({
-    draftSettings: themeState.draft,
-    savedSettings: themeState.settings,
-    loading: themeState.loading,
-    saving: themeState.saving,
-    previewActive: Boolean(themeState.preview),
-    message: themeState.message,
-    error: themeState.error
-  });
+  ensureSarlotaStatusData();
+
+  return `
+    ${SarlotaStatusPanel({
+      status: sarlotaStatusState.data,
+      loading: sarlotaStatusState.loading,
+      error: sarlotaStatusState.error
+    })}
+    ${AppearanceSettingsBox({
+      draftSettings: themeState.draft,
+      savedSettings: themeState.settings,
+      loading: themeState.loading,
+      saving: themeState.saving,
+      previewActive: Boolean(themeState.preview),
+      message: themeState.message,
+      error: themeState.error
+    })}
+  `;
 }
 
 function formatAbsenceDate(value) {
@@ -19887,6 +19903,42 @@ async function loadThemeSettings(options = {}) {
   }
 }
 
+function ensureSarlotaStatusData(options = {}) {
+  if (!authState.user || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  if (!sarlotaStatusState.loaded || options.force) {
+    void loadSarlotaStatus(options);
+  }
+}
+
+async function loadSarlotaStatus(options = {}) {
+  if (!authState.user || sarlotaStatusState.loading || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  sarlotaStatusState.loading = true;
+  sarlotaStatusState.error = "";
+
+  try {
+    const result = await apiJson("/api/ai/elevenlabs/sarlota-status");
+    sarlotaStatusState.data = result;
+    sarlotaStatusState.loaded = true;
+  } catch (error) {
+    console.error("smart_odpady_sarlota_status_load_failed", error);
+    sarlotaStatusState.data = null;
+    sarlotaStatusState.loaded = true;
+    sarlotaStatusState.error = error.payload?.error || "Stav Šarloty se teď nepodařilo načíst.";
+  } finally {
+    sarlotaStatusState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
 function setAbsenceSettings(settings) {
   absenceState = saveAbsenceState({
     ...absenceState,
@@ -23392,6 +23444,13 @@ document.addEventListener("click", async (event) => {
   if (systemCheckRefresh) {
     event.preventDefault();
     await loadSystemCheckStatus({ force: true });
+    return;
+  }
+
+  const sarlotaStatusRefresh = event.target.closest("[data-sarlota-status-refresh]");
+  if (sarlotaStatusRefresh) {
+    event.preventDefault();
+    await loadSarlotaStatus({ force: true });
     return;
   }
 

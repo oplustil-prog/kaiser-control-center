@@ -46,7 +46,7 @@ server-side env hodnoty.
 Název:
 
 ```text
-Smart odpady - Šarlota
+Chytré odpadky – Šarlota
 ```
 
 Popis:
@@ -205,11 +205,15 @@ Aplikace má backend endpoint:
 ```text
 GET /api/ai/elevenlabs/signed-url?assistant=sarlota
 GET /api/ai/elevenlabs/signed-url?assistant=marek
+GET /api/ai/elevenlabs/sarlota-status
 ```
 
 Endpoint používá `ELEVENLABS_API_KEY` pouze na backendu a vrací dočasný `signedUrl`.
 Dynamic variables obsahují i `user_id`, aby serverový webhook `/api/voice/sarlota`
 mohl ověřit identitu přihlášeného uživatele Smart odpady.
+
+`sarlota-status` je interní read-only kontrola pro panel v Nastavení. Nevrací
+signed URL, API klíče, tokeny ani hodnoty osobních dynamic variables.
 
 ## Log AI akcí
 
