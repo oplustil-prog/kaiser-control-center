@@ -205,6 +205,9 @@ const TYRES_MODULE_URL = "https://kaiser-smart.github.io/kaiser-pneu-evidence/";
 const APP_NAME = "Smart odpady";
 const HOME_SUBTITLE = "Provozní systém pro odpady, vozidla a trasy";
 const LOGIN_SUBTITLE = "Přihlášení do interního provozního systému";
+const SARLOTA_ROUTE = "/sarlota";
+const SARLOTA_OPEN_QUERY_VALUE = "sarlota";
+const SARLOTA_PANEL_STATUS_ENDPOINT = "/api/ai/elevenlabs/sarlota-panel-status";
 const FEEDBACK_ROUTE = "/pripominky";
 const FLEET_ROUTE = "/vozovy-park";
 const COLLECTION_ROUTES_ROUTE = "/trasy-svozu";
@@ -313,16 +316,16 @@ const AI_VOICE_IDLE_LABEL = "Klepni a začni";
 const AI_VOICE_CONNECTING_LABEL = "Připojuji Šarlotu…";
 const AI_VOICE_READY_LABEL = "Šarlota je připravená";
 const AI_VOICE_LISTENING_LABEL = "Poslouchám…";
-const AI_VOICE_USER_SPEAKING_LABEL = "Mluvte teď";
+const AI_VOICE_USER_SPEAKING_LABEL = "Mluv teď";
 const AI_VOICE_PROCESSING_LABEL = "Zpracovávám…";
 const AI_VOICE_SPEAKING_LABEL = "Šarlota odpovídá…";
 const AI_VOICE_MUTED_LABEL = "Mikrofon je vypnutý";
 const AI_VOICE_MICROPHONE_DENIED_LABEL = "Mikrofon není povolený";
 const AI_VOICE_DISCONNECTED_LABEL = "Spojení se přerušilo. Klepni pro obnovení.";
 const AI_VOICE_ERROR_LABEL = "Nepodařilo se připojit mikrofon.";
-const AI_VOICE_WEAK_INPUT_NOTICE = "Mluvte blíže k telefonu nebo zvyšte hlasitost zařízení.";
+const AI_VOICE_WEAK_INPUT_NOTICE = "Mluv blíž k telefonu nebo zvyš hlasitost zařízení.";
 const AI_VOICE_WAKE_LOCK_ACTIVE_LABEL = "Displej zůstane během hovoru zapnutý.";
-const AI_VOICE_WAKE_LOCK_UNAVAILABLE_LABEL = "Telefon může během hovoru usnout. Zkontrolujte nastavení displeje.";
+const AI_VOICE_WAKE_LOCK_UNAVAILABLE_LABEL = "Telefon může během hovoru usnout. Zkontroluj nastavení displeje.";
 const AI_VOICE_WEAK_INPUT_LEVEL = 0.018;
 const AI_VOICE_WEAK_INPUT_MIN_READINGS = 6;
 const AI_VOICE_UI_STATES = [
@@ -556,6 +559,12 @@ const themeState = {
   error: ""
 };
 const sarlotaStatusState = {
+  loaded: false,
+  loading: false,
+  data: null,
+  error: ""
+};
+const sarlotaPanelStatusState = {
   loaded: false,
   loading: false,
   data: null,
@@ -1087,6 +1096,24 @@ function routeHref(route) {
 
 function apiHref(path) {
   return `${basePath || ""}${path}`;
+}
+
+function sarlotaOpenQuery() {
+  return new URLSearchParams(window.location.search).get("open") || "";
+}
+
+function isSarlotaDeepLinkUrl() {
+  return normalizePath(window.location.pathname) === SARLOTA_ROUTE ||
+    sarlotaOpenQuery().trim().toLowerCase() === SARLOTA_OPEN_QUERY_VALUE;
+}
+
+function clearSarlotaDeepLinkUrl() {
+  if (!isSarlotaDeepLinkUrl()) {
+    return;
+  }
+
+  window.history.replaceState({}, "", routeHref("/"));
+  lastRenderedUrl = window.location.href;
 }
 
 function employeeCardRoute(employeeId) {
@@ -1996,7 +2023,7 @@ function cancelAiTextRequest(nextStatus = AI_TEXT_READY_LABEL) {
   aiAssistantState.textStatus = nextStatus;
 }
 
-function openAiAssistant(mode = "text") {
+function openAiAssistant(mode = "text", options = {}) {
   stopAiVoiceDemo({ renderAfter: false });
   const nextMode = mode === "voice" ? "voice" : "text";
   const keepVoiceState = nextMode === "voice" && (
@@ -2010,6 +2037,7 @@ function openAiAssistant(mode = "text") {
 
   if (nextMode !== "voice") {
     elevenLabsAssistant.stopVoiceAudio?.();
+    clearSarlotaDeepLinkUrl();
   }
 
   aiAssistantState.welcomeVisible = false;
@@ -2023,11 +2051,14 @@ function openAiAssistant(mode = "text") {
     aiAssistantState.elevenLabsStatus = aiAssistantState.elevenLabsConfiguredByAssistant[assistant.id]
       ? `ElevenLabs agent ${assistant.name} je nakonfigurovaný.`
       : AI_STATUS_ELEVENLABS_WAITING;
+    ensureSarlotaPanelStatusData({ renderAfter: false });
   }
   if (!keepVoiceState) {
     resetAiVoiceConversation();
   }
-  renderAiAssistantLayerOnly();
+  if (options.renderAfter !== false) {
+    renderAiAssistantLayerOnly();
+  }
 }
 
 function dismissAiAssistantWelcome() {
@@ -2055,6 +2086,7 @@ function closeAiAssistant() {
   aiAssistantState.voiceStatus = AI_STATUS_DONE;
   aiAssistantState.voiceUiState = "idle";
   aiAssistantState.voiceWakeLockStatus = "idle";
+  clearSarlotaDeepLinkUrl();
   renderAiAssistantLayerOnly();
 }
 
@@ -2105,7 +2137,7 @@ async function submitAiAssistantQuestion(question, options = {}) {
       setAiVoiceUiState("error", AI_TEXT_ERROR_LABEL, ["Chyba AI", "Textový režim", "Bez odeslání"]);
     } else {
       aiAssistantState.voiceNotice = response.audioPlaybackFailed
-        ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč."
+        ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontroluj hlasitost, tichý režim a povolený zvuk pro prohlížeč."
         : "";
       setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, [
         response.audioPlaybackStarted ? "Zvuk přehrávám" : "Zvuk připravuji",
@@ -2297,7 +2329,7 @@ async function startAiVoiceRecognition() {
         let shouldRender = updateAiVoiceInputLevelNotice(event);
 
         if (event.speaking && aiAssistantState.voiceUiState !== "userSpeaking") {
-          setAiVoiceUiState("userSpeaking", AI_VOICE_USER_SPEAKING_LABEL, ["Mluvte teď", "Mikrofon aktivní", "ElevenLabs"]);
+          setAiVoiceUiState("userSpeaking", AI_VOICE_USER_SPEAKING_LABEL, ["Mluv teď", "Mikrofon aktivní", "ElevenLabs"]);
           renderAiAssistantLayerOnly();
           return;
         }
@@ -2318,7 +2350,7 @@ async function startAiVoiceRecognition() {
 
         aiAssistantState.isListening = true;
         clearAiVoiceWeakInputNotice();
-        setAiVoiceUiState("listening", AI_VOICE_LISTENING_LABEL, ["Poslouchám", "Mluvte teď", "ElevenLabs"]);
+        setAiVoiceUiState("listening", AI_VOICE_LISTENING_LABEL, ["Poslouchám", "Mluv teď", "ElevenLabs"]);
         triggerAiVoiceSessionHaptic("listening");
         renderAiAssistantLayerOnly();
       },
@@ -2346,7 +2378,7 @@ async function startAiVoiceRecognition() {
           return;
         }
         if (event.audioPlaybackFailed) {
-          aiAssistantState.voiceNotice = "Odpověď přišla, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč.";
+          aiAssistantState.voiceNotice = "Odpověď přišla, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontroluj hlasitost, tichý režim a povolený zvuk pro prohlížeč.";
         }
         setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, [
           event.audioPlaybackStarted ? "Zvuk přehrávám" : "Zvuk připravuji",
@@ -2368,7 +2400,7 @@ async function startAiVoiceRecognition() {
     aiAssistantState.voiceTranscript = result.transcript || aiAssistantState.voiceTranscript;
     aiAssistantState.voiceAnswer = result.text || aiAssistantState.voiceAnswer || `${assistant.name} nevrátila textovou odpověď.`;
     aiAssistantState.voiceNotice = result.audioPlaybackFailed
-      ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontrolujte hlasitost, tichý režim a povolený zvuk pro prohlížeč."
+      ? "Odpověď přišla textem, ale zvuk se v mobilním prohlížeči nepodařilo přehrát. Zkontroluj hlasitost, tichý režim a povolený zvuk pro prohlížeč."
       : aiAssistantState.voiceNotice;
     setAiVoiceUiState("assistantSpeaking", AI_VOICE_SPEAKING_LABEL, [
       result.audioPlaybackStarted ? "Zvuk přehrávám" : "Odpověď přijata",
@@ -2517,6 +2549,9 @@ function renderAiAssistantLayer() {
       voiceTags: aiAssistantState.voiceTags,
       voiceNotice: aiAssistantState.voiceNotice,
       voiceWakeLockMessage: aiVoiceWakeLockMessage(),
+      assistantStatus: sarlotaPanelStatusState.data,
+      assistantStatusLoading: sarlotaPanelStatusState.loading,
+      assistantStatusError: sarlotaPanelStatusState.error,
       demoPlaying: aiAssistantState.demoPlaying,
       demoSpeaker: aiAssistantState.demoSpeaker,
       demoSpeakerLabel: aiAssistantState.demoSpeakerLabel,
@@ -20487,6 +20522,42 @@ async function loadSarlotaStatus(options = {}) {
   }
 }
 
+function ensureSarlotaPanelStatusData(options = {}) {
+  if (!authState.user) {
+    return;
+  }
+
+  if (!sarlotaPanelStatusState.loaded || options.force) {
+    void loadSarlotaPanelStatus(options);
+  }
+}
+
+async function loadSarlotaPanelStatus(options = {}) {
+  if (!authState.user || sarlotaPanelStatusState.loading) {
+    return;
+  }
+
+  sarlotaPanelStatusState.loading = true;
+  sarlotaPanelStatusState.error = "";
+
+  try {
+    const result = await apiJson(SARLOTA_PANEL_STATUS_ENDPOINT);
+    sarlotaPanelStatusState.data = result;
+    sarlotaPanelStatusState.loaded = true;
+  } catch (error) {
+    console.error("smart_odpady_sarlota_panel_status_load_failed", error);
+    sarlotaPanelStatusState.data = null;
+    sarlotaPanelStatusState.loaded = true;
+    sarlotaPanelStatusState.error = error.payload?.error || "Stav Šarloty se teď nepodařilo načíst.";
+  } finally {
+    sarlotaPanelStatusState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
 function setAbsenceSettings(settings) {
   absenceState = saveAbsenceState({
     ...absenceState,
@@ -21083,13 +21154,35 @@ async function loadAdminUsers() {
   }
 }
 
+function prepareSarlotaDeepLinkPanel() {
+  if (!isSarlotaDeepLinkUrl()) {
+    return false;
+  }
+
+  if (!aiAssistantState.chatOpen || aiAssistantState.mode !== "voice") {
+    openAiAssistant("voice", { renderAfter: false });
+  } else {
+    aiAssistantState.selectedAssistantId = DEFAULT_AI_ASSISTANT_ID;
+  }
+
+  ensureSarlotaPanelStatusData({ renderAfter: false });
+  return true;
+}
+
 function renderAuthenticatedApp(user) {
   const path = normalizePath(window.location.pathname);
   const userPrimaryRoutes = new Map(visibleModules(user).map((moduleItem) => [moduleItem.route, moduleItem]));
   const userDashboardRoutes = new Map(visibleDashboardRoutes(user).map((moduleItem) => [moduleItem.route, moduleItem]));
+  const sarlotaDeepLink = prepareSarlotaDeepLinkPanel();
 
   if (hasPermission(user, "feedback", "view")) {
     loadModuleFeedback({ render: true });
+  }
+
+  if (sarlotaDeepLink) {
+    app.innerHTML = homePage(user);
+    document.title = `Šarlota | ${APP_NAME}`;
+    return;
   }
 
   if (path === DESIGN_NEUMORPHIC_ROUTE) {

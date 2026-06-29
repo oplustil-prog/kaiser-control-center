@@ -32,6 +32,54 @@ const STOPPABLE_VOICE_STATES = [
   "assistantSpeaking"
 ];
 
+function statusMeta(status) {
+  const normalized = String(status || "unverified").trim().toLowerCase();
+  const labels = {
+    ok: "OK",
+    error: "chyba",
+    configured: "OK",
+    unverified: "NEOVĚŘENO",
+    waiting: "NEOVĚŘENO"
+  };
+
+  return {
+    status: labels[normalized] ? normalized : "unverified",
+    label: labels[normalized] || "NEOVĚŘENO"
+  };
+}
+
+function statusBadge(status) {
+  const meta = statusMeta(status);
+  const tone = meta.status === "configured" ? "ok" : meta.status;
+
+  return `
+    <span class="ai-voice-assistant-panel__status-badge ai-voice-assistant-panel__status-badge--${escapeHtml(tone)}">
+      ${escapeHtml(meta.label)}
+    </span>
+  `;
+}
+
+function assistantStatusRows(status = null) {
+  const statuses = status?.statuses || {};
+  const rows = [
+    statuses.elevenLabs || { label: "ElevenLabs", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.openAi || { label: "OpenAI", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.ksoBackend || { label: "KSO backend", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.signedUrl || { label: "signed-url endpoint", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.personalization || { label: "Personalizace", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.introAnnouncement || { label: "intro_announcement", status: "unverified", detail: "NEOVĚŘENO" },
+    statuses.vocative || { label: "Vocativ", status: "unverified", detail: "NEOVĚŘENO" }
+  ];
+
+  return rows.map((row) => `
+    <div class="ai-voice-assistant-panel__status-row">
+      <span>${escapeHtml(row.label || "Stav")}</span>
+      ${statusBadge(row.status)}
+      <em>${escapeHtml(row.detail || "NEOVĚŘENO")}</em>
+    </div>
+  `).join("");
+}
+
 export function AiVoiceAssistantPanel({
   open = false,
   mode = "voice",
@@ -45,6 +93,9 @@ export function AiVoiceAssistantPanel({
   voiceTags = [],
   voiceNotice = "",
   voiceWakeLockMessage = "",
+  assistantStatus = null,
+  assistantStatusLoading = false,
+  assistantStatusError = "",
   demoPlaying = false,
   demoSpeaker = "",
   demoSpeakerLabel = "",
@@ -107,17 +158,17 @@ export function AiVoiceAssistantPanel({
             ? "Zpracovávám"
             : listening || normalizedVoiceUiState === "listening" || normalizedVoiceUiState === "userSpeaking"
               ? "Mikrofon běží"
-              : "Klepni a začni";
+              : "Spustit hlas";
   const statusHint = normalizedVoiceUiState === "listening"
-    ? "Mluvte normálně do telefonu."
+    ? "Mluv normálně do telefonu."
     : normalizedVoiceUiState === "assistantSpeaking"
-      ? "Nechte zapnutý zvuk zařízení."
+      ? "Nech zapnutý zvuk zařízení."
       : normalizedVoiceUiState === "microphoneDenied"
         ? "Povol mikrofon pro tento web."
       : normalizedVoiceUiState === "disconnected"
         ? "Zkontroluj mikrofon a obnov hovor."
         : normalizedVoiceUiState === "error"
-          ? "Zkontrolujte oprávnění mikrofonu."
+          ? "Zkontroluj oprávnění mikrofonu."
           : "Mikrofon se spustí až po klepnutí.";
   const tags = Array.isArray(voiceTags) && voiceTags.length
     ? voiceTags
@@ -148,6 +199,21 @@ export function AiVoiceAssistantPanel({
       <div class="ai-voice-assistant-panel__body">
         <div class="ai-voice-assistant-panel__mode">
           ${AiAssistantModeSwitch({ mode })}
+        </div>
+
+        <div class="ai-voice-assistant-panel__system-status" aria-label="Stav Šarloty">
+          <div class="ai-voice-assistant-panel__system-status-head">
+            <strong>Stav připojení</strong>
+            <span>${escapeHtml(assistantStatusLoading ? "Načítám…" : assistantStatus?.generatedAt ? "Aktualizováno" : "NEOVĚŘENO")}</span>
+          </div>
+          ${assistantStatusError ? `
+            <p class="ai-voice-assistant-panel__system-status-error" role="alert">
+              ${escapeHtml(assistantStatusError)}
+            </p>
+          ` : ""}
+          <div class="ai-voice-assistant-panel__status-grid">
+            ${assistantStatusRows(assistantStatus)}
+          </div>
         </div>
 
         <div class="ai-voice-assistant-panel__stage">
@@ -222,9 +288,12 @@ export function AiVoiceAssistantPanel({
         <button class="ai-voice-assistant-panel__primary" type="button" data-ai-start-voice ${voiceBusy ? "disabled" : ""}>
           ${escapeHtml(primaryActionText)}
         </button>
+        <button class="ai-voice-assistant-panel__text-fallback" type="button" data-ai-mode="text">
+          Napsat dotaz
+        </button>
         ${canStopVoice ? `
           <button class="ai-voice-assistant-panel__stop" type="button" data-ai-stop-voice>
-            ${demoPlaying ? "Zastavit ukázku" : "Ukončit"}
+            ${demoPlaying ? "Zastavit ukázku" : "Zastavit"}
           </button>
         ` : ""}
       </footer>

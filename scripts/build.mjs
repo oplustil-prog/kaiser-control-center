@@ -53,6 +53,7 @@ async function fileExists(filePath) {
 
 const routes = new Set([
   "/",
+  "/sarlota",
   "/pripominky",
   "/dovolena-nemoc/rychle-zadani",
   "/dovolena-nemoc/moje-zadosti",
@@ -86,6 +87,7 @@ if (await fileExists(publicDir)) {
 await writeFile(path.join(dist, "index.html"), versionedTemplate());
 await writeFile(path.join(dist, "404.html"), versionedTemplate());
 await writeFile(path.join(dist, "_redirects"), [
+  "/sarlota /sarlota/index.html 200",
   "/dovolena-nemoc/* /index.html 200",
   "/vozovy-park/* /index.html 200",
   "/sledovani-vozidel/* /index.html 200",

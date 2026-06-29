@@ -364,6 +364,127 @@ export async function sarlotaStatusPayload(env, user) {
   };
 }
 
+function panelStatusValue(status, { configured = false, upstreamVerified = false } = {}) {
+  if (status === "error") {
+    return "error";
+  }
+
+  if (status === "ok") {
+    return "ok";
+  }
+
+  if (status === "configured") {
+    return upstreamVerified || configured ? "ok" : "unverified";
+  }
+
+  return "unverified";
+}
+
+function panelStatusDetail(status, { ok = "OK", error = "chyba", unverified = "NEOVĚŘENO" } = {}) {
+  if (status === "ok") {
+    return ok;
+  }
+
+  if (status === "error") {
+    return error;
+  }
+
+  return unverified;
+}
+
+export async function sarlotaPanelStatusPayload(env, user) {
+  const status = await sarlotaStatusPayload(env, user);
+  const openAiServerConfigured = Boolean(cleanString(env?.OPENAI_API_KEY));
+  const elevenLabsStatus = panelStatusValue(status.elevenLabs?.status, {
+    configured: status.elevenLabs?.configured,
+    upstreamVerified: status.elevenLabs?.upstreamVerified
+  });
+  const openAiModelStatus = panelStatusValue(status.openAiModelInElevenLabs?.status);
+  const openAiStatus = openAiServerConfigured ? "ok" : "error";
+  const signedUrlStatus = panelStatusValue(status.signedUrlEndpoint?.status, {
+    configured: status.signedUrlEndpoint?.configured
+  });
+  const personalizationStatus = panelStatusValue(status.personalization?.status);
+  const introStatus = panelStatusValue(status.firstMessage?.status);
+  const vocativeStatus = panelStatusValue(status.vocative?.status);
+
+  return {
+    generatedAt: status.generatedAt,
+    panel: {
+      title: "Šarlota",
+      readOnly: true,
+      openedByDeepLink: true
+    },
+    statuses: {
+      elevenLabs: {
+        label: "ElevenLabs",
+        status: elevenLabsStatus,
+        detail: panelStatusDetail(elevenLabsStatus, {
+          ok: status.elevenLabs?.upstreamVerified ? "OK, agent ověřen read-only" : "OK, server má konfiguraci",
+          error: "chybí konfigurace nebo agent není dostupný"
+        })
+      },
+      openAi: {
+        label: "OpenAI",
+        status: openAiStatus,
+        detail: panelStatusDetail(openAiStatus, {
+          ok: openAiModelStatus === "ok"
+            ? "OK, server-side klíč existuje a model je ověřen v ElevenLabs"
+            : `OK, server-side klíč existuje; model v ElevenLabs ${OPENAI_MODEL_EXPECTED_IN_ELEVENLABS} / NEOVĚŘENO`,
+          error: "chybí server-side OPENAI_API_KEY",
+          unverified: "NEOVĚŘENO"
+        })
+      },
+      ksoBackend: {
+        label: "KSO backend",
+        status: "ok",
+        detail: "OK, přihlášený uživatel má přístup"
+      },
+      signedUrl: {
+        label: "Signed-url endpoint",
+        status: signedUrlStatus,
+        detail: panelStatusDetail(signedUrlStatus, {
+          ok: "OK, endpoint existuje a je nakonfigurovaný",
+          error: "endpoint existuje, ale chybí konfigurace",
+          unverified: "NEOVĚŘENO"
+        })
+      },
+      personalization: {
+        label: "Personalizace",
+        status: personalizationStatus,
+        detail: panelStatusDetail(personalizationStatus, {
+          ok: "OK, proměnné vznikají z přihlášeného profilu",
+          error: "chybí povinné dynamické proměnné"
+        })
+      },
+      introAnnouncement: {
+        label: "intro_announcement",
+        status: introStatus,
+        detail: panelStatusDetail(introStatus, {
+          ok: "OK, připraveno pro first message",
+          error: "first message nebo intro_announcement nesedí"
+        })
+      },
+      vocative: {
+        label: "Vocativ",
+        status: vocativeStatus,
+        detail: panelStatusDetail(vocativeStatus, {
+          ok: "OK",
+          error: "vocativ není ověřený"
+        })
+      }
+    },
+    checks: {
+      signedUrlEndpoint: "/api/ai/elevenlabs/signed-url?assistant=sarlota",
+      voiceEndpoint: "/api/voice/sarlota",
+      signedUrlOmitted: true,
+      secretsOmitted: true,
+      dynamicVariableValuesOmitted: true,
+      noLiveToolsExecuted: true
+    }
+  };
+}
+
 export async function onRequestGet({ request, env }) {
   const { user, response } = await requireUserPermission(env, request, "settings", "manage");
 

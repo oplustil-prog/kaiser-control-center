@@ -3360,6 +3360,69 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/ai/elevenlabs/sarlota-panel-status" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      generatedAt: new Date().toISOString(),
+      panel: {
+        title: "Šarlota",
+        readOnly: true,
+        openedByDeepLink: true
+      },
+      statuses: {
+        elevenLabs: {
+          label: "ElevenLabs",
+          status: "unverified",
+          detail: "NEOVĚŘENO v lokálním vývojovém serveru"
+        },
+        openAi: {
+          label: "OpenAI",
+          status: "unverified",
+          detail: "GPT-5.1 / NEOVĚŘENO"
+        },
+        ksoBackend: {
+          label: "KSO backend",
+          status: hasPermission(user, "dashboard", "view") ? "ok" : "error",
+          detail: hasPermission(user, "dashboard", "view") ? "OK, přihlášený uživatel má přístup" : "chybí oprávnění"
+        },
+        signedUrl: {
+          label: "Signed-url endpoint",
+          status: "unverified",
+          detail: "NEOVĚŘENO v lokálním vývojovém serveru"
+        },
+        personalization: {
+          label: "Personalizace",
+          status: "unverified",
+          detail: "NEOVĚŘENO v lokálním vývojovém serveru"
+        },
+        introAnnouncement: {
+          label: "intro_announcement",
+          status: "unverified",
+          detail: "NEOVĚŘENO v lokálním vývojovém serveru"
+        },
+        vocative: {
+          label: "Vocativ",
+          status: "unverified",
+          detail: "NEOVĚŘENO"
+        }
+      },
+      checks: {
+        signedUrlEndpoint: "/api/ai/elevenlabs/signed-url?assistant=sarlota",
+        voiceEndpoint: "/api/voice/sarlota",
+        signedUrlOmitted: true,
+        secretsOmitted: true,
+        dynamicVariableValuesOmitted: true,
+        noLiveToolsExecuted: true
+      }
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/theme-settings" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {

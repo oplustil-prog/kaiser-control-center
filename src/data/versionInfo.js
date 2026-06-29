@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.226"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.227"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: iPhone Akční tlačítko",
+    text: "KSO má deep-link /sarlota a záložní ?open=sarlota pro Apple Zkratku Šarlota. Po otevření se zobrazí panel Šarloty se stavem napojení, ale mikrofon se spustí až po klepnutí na Spustit hlas."
+  },
   {
     title: "Šarlota: viditelné spuštění",
     text: "Po přihlášení je vpravo dole viditelné tlačítko Šarlota a otevírá rovnou hlasový panel; mikrofon se dál spouští až po samostatném klepnutí."
