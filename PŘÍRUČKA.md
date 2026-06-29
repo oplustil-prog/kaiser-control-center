@@ -48,6 +48,24 @@ Bez potvrzení Radima/Martina nesmí implementovat.
 
 Pokud Radim/Martin po návrhu výslovně potvrdí konkrétní bezpečný cíl, například `souhlas`, `ano`, `pokračuj`, `uprav` nebo `nastav to`, může Codex/vývojář pokračovat samostatně v jednom logickém programovacím celku.
 
+#### Význam potvrzení `ano`
+
+Radimovo/Martinovo `ano` znamená potvrzení aktuálně navrženého nebo právě položeného kroku v daném kontextu.
+
+Pokud Codex/vývojář čeká na potvrzení a Radim/Martin odpoví `ano`, bere se to jako:
+- souhlasím,
+- pokračuj,
+- oprav,
+- nastav,
+- spusť povolené kontroly/testy/build,
+- commitni,
+- pushni,
+- zveřejni/nasaď, pokud se Codex/vývojář ptal na zveřejnění nebo pokud je zveřejnění výslovnou součástí schváleného kroku.
+
+Codex/vývojář se po `ano` nesmí znovu ptát na totéž potvrzení jinými slovy.
+
+`Ano` ale samo o sobě neruší bezpečnostní zákazy této příručky. Pokud krok obsahuje DB/migrace, Cloudflare secrets/bindings, ostré odesílání datových zpráv/e-mailů/SMS, mazání produkčních dat, cron/automatizace/worker, hard reset nebo force push, musí být tato riziková akce v návrhu výslovně pojmenovaná a potvrzená.
+
 Platí jen pro:
 - read-only analýzu, diagnostiku a ověření,
 - UI nebo textové úpravy bez změny oprávnění,
@@ -702,6 +720,41 @@ Nesmí vznikat:
 - tlačítka mimo obrazovku,
 - rozbité mobilní menu.
 
+### Povinné barevné schéma, písmo a čitelnost modulů
+
+Při vývoji každého modulu je nutné respektovat barevné schéma z Nastavení aplikace.
+
+Moduly mají používat existující theme proměnné / `module-theme-scope` a hlavní firemní barvy z nastavení. Nový modul nesmí zavádět náhodnou vlastní paletu, pokud to Radim/Martin výslovně neschválí.
+
+Výchozí font Kaiser Control Center je Quicksand.
+
+Quicksand se nesmí přetěžovat tučným řezem. Tučné písmo používat jen pro:
+- hlavní nadpisy,
+- krátké štítky,
+- důležitý status,
+- primární akce.
+
+Netučné nebo jen lehce zvýrazněné mají být:
+- vysvětlující texty pod nadpisy,
+- popisy karet,
+- odstavce typu provozní realita / chráněné čtecí API,
+- tabulkové řádky s provozními daty,
+- data přijatých a odeslaných zpráv.
+
+Správný vzor:
+
+```text
+Provozní realita
+Rozpad na fáze a cílové cloudové části, aby UI nevypadalo jako ostré ISDS napojení.
+
+Chráněné čtecí API
+Frontend čte stav, metadata zpráv a log běhů přes backend. Data jsou pouze v D1, pokud je binding a migrace v produkci hotová.
+```
+
+Nadpis může být tučný. Popis pod ním má být netučný a čitelný.
+
+V Datové schránce jsou firemní boxy samostatné chlívky. Po kliknutí na konkrétní schránku, například `KS`, musí uživatel zůstat čistě v kontextu této jedné DS. Nemá zůstat v nejasném pohledu všech boxů, pokud je vybraná jedna schránka.
+
 ## 6. GitHub
 
 Hlavní firemní GitHub organizace je:
@@ -818,6 +871,35 @@ Zastav se pouze tehdy, když:
 - krok může smazat nebo přepsat produkční data,
 - není jasné, která produkční služba je zdroj pravdy,
 - Cloudflare / GitHub vyžaduje ruční potvrzení vlastníka účtu.
+
+### Bezpečné předávání hesel a Cloudflare secrets
+
+Pokud je potřeba nastavit heslo, token nebo jiný secret:
+- nikdy ho nevkládat do chatu,
+- nikdy ho nevkládat přímo do shell příkazu,
+- nikdy ho neukládat do repozitáře, `.env` souboru nebo logu,
+- nepoužívat hromadný `.env` import, pokud není opravdu nutný a předem schválený,
+- preferovat ukládání po jednom přes `wrangler pages secret put <NAME> --project-name <PROJECT>`,
+- hodnotu zadá Radim/Martin do skrytého macOS dialogu nebo interaktivního promptu,
+- Codex smí ve výstupu ukázat pouze název secretu a potvrzení uložení, nikdy hodnotu,
+- po uložení ověřit jen seznam názvů přes `wrangler pages secret list`,
+- po změně Cloudflare Pages secrets udělat redeploy produkce,
+- po redeploy ověřit `buildMeta` a relevantní chráněné endpointy.
+
+Bezpečný vzor pro více secrets:
+
+```text
+1. Codex připraví přesný seznam názvů secrets.
+2. Radim/Martin potvrdí změnu secrets.
+3. Codex spustí ukládání po jednom.
+4. Pro každý secret vyskočí skrytý dialog / prompt.
+5. Radim/Martin vloží hodnotu mimo chat.
+6. Codex ověří pouze název secretu jako uložený.
+7. Po všech secrets Codex spustí redeploy.
+8. Codex ověří produkci.
+```
+
+Pokud se Cloudflare UI chová nespolehlivě, nepokračovat opakováním stejného formuláře. Přepnout na výše uvedený CLI postup.
 
 ## 7. Na projektu pracují
 
@@ -1185,3 +1267,41 @@ Při každé změně Šarloty ověřit:
 - build projde,
 - `node --check` projde,
 - `git diff --check` projde.
+
+## 17. Datová schránka a UI pravidla
+
+### 17.1 Bezpečné předávání hesel / Cloudflare secrets
+
+- Hesla, tokeny a secrets se nikdy nevypisují do chatu, shellu, logu ani screenshotu.
+- U Datové schránky je bezpečný postup zadávání Cloudflare secrets po jednom:
+  1. Cloudflare Pages projekt.
+  2. Add variable.
+  3. Secret.
+  4. Název proměnné.
+  5. Radim vloží hodnotu sám.
+  6. Save.
+- Tento postup opakovat pro `DATA_BOX_ISDS_USERNAME_2` až `DATA_BOX_ISDS_USERNAME_6` a `DATA_BOX_ISDS_PASSWORD_2` až `DATA_BOX_ISDS_PASSWORD_6`.
+- Hromadný `.env` import nepoužívat, pokud Radim výslovně nepotvrdí konkrétní bezpečný postup.
+- Po změně Cloudflare secrets je nutný nový deployment, jinak se změny nemusí projevit v produkci.
+
+### 17.2 Vzhled modulů
+
+- Při vývoji každého modulu respektovat barevné schéma v Nastavení.
+- Nehardcodovat dominantní modulové barvy mimo existující theme proměnné, pokud to není výslovně potvrzené.
+- Výchozí font UI je Quicksand.
+- Nadpisy mohou být výraznější, ale běžný obsah a tabulkové řádky nemají být zbytečně tučné.
+- Před dokončením vizuální změny ověřit desktop, notebook, tablet a mobil.
+
+### 17.3 Datová schránka jako pracovní inbox
+
+- Datová schránka není obyčejná tabulka.
+- Firemní datové schránky mají být klikací boxy vedle sebe:
+  - Kaiser servis,
+  - Kaiser technology,
+  - Nanolab plus,
+  - Nanolab shop,
+  - LeFleur,
+  - Kaisermanův nadační fond.
+- Po kliknutí na konkrétní box je uživatel v chlívku dané DS a vidí jen data této schránky.
+- Detail zprávy má být pracovní read-only detail nebo okno pro řešení zprávy.
+- Bez potvrzeného API nesmí UI předstírat funkční odpověď, přeposlání, mazání, změnu stavu ani stahování příloh.

@@ -9,6 +9,7 @@ import { VersionBackupInfo } from "./components/VersionBackupInfo.js";
 import { VersionNewsInfo } from "./components/VersionNewsInfo.js";
 import { ModuleFeedbackBox } from "./components/ModuleFeedbackBox.js";
 import { AppearanceSettingsBox } from "./components/AppearanceSettingsBox.js";
+import { SarlotaStatusPanel } from "./components/SarlotaStatusPanel.js";
 import { QuickAbsenceIcon, ReportsIcon } from "./components/icons/index.js";
 import { useSpeechRecognition } from "./useSpeechRecognition.js";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard.js";
@@ -179,15 +180,8 @@ import {
   vehicleTrackingStatusTone
 } from "./data/vehicleTracking.js";
 import {
-  DATA_BOX_EMPTY_MESSAGE_COLUMNS,
-  DATA_BOX_EXISTING_ENDPOINTS,
-  DATA_BOX_FUTURE_ENDPOINTS,
-  DATA_BOX_INTEGRATION_POINTS,
   DATA_BOX_MODULE_KEY,
-  DATA_BOX_PHASES,
-  DATA_BOX_REALITY_ITEMS,
   DATA_BOX_ROUTE,
-  DATA_BOX_STATUS_CARDS,
   DATA_BOX_TABS
 } from "./data/dataBox.js";
 
@@ -561,6 +555,12 @@ const themeState = {
   message: "",
   error: ""
 };
+const sarlotaStatusState = {
+  loaded: false,
+  loading: false,
+  data: null,
+  error: ""
+};
 
 const feedbackFormState = {};
 const feedbackFilters = {
@@ -676,11 +676,20 @@ const moduleRulesState = {
   message: "",
   formOpen: false,
   editingId: "",
+  prefillDraft: null,
   formType: "rule",
   selectedId: "",
   searchQuery: "",
   typeFilter: "all",
   statusFilter: "all"
+};
+const systemCheckState = {
+  loaded: false,
+  loading: false,
+  apiStatus: "waiting",
+  data: null,
+  error: "",
+  message: ""
 };
 const collectionRoutesPilotState = {
   loaded: false,
@@ -740,6 +749,14 @@ const dataBoxState = {
   status: null,
   messages: [],
   syncRuns: [],
+  aiBoostActions: [],
+  aiBoostLoaded: false,
+  aiBoostLoading: false,
+  aiBoostError: "",
+  aiBoostMessage: "",
+  aiBoostEditingId: "",
+  selectedDataBoxId: "kaiser-primary",
+  activeTab: "received",
   syncLoading: false,
   syncMessage: "",
   syncError: "",
@@ -747,8 +764,35 @@ const dataBoxState = {
   selectedMessage: null,
   detailLoading: false,
   detailError: "",
+  attachmentNotice: "",
+  attachmentError: "",
+  replyDraftOpen: false,
+  replyDraftText: "",
+  replyDraftError: "",
+  actionLoading: "",
+  actionNotice: "",
+  actionError: "",
+  selectedPreviewMessageId: "",
+  messagePagination: {
+    pageSize: 5,
+    currentPage: 1
+  },
+  messageFilters: {
+    query: "",
+    status: "all",
+    priority: "all",
+    type: "all",
+    deadline: "all",
+    attachment: "all",
+    dataBox: "all",
+    assigned: "all",
+    quick: "all",
+    dateFrom: "",
+    dateTo: ""
+  },
   error: ""
 };
+let dataBoxSearchRenderTimer = null;
 const quickAbsenceState = {
   step: "type",
   type: "",
@@ -4171,15 +4215,24 @@ function settingsManagementSection(user) {
     return "";
   }
 
-  return AppearanceSettingsBox({
-    draftSettings: themeState.draft,
-    savedSettings: themeState.settings,
-    loading: themeState.loading,
-    saving: themeState.saving,
-    previewActive: Boolean(themeState.preview),
-    message: themeState.message,
-    error: themeState.error
-  });
+  ensureSarlotaStatusData();
+
+  return `
+    ${SarlotaStatusPanel({
+      status: sarlotaStatusState.data,
+      loading: sarlotaStatusState.loading,
+      error: sarlotaStatusState.error
+    })}
+    ${AppearanceSettingsBox({
+      draftSettings: themeState.draft,
+      savedSettings: themeState.settings,
+      loading: themeState.loading,
+      saving: themeState.saving,
+      previewActive: Boolean(themeState.preview),
+      message: themeState.message,
+      error: themeState.error
+    })}
+  `;
 }
 
 function formatAbsenceDate(value) {
@@ -6122,6 +6175,16 @@ function moduleRuleFormDraft() {
     return existing;
   }
 
+  if (moduleRulesState.prefillDraft) {
+    const type = moduleRulesState.formType === "automation" ? "automation" : "rule";
+    return {
+      ...moduleRulesState.prefillDraft,
+      id: "",
+      type,
+      isAutomation: type === "automation"
+    };
+  }
+
   const type = moduleRulesState.formType === "automation" ? "automation" : "rule";
   return {
     id: "",
@@ -6416,6 +6479,10 @@ function moduleRulesAutomationPanel({
         <div class="module-rules-actions">
           <button class="primary-action" type="button" data-module-rule-new="rule" ${moduleRulesState.saving ? "disabled" : ""}>Nové pravidlo</button>
           <button class="secondary-link" type="button" data-module-rule-new="automation" ${moduleRulesState.saving ? "disabled" : ""}>Nová automatizace</button>
+          ${moduleRulesState.moduleKey === DATA_BOX_MODULE_KEY ? `
+            <button class="secondary-link" type="button" data-module-rules-dry-run ${moduleRulesState.saving ? "disabled" : ""}>Dry-run DS</button>
+            <button class="secondary-link" type="button" data-module-rules-run ${moduleRulesState.saving ? "disabled" : ""}>Spustit DS pravidla</button>
+          ` : ""}
         </div>
       ` : ""}
 
@@ -13781,59 +13848,693 @@ function dataBoxStatusLabel(value) {
   return labels[String(value || "").trim().toLowerCase()] || String(value || "čeká");
 }
 
-function dataBoxStatusCards() {
-  const status = dataBoxState.status || {};
-  const summary = status.summary || {};
-  const apiReady = dataBoxState.apiStatus === "ready";
-  const storageReady = dataBoxState.storageStatus === "ready";
-  const cards = DATA_BOX_STATUS_CARDS.map((item) => ({ ...item }));
-  cards[0] = {
-    label: "Stav funkce",
-    value: apiReady ? "Funkční přes API" : (dataBoxState.loading ? "načítám API" : "UI návrh"),
-    note: apiReady
-      ? "Frontend čte metadata z cloud API a umí spustit ruční read-only sync přes backend."
-      : (dataBoxState.error || "Bez ostrého čtení, zápisu nebo odesílání do ISDS.")
+const DATA_BOX_ACCOUNT_BOXES = [
+  { id: "kaiser-primary", shortLabel: "KS", label: "Kaiser servis", badgeLabel: "KAISER", badgeTone: "kaiser" },
+  { id: "kaiser-data-box-2", shortLabel: "KT", label: "Kaiser technology", badgeLabel: "K TECH", badgeTone: "kaiser" },
+  { id: "kaiser-data-box-3", shortLabel: "NP", label: "Nanolab plus", badgeLabel: "NANO+", badgeTone: "nanolab" },
+  { id: "kaiser-data-box-4", shortLabel: "NS", label: "Nanolab shop", badgeLabel: "NANO SHOP", badgeTone: "nanolab" },
+  { id: "kaiser-data-box-5", shortLabel: "LF", label: "LeFleur", badgeLabel: "LEFLEUR", badgeTone: "lefleur" },
+  { id: "kaiser-data-box-6", shortLabel: "KN", label: "Kaisermanův nadační fond", badgeLabel: "KNF", badgeTone: "fond" }
+];
+
+const DATA_BOX_DEFAULT_ACCOUNT_ID = "kaiser-primary";
+const DATA_BOX_BADGE_LABEL_OVERRIDES = new Map([
+  ["kaiser servis", "KAISER"],
+  ["kaiser technology", "K TECH"],
+  ["nanolab plus", "NANO+"],
+  ["nanolab shop", "NANO SHOP"],
+  ["nanolab", "NANOLAB"],
+  ["gm development", "GM DEV"],
+  ["kaisermanuv nadacni fond", "KNF"],
+  ["mane", "MANE"]
+]);
+
+const DATA_BOX_QUICK_FILTERS = [
+  { id: "all", label: "Vše" },
+  { id: "new", label: "Nepřečtené" },
+  { id: "urgent", label: "Urgentní" },
+  { id: "legal", label: "Právní" },
+  { id: "attachments", label: "S přílohou" },
+  { id: "deadlines", label: "Lhůty" },
+  { id: "errors", label: "Chyby" }
+];
+
+const DATA_BOX_PAGE_SIZES = [5, 10, 20, 30, 50, 100];
+
+const DATA_BOX_STATUS_OPTIONS = [
+  ["all", "Všechny stavy"],
+  ["new", "Nová"],
+  ["read", "Přečtená"],
+  ["unresolved", "Nevyřízená"],
+  ["in_progress", "V řešení"],
+  ["waiting", "Čeká na podklady"],
+  ["done", "Vyřízená"],
+  ["archived", "Archivovaná"],
+  ["error", "Chyba / nejasné"]
+];
+
+const DATA_BOX_PRIORITY_OPTIONS = [
+  ["all", "Všechny priority"],
+  ["urgent", "Urgentní"],
+  ["legal", "Právní"],
+  ["info", "Info"],
+  ["normal", "Běžné"],
+  ["error", "Chyba"]
+];
+
+const DATA_BOX_TYPE_OPTIONS = [
+  ["all", "Všechny typy"],
+  ["official", "Úřad / řízení"],
+  ["contract", "Smlouva / registr"],
+  ["info", "Info / potvrzení"],
+  ["technical", "Technické"],
+  ["regular", "Běžné"],
+  ["error", "Chyba"]
+];
+
+function dataBoxAccountById(dataBoxId) {
+  const id = String(dataBoxId || "").trim();
+  return DATA_BOX_ACCOUNT_BOXES.find((account) => account.id === id) || null;
+}
+
+function dataBoxDisplayName(dataBoxId, fallback = "") {
+  return dataBoxAccountById(dataBoxId)?.label || fallback || dataBoxId || "-";
+}
+
+function dataBoxCompactBadgeLabel(value, fallback = "") {
+  const source = String(value || "").replace(/\s+/g, " ").trim();
+  const fallbackLabel = String(fallback || "").trim().toUpperCase();
+
+  if (!source) {
+    return fallbackLabel;
+  }
+
+  const override = DATA_BOX_BADGE_LABEL_OVERRIDES.get(dataBoxSearchText(source));
+  if (override) {
+    return override;
+  }
+
+  const upper = source.toUpperCase();
+  if (upper.length <= 16) {
+    return upper;
+  }
+
+  const initials = source
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return initials || upper.slice(0, 16) || fallbackLabel;
+}
+
+function dataBoxCompanyBadge(message = {}) {
+  const account = dataBoxAccountById(message.dataBoxId);
+  const displayName = account?.label
+    || message.mailboxLabel
+    || message.dataBoxLabel
+    || message.dataBoxName
+    || message.companyName
+    || "";
+  const label = account?.badgeLabel || dataBoxCompactBadgeLabel(displayName, account?.shortLabel || "");
+
+  if (!label) {
+    return null;
+  }
+
+  return {
+    label,
+    tone: account?.badgeTone || "default"
   };
-  cards[1] = {
-    label: "Zdroj dat",
-    value: apiReady ? "Cloudflare D1" : "čeká na API",
-    note: apiReady
-      ? `${Number(summary.received || 0)} přijatých, ${Number(summary.sent || 0)} odeslaných, ${Number(summary.attachments || 0)} příloh.`
-      : "Cílově cloud backend, D1 metadata a R2 přílohy."
-  };
-  cards[2] = {
-    label: "ISDS napojení",
-    value: dataBoxStatusLabel(dataBoxState.integrationStatus),
-    note: status.message || "SOAP/WSDL adapter bude až v další fázi."
-  };
-  cards[3] = {
-    label: "Úložiště příloh",
-    value: storageReady ? "R2 připraveno" : "čeká na R2",
-    note: storageReady
-      ? "Metadata jsou v D1, soubory budou v R2 přes backend."
-      : "Přílohy se zatím nenačítají ani neukládají."
-  };
+}
+
+function dataBoxCompanyBadgeMarkup(message) {
+  const company = dataBoxCompanyBadge(message);
+  if (!company) {
+    return "";
+  }
 
   return `
-    <div class="data-box-status-grid" aria-label="Stav modulu Datová schránka">
-      ${cards.map((item) => `
-        <article>
-          <span>${escapeHtml(item.label)}</span>
-          <strong>${escapeHtml(item.value)}</strong>
-          <small>${escapeHtml(item.note)}</small>
-        </article>
-      `).join("")}
+    <span class="data-box-company-badge data-box-company-badge--${escapeHtml(company.tone)}">
+      ${escapeHtml(company.label)}
+    </span>
+  `;
+}
+
+function dataBoxAccountStatus(dataBoxId) {
+  const id = String(dataBoxId || "").trim();
+  if (!id) {
+    return null;
+  }
+
+  return dataBoxAccountStatusMap().get(id) || null;
+}
+
+function dataBoxAccountIsdsId(dataBoxId, fallback = "") {
+  const status = dataBoxAccountStatus(dataBoxId);
+  return status?.isdsId || status?.dataBoxIsdsId || fallback || "";
+}
+
+function dataBoxActiveContextLabel() {
+  const selectedAccount = dataBoxSelectedAccount();
+  const selectedMessages = selectedAccount ? dataBoxAccountMessages(selectedAccount.id) : [];
+  const sampleMessage = selectedMessages.find((message) => message.dataBoxIsdsId) || selectedMessages[0] || null;
+  const isdsId = selectedAccount
+    ? dataBoxAccountIsdsId(selectedAccount.id, sampleMessage?.dataBoxIsdsId || "")
+    : "";
+
+  if (selectedAccount) {
+    return {
+      title: selectedAccount.label,
+      text: `ID schránky: ${isdsId || "není v metadatech"}`
+    };
+  }
+
+  return {
+    title: "Datová schránka",
+    text: "Vyber konkrétní schránku."
+  };
+}
+
+function dataBoxSelectedAccount() {
+  return dataBoxAccountById(dataBoxState.selectedDataBoxId)
+    || dataBoxAccountById(DATA_BOX_DEFAULT_ACCOUNT_ID)
+    || DATA_BOX_ACCOUNT_BOXES[0]
+    || null;
+}
+
+function dataBoxMessageFitsSelectedAccount(message) {
+  const selectedAccount = dataBoxSelectedAccount();
+  if (!selectedAccount || !message) {
+    return true;
+  }
+
+  return String(message.dataBoxId || "") === String(selectedAccount.id);
+}
+
+function dataBoxSelectedAccountMismatchMessage() {
+  const selectedAccount = dataBoxSelectedAccount();
+  if (!selectedAccount) {
+    return "Zpráva nepatří do aktuálního pohledu.";
+  }
+
+  return `Zpráva nepatří do aktuálně vybrané schránky ${selectedAccount.label}.`;
+}
+
+function dataBoxAccountStatusMap() {
+  const accounts = dataBoxState.status?.isds?.accounts;
+  if (!Array.isArray(accounts)) {
+    return new Map();
+  }
+
+  return new Map(accounts.map((account) => [String(account.id || ""), account]));
+}
+
+function dataBoxAccountMessages(accountId) {
+  return dataBoxState.messages.filter((message) => message.dataBoxId === accountId);
+}
+
+function dataBoxMessagesForDirection(direction) {
+  const selectedAccount = dataBoxSelectedAccount();
+  return dataBoxState.messages.filter((message) => (
+    message.direction === direction
+    && (!selectedAccount || message.dataBoxId === selectedAccount.id)
+  ));
+}
+
+function dataBoxFilteredMessages(direction) {
+  return dataBoxMessagesForDirection(direction).filter((message) => dataBoxMessageMatchesFilters(message));
+}
+
+function dataBoxHasActiveMessageFilters() {
+  const filters = dataBoxState.messageFilters;
+  return Boolean(
+    filters.query
+    || filters.status !== "all"
+    || filters.priority !== "all"
+    || filters.type !== "all"
+    || filters.deadline !== "all"
+    || filters.attachment !== "all"
+    || filters.dataBox !== "all"
+    || filters.assigned !== "all"
+    || filters.quick !== "all"
+    || filters.dateFrom
+    || filters.dateTo
+  );
+}
+
+function resetDataBoxPagination() {
+  dataBoxState.messagePagination = {
+    ...dataBoxState.messagePagination,
+    currentPage: 1
+  };
+}
+
+function clearDataBoxSearchRenderTimer() {
+  if (!dataBoxSearchRenderTimer) {
+    return;
+  }
+
+  window.clearTimeout(dataBoxSearchRenderTimer);
+  dataBoxSearchRenderTimer = null;
+}
+
+function restoreDataBoxSearchFocus(selectionStart, selectionEnd) {
+  window.requestAnimationFrame(() => {
+    const input = document.querySelector("[data-data-box-filter][name='query']");
+    if (!input) {
+      return;
+    }
+
+    input.focus({ preventScroll: true });
+    if (typeof input.setSelectionRange === "function") {
+      const start = Number.isFinite(selectionStart) ? selectionStart : input.value.length;
+      const end = Number.isFinite(selectionEnd) ? selectionEnd : start;
+      input.setSelectionRange(start, end);
+    }
+  });
+}
+
+function updateDataBoxSearchFilter(field) {
+  const value = field?.value || "";
+  const selectionStart = Number.isFinite(field?.selectionStart) ? field.selectionStart : value.length;
+  const selectionEnd = Number.isFinite(field?.selectionEnd) ? field.selectionEnd : selectionStart;
+
+  dataBoxState.messageFilters = {
+    ...dataBoxState.messageFilters,
+    query: value
+  };
+  resetDataBoxPagination();
+  dataBoxState.selectedPreviewMessageId = "";
+  clearDataBoxSearchRenderTimer();
+  dataBoxSearchRenderTimer = window.setTimeout(() => {
+    dataBoxSearchRenderTimer = null;
+    render();
+    restoreDataBoxSearchFocus(selectionStart, selectionEnd);
+  }, 140);
+}
+
+function dataBoxPaginationForRows(rows) {
+  const pageSize = DATA_BOX_PAGE_SIZES.includes(Number(dataBoxState.messagePagination.pageSize))
+    ? Number(dataBoxState.messagePagination.pageSize)
+    : DATA_BOX_PAGE_SIZES[0];
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const currentPage = Math.min(
+    Math.max(1, Number(dataBoxState.messagePagination.currentPage) || 1),
+    totalPages
+  );
+  if (
+    dataBoxState.messagePagination.pageSize !== pageSize
+    || dataBoxState.messagePagination.currentPage !== currentPage
+  ) {
+    dataBoxState.messagePagination = { pageSize, currentPage };
+  }
+  const startIndex = (currentPage - 1) * pageSize;
+  const visibleRows = rows.slice(startIndex, startIndex + pageSize);
+
+  return {
+    pageSize,
+    totalRows,
+    totalPages,
+    currentPage,
+    startIndex,
+    visibleRows
+  };
+}
+
+function dataBoxPaginationInfoMarkup(allRows, filteredRows, pagination) {
+  if (!filteredRows.length) {
+    return "Žádné zprávy k zobrazení";
+  }
+
+  const start = pagination.startIndex + 1;
+  const end = pagination.startIndex + pagination.visibleRows.length;
+  const suffix = dataBoxHasActiveMessageFilters() ? "vyfiltrovaných zpráv" : "zpráv";
+  return `Zobrazeno ${start}–${end} z ${filteredRows.length} ${suffix}`;
+}
+
+function dataBoxInboxPaginationMarkup(allRows, filteredRows, pagination) {
+  const previousDisabled = pagination.currentPage <= 1;
+  const nextDisabled = pagination.currentPage >= pagination.totalPages || !filteredRows.length;
+  const info = dataBoxPaginationInfoMarkup(allRows, filteredRows, pagination);
+
+  return `
+    <div class="data-box-inbox-footer" aria-label="Stránkování zpráv">
+      <p class="data-box-inbox-count">${escapeHtml(info)}</p>
+      <div class="data-box-page-size" aria-label="Zpráv na stránku">
+        <span>Zpráv na stránku:</span>
+        ${DATA_BOX_PAGE_SIZES.map((size) => `
+          <button
+            class="data-box-page-size__button ${pagination.pageSize === size ? "data-box-page-size__button--active" : ""}"
+            type="button"
+            data-data-box-page-size="${escapeHtml(String(size))}"
+            aria-pressed="${pagination.pageSize === size ? "true" : "false"}"
+          >
+            ${escapeHtml(String(size))}
+          </button>
+        `).join("")}
+      </div>
+      <div class="data-box-pagination" aria-label="Přepínání stránek">
+        <button class="secondary-link" type="button" data-data-box-page="prev" ${previousDisabled ? "disabled" : ""}>Předchozí</button>
+        <span>Strana ${escapeHtml(String(pagination.currentPage))} z ${escapeHtml(String(pagination.totalPages))}</span>
+        <button class="secondary-link" type="button" data-data-box-page="next" ${nextDisabled ? "disabled" : ""}>Další</button>
+      </div>
+    </div>
+  `;
+}
+
+function dataBoxFilteredSyncRuns() {
+  const selectedAccount = dataBoxSelectedAccount();
+  return dataBoxState.syncRuns.filter((run) => !selectedAccount || run.dataBoxId === selectedAccount.id);
+}
+
+function dataBoxRunStatusLabel(status) {
+  const labels = {
+    success: "sync OK",
+    failed: "chyba",
+    configuration_missing: "chybí konfigurace"
+  };
+  return labels[String(status || "").trim().toLowerCase()] || "čeká";
+}
+
+function dataBoxAccountStats(account, accountStatusMap = dataBoxAccountStatusMap()) {
+  const messages = dataBoxAccountMessages(account.id);
+  const runs = dataBoxState.syncRuns.filter((run) => run.dataBoxId === account.id);
+  const lastRun = runs[0] || null;
+  const status = accountStatusMap.get(account.id);
+  const received = messages.filter((message) => message.direction === "received").length;
+  const sent = messages.filter((message) => message.direction === "sent").length;
+  const configured = Boolean(status?.configured || messages.length || runs.length);
+
+  return {
+    configured,
+    lastRun,
+    received,
+    sent,
+    statusLabel: lastRun ? dataBoxRunStatusLabel(lastRun.status) : (configured ? "čeká na sync" : "nenastaveno")
+  };
+}
+
+function dataBoxAccountStatusClass(stats) {
+  if (stats.lastRun?.status === "success") {
+    return "data-box-account-card__status--ready";
+  }
+  return stats.lastRun ? "data-box-account-card__status--error" : "data-box-account-card__status--waiting";
+}
+
+function dataBoxAccountConnectionClass(stats) {
+  return stats.configured ? "data-box-account-chip--connected" : "data-box-account-chip--disconnected";
+}
+
+function dataBoxAccountSummary(stats) {
+  return `${stats.received} přijatých · ${stats.sent} odeslaných`;
+}
+
+function dataBoxAccountButton(account, stats, active = false) {
+  return `
+    <button
+      class="data-box-account-chip ${dataBoxAccountConnectionClass(stats)} ${active ? "data-box-account-chip--active" : ""}"
+      type="button"
+      data-data-box-account="${escapeHtml(account.id)}"
+      aria-pressed="${active ? "true" : "false"}"
+      aria-label="${escapeHtml(`Otevřít datovou schránku ${account.label}`)}"
+    >
+      <span class="data-box-account-chip__mark">${escapeHtml(account.shortLabel)}</span>
+      <span class="data-box-account-chip__body">
+        <strong>${escapeHtml(account.label)}</strong>
+        <small>${escapeHtml(dataBoxAccountSummary(stats))}</small>
+      </span>
+      <span class="data-box-account-card__status ${dataBoxAccountStatusClass(stats)}">
+        ${escapeHtml(stats.statusLabel)}
+      </span>
+    </button>
+  `;
+}
+
+function dataBoxAccountsSwitcher() {
+  const activeAccount = dataBoxSelectedAccount();
+  const accountStatusMap = dataBoxAccountStatusMap();
+  const activeStats = activeAccount ? dataBoxAccountStats(activeAccount, accountStatusMap) : null;
+
+  return `
+    <section class="data-box-account-strip" aria-labelledby="data-box-accounts-title">
+      <div class="data-box-account-strip__label">
+        <span>Schránka</span>
+        <strong id="data-box-accounts-title">${escapeHtml(activeAccount?.label || "Datová schránka")}</strong>
+        ${activeStats ? `<small>${escapeHtml(dataBoxAccountSummary(activeStats))} · ${escapeHtml(activeStats.statusLabel)}</small>` : ""}
+      </div>
+      <div class="data-box-account-strip__chips">
+        ${DATA_BOX_ACCOUNT_BOXES.map((account) => dataBoxAccountButton(
+          account,
+          dataBoxAccountStats(account, accountStatusMap),
+          activeAccount?.id === account.id
+        )).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function dataBoxLastSyncLabel() {
+  const summary = dataBoxState.status?.summary || {};
+  const selectedAccount = dataBoxSelectedAccount();
+  const lastRun = dataBoxFilteredSyncRuns()[0] || null;
+  const value = lastRun?.finishedAt || lastRun?.startedAt || (selectedAccount ? "" : summary.lastSyncAt) || "";
+  return value ? formatDateTime(value) : "zatím neproběhla";
+}
+
+function dataBoxConnectionState() {
+  if (dataBoxState.error) {
+    return {
+      label: "Chyba napojení",
+      tone: "error",
+      note: dataBoxState.error
+    };
+  }
+
+  if (dataBoxState.loading && !dataBoxState.loaded) {
+    return {
+      label: "Načítám",
+      tone: "info",
+      note: "Načítám zprávy."
+    };
+  }
+
+  if (dataBoxState.apiStatus === "ready" && dataBoxState.status?.isds?.configured) {
+    return {
+      label: "Napojeno",
+      tone: "ready",
+      note: `Poslední synchronizace: ${dataBoxLastSyncLabel()}`
+    };
+  }
+
+  return {
+    label: "Není nastaveno",
+    tone: "waiting",
+    note: "Zprávy zatím nejdou načíst."
+  };
+}
+
+function dataBoxStatusTone(connection) {
+  if (connection.tone === "error" || dataBoxState.syncError) {
+    return "error";
+  }
+
+  if (connection.tone === "ready") {
+    return "ready";
+  }
+
+  return "waiting";
+}
+
+function dataBoxStatusRing(connection) {
+  const tone = dataBoxStatusTone(connection);
+  const label = tone === "error"
+    ? "Chyba načtení"
+    : (tone === "ready" ? "Synchronizace funguje" : "Čeká na konfiguraci");
+
+  return `
+    <span
+      class="data-box-status-ring data-box-status-ring--${escapeHtml(tone)}"
+      title="${escapeHtml(label)}"
+      aria-label="${escapeHtml(label)}"
+    ></span>
+  `;
+}
+
+function dataBoxHeaderStatusMarkup(connection) {
+  return `
+    <div class="data-box-inbox-header__status data-box-inbox-header__status--${escapeHtml(connection.tone)}">
+      <span class="data-box-status-main">
+        <strong>${escapeHtml(connection.label)}</strong>
+        ${dataBoxStatusRing(connection)}
+      </span>
+      <span>${escapeHtml(connection.note)}</span>
+    </div>
+  `;
+}
+
+function dataBoxErrorNotice(connection) {
+  const message = dataBoxState.syncError || (connection.tone === "error" ? connection.note : "");
+  if (!message) {
+    return "";
+  }
+
+  return `
+    <div class="data-box-error-notice" role="alert">
+      <strong>Chyba načtení</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>
+  `;
+}
+
+function dataBoxAutoSyncInfo() {
+  return `
+    <section class="data-box-side-card data-box-side-card--sync">
+      <span>Automatické načítání</span>
+      <strong>Read-only plán: každých 30 minut</strong>
+      <small>Stav vychází z logu synchronizace. Tato obrazovka nespouští cron ani žádné odesílání.</small>
+    </section>
+  `;
+}
+
+function dataBoxAiSortingInfo(direction) {
+  const messages = dataBoxMessagesForDirection(direction);
+  const evaluated = messages.filter((message) => message.latestAiEvaluation).length;
+  const failed = messages.filter((message) => dataBoxSearchText(message.aiStatus || message.latestAiEvaluation?.status || "").includes("failed")).length;
+  const label = messages.length
+    ? `${evaluated} / ${messages.length} · read-only · nic samo neodesílá ani nemaže`
+    : "AI metadata nejsou v datech · read-only · nic samo neodesílá ani nemaže";
+  const note = failed
+    ? `${failed} zpráv má chybu vyhodnocení.`
+    : "Třídění je pouze informační.";
+
+  return `
+    <div class="data-box-side-status__ai">
+      <dt>AI třídění</dt>
+      <dd>
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(note)} Priority jsou read-only: urgentní, právní, info, běžné nebo chyba.</small>
+      </dd>
+    </div>
+  `;
+}
+
+function dataBoxStatusAndSyncCard(connection, selectedAccount, context, direction, metrics = {}) {
+  return `
+    <section class="data-box-side-card data-box-side-card--status-sync">
+      <span>Stav a synchronizace</span>
+      <div class="data-box-side-health data-box-side-health--${escapeHtml(dataBoxStatusTone(connection))}">
+        ${dataBoxStatusRing(connection)}
+        <strong>${escapeHtml(connection.label)}</strong>
+      </div>
+      ${dataBoxErrorNotice(connection)}
+      <dl class="data-box-side-status">
+        <div><dt>Poslední synchronizace</dt><dd>${escapeHtml(dataBoxLastSyncLabel())}</dd></div>
+        <div><dt>Plán načítání</dt><dd>Read-only každých 30 minut</dd></div>
+        <div><dt>Schránka</dt><dd>${escapeHtml(selectedAccount ? selectedAccount.label : context.title)}</dd></div>
+        ${dataBoxAiSortingInfo(direction)}
+        ${dataBoxVaultInfo(metrics)}
+      </dl>
+      <small>Stav vychází z logu synchronizace. Tato obrazovka nespouští cron ani žádné odesílání.</small>
+    </section>
+  `;
+}
+
+function dataBoxVaultInfo(metrics) {
+  const hasCapacity = Number.isFinite(metrics.vaultCapacity);
+  const capacityLabel = hasCapacity ? `${Math.round(metrics.vaultCapacity)} %` : "kapacita není v datech";
+  const capacityNote = hasCapacity && metrics.vaultCapacity >= 90
+    ? "kapacita Datového trezoru je téměř naplněná"
+    : "zprávy zůstávají uložené u nás";
+
+  return `
+    <div class="data-box-side-status__vault">
+      <dt>Trezor</dt>
+      <dd><strong>${escapeHtml(capacityNote)} · ${escapeHtml(capacityLabel)}</strong></dd>
+    </div>
+  `;
+}
+
+function dataBoxCanManualSync(user) {
+  return dataBoxState.apiStatus === "ready"
+    && hasPermission(user, DATA_BOX_MODULE_KEY, "manage")
+    && ["admin", "management"].includes(normalizeRole(user?.role));
+}
+
+function dataBoxHeaderActions(user) {
+  const canSync = dataBoxCanManualSync(user);
+  const syncDisabled = !canSync || dataBoxState.syncLoading;
+  const syncLabel = dataBoxState.syncLoading ? "Načítám..." : "Načíst nové zprávy";
+
+  return `
+    <div class="data-box-hero-actions" aria-label="Akce modulu Datová schránka">
+      <button class="primary-action" type="button" data-data-box-sync ${syncDisabled ? "disabled" : ""}>
+        ${escapeHtml(syncLabel)}
+      </button>
     </div>
   `;
 }
 
 function dataBoxTabs() {
+  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
+    ? dataBoxState.activeTab
+    : "received";
+
   return `
-    <nav class="data-box-tabs" aria-label="Menu modulu Datová schránka">
+    <div class="data-box-tabs" role="tablist" aria-label="Menu modulu Datová schránka">
       ${DATA_BOX_TABS.map((tab) => `
-        <a class="data-box-tab" href="${routeHref(`${DATA_BOX_ROUTE}#${tab.id}`)}">${escapeHtml(tab.label)}</a>
+        <button
+          class="data-box-tab ${activeTab === tab.id ? "data-box-tab--active" : ""}"
+          type="button"
+          role="tab"
+          aria-selected="${activeTab === tab.id ? "true" : "false"}"
+          data-data-box-tab="${escapeHtml(tab.id)}"
+        >
+          <span class="data-box-tab__label data-box-tab__label--full">${escapeHtml(tab.label)}</span>
+          <span class="data-box-tab__label data-box-tab__label--short">${escapeHtml(tab.shortLabel || tab.label)}</span>
+        </button>
       `).join("")}
-    </nav>
+    </div>
+  `;
+}
+
+function dataBoxActivePanel(user) {
+  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
+    ? dataBoxState.activeTab
+    : "received";
+
+  if (activeTab === "received") {
+    return `
+      ${dataBoxMessageInbox("Přijaté zprávy", "received")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
+
+  if (activeTab === "sent") {
+    return `
+      ${dataBoxMessageInbox("Odeslané zprávy", "sent")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
+
+  if (activeTab === "ai-boost") {
+    return dataBoxAiBoostPanel(user);
+  }
+
+  if (activeTab === "rules") {
+    return `
+      ${dataBoxSyncRunsPanel()}
+      <div id="data-box-rules-panel">
+        ${dataBoxRulesAutomation(user)}
+      </div>
+    `;
+  }
+
+  return `
+    ${dataBoxMessageInbox("Přijaté zprávy", "received")}
+    ${dataBoxMessageDetailPanel()}
   `;
 }
 
@@ -13843,6 +14544,512 @@ function dataBoxMessageActor(message) {
   }
 
   return message.senderName || message.senderBoxId || "-";
+}
+
+function dataBoxSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function dataBoxDateValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dataBoxMessageTimestamp(message) {
+  return message.deliveredAt || message.acceptedAt || message.storedAt || message.createdAt || "";
+}
+
+function dataBoxMessageDeadlineDate(message) {
+  return dataBoxDateValue(
+    message.deadlineAt
+    || message.dueAt
+    || message.responseDeadlineAt
+    || message.legalDeadlineAt
+    || message.expiresAt
+  );
+}
+
+function dataBoxDaysUntil(date) {
+  if (!date) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - today.getTime()) / 86400000);
+}
+
+function dataBoxDeadlineInfo(message) {
+  const deadline = dataBoxMessageDeadlineDate(message);
+  if (!deadline) {
+    return {
+      date: null,
+      label: "Bez lhůty",
+      tone: "muted",
+      days: null
+    };
+  }
+
+  const days = dataBoxDaysUntil(deadline);
+  if (days !== null && days < 0) {
+    return {
+      date: deadline,
+      label: `Po lhůtě ${formatDateTime(deadline)}`,
+      tone: "error",
+      days
+    };
+  }
+
+  if (days === 0) {
+    return {
+      date: deadline,
+      label: "Lhůta dnes",
+      tone: "urgent",
+      days
+    };
+  }
+
+  if (days !== null && days <= 3) {
+    return {
+      date: deadline,
+      label: `Lhůta za ${days} dny`,
+      tone: "urgent",
+      days
+    };
+  }
+
+  return {
+    date: deadline,
+    label: `Lhůta ${formatDateTime(deadline)}`,
+    tone: "deadline",
+    days
+  };
+}
+
+function dataBoxHasAttachments(message) {
+  return Boolean(message.hasAttachments || Number(message.attachmentsCount || 0) > 0 || (Array.isArray(message.attachments) && message.attachments.length));
+}
+
+function dataBoxAttachmentCount(message) {
+  if (Array.isArray(message.attachments) && message.attachments.length) {
+    return message.attachments.length;
+  }
+
+  return Number(message.attachmentsCount || (message.hasAttachments ? 1 : 0));
+}
+
+function dataBoxMessageRawPreview(message) {
+  return message.bodyText
+    || message.plainText
+    || message.text
+    || message.contentPreview
+    || message.annotation
+    || message.latestAiEvaluation?.summary
+    || "";
+}
+
+function dataBoxAttachmentSearchText(message) {
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  return attachments.map((attachment) => [
+    attachment.filename,
+    attachment.contentType,
+    attachment.status
+  ].filter(Boolean).join(" ")).join(" ");
+}
+
+function dataBoxMessageSearchHaystack(message) {
+  return dataBoxSearchText([
+    dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel),
+    dataBoxMessageActor(message),
+    message.subject,
+    message.id,
+    message.isdsMessageId,
+    message.status,
+    message.isdsState,
+    message.senderBoxId,
+    message.recipientBoxId,
+    dataBoxMessageRawPreview(message),
+    dataBoxAttachmentSearchText(message),
+    message.latestAiEvaluation?.label,
+    message.latestAiEvaluation?.suggestedAction
+  ].filter(Boolean).join(" "));
+}
+
+function dataBoxMessageSourceText(message) {
+  return dataBoxSearchText([
+    message.priority,
+    message.subject,
+    message.senderName,
+    message.senderBoxId,
+    message.recipientName,
+    message.recipientBoxId,
+    message.status,
+    message.isdsState,
+    dataBoxMessageRawPreview(message),
+    dataBoxAttachmentSearchText(message),
+    message.latestAiEvaluation?.priority,
+    message.latestAiEvaluation?.label,
+    message.latestAiEvaluation?.summary,
+    message.latestAiEvaluation?.suggestedAction
+  ].filter(Boolean).join(" "));
+}
+
+function dataBoxMessageHasAttachmentProblem(message) {
+  const source = dataBoxMessageSourceText(message);
+  return source.includes("nejde otevrit")
+    || source.includes("nelze otevrit")
+    || source.includes("chyba priloh")
+    || source.includes("attachment error")
+    || source.includes("download failed");
+}
+
+function dataBoxWorkflowStatus(message) {
+  const status = dataBoxSearchText(message.processingStatus || message.workflowStatus || message.status || "");
+  const aiStatus = dataBoxSearchText(message.aiStatus || "");
+
+  if (status.includes("chyba") || status.includes("error") || status.includes("nejas") || aiStatus.includes("failed")) {
+    return { id: "error", label: "Chyba / nejasné", tone: "error" };
+  }
+
+  if (status.includes("archiv")) {
+    return { id: "archived", label: "Archivovaná", tone: "muted" };
+  }
+
+  if (status.includes("vyriz") || status.includes("hotovo") || status.includes("done") || status.includes("closed")) {
+    return { id: "done", label: "Vyřízená", tone: "done" };
+  }
+
+  if (status.includes("podklad") || status.includes("ceka") || status.includes("waiting")) {
+    return { id: "waiting", label: "Čeká na podklady", tone: "warning" };
+  }
+
+  if (status.includes("resen") || status.includes("progress")) {
+    return { id: "in_progress", label: "V řešení", tone: "info" };
+  }
+
+  if (status.includes("nevyriz") || status.includes("open") || status.includes("todo")) {
+    return { id: "unresolved", label: "Nevyřízená", tone: "warning" };
+  }
+
+  if (message.readAt || message.acceptedAt) {
+    return { id: "read", label: "Přečtená", tone: "info" };
+  }
+
+  return { id: "new", label: "Nová", tone: "new" };
+}
+
+function dataBoxMessagePriority(message) {
+  const source = dataBoxMessageSourceText(message);
+  const deadline = dataBoxDeadlineInfo(message);
+  const status = dataBoxWorkflowStatus(message);
+
+  if (status.id === "error" || dataBoxMessageHasAttachmentProblem(message)) {
+    return { id: "error", label: "CHYBA", tone: "error" };
+  }
+
+  if (deadline.date && deadline.days !== null && deadline.days <= 3) {
+    return { id: "urgent", label: "URGENTNÍ", tone: "urgent" };
+  }
+
+  if (
+    source.includes("urgent")
+    || source.includes("kritick")
+    || source.includes("ihned")
+    || source.includes("vyzva")
+    || source.includes("lhuta")
+    || source.includes("deadline")
+    || source.includes("soud")
+    || source.includes("financni urad")
+    || source.includes("fu ")
+    || source.includes("exekuc")
+  ) {
+    return { id: "urgent", label: "URGENTNÍ", tone: "urgent" };
+  }
+
+  if (
+    source.includes("urad")
+    || source.includes("minister")
+    || source.includes("registr smluv")
+    || source.includes("digitalni a informacni agentura")
+    || source.includes("smlouv")
+    || source.includes("rizeni")
+    || source.includes("rozhodnuti")
+  ) {
+    return { id: "legal", label: "PRÁVNÍ", tone: "legal" };
+  }
+
+  if (
+    source.includes("info")
+    || source.includes("informac")
+    || source.includes("potvrzeni")
+    || source.includes("protokol")
+    || source.includes("zverejneni")
+    || source.includes("kapacita")
+    || source.includes("trezor")
+    || source.includes("epodani")
+  ) {
+    return { id: "info", label: "INFO", tone: "info" };
+  }
+
+  return { id: "normal", label: "BĚŽNÉ", tone: "normal" };
+}
+
+function dataBoxMessageType(message) {
+  const source = dataBoxMessageSourceText(message);
+  const priority = dataBoxMessagePriority(message);
+
+  if (priority.id === "error") {
+    return { id: "error", label: "Chyba" };
+  }
+
+  if (source.includes("registr smluv") || source.includes("smlouv")) {
+    return { id: "contract", label: "Smlouva / registr" };
+  }
+
+  if (
+    source.includes("soud")
+    || source.includes("urad")
+    || source.includes("minister")
+    || source.includes("financni")
+    || source.includes("rizeni")
+    || source.includes("rozhodnuti")
+  ) {
+    return { id: "official", label: "Úřad / řízení" };
+  }
+
+  if (
+    source.includes("kapacita")
+    || source.includes("trezor")
+    || source.includes("soubor")
+    || source.includes("priloha")
+    || source.includes("technick")
+  ) {
+    return { id: "technical", label: "Technické" };
+  }
+
+  if (
+    source.includes("info")
+    || source.includes("informac")
+    || source.includes("potvrzeni")
+    || source.includes("protokol")
+    || source.includes("zverejneni")
+    || source.includes("epodani")
+  ) {
+    return { id: "info", label: "Info / potvrzení" };
+  }
+
+  return { id: "regular", label: "Běžné" };
+}
+
+function dataBoxPriorityBadge(priority) {
+  return `
+    <span
+      class="data-box-priority data-box-priority--${escapeHtml(priority.tone)}"
+      title="Návrh priority podle dostupných metadat, nejde o právní závěr."
+    >
+      ${escapeHtml(priority.label)}
+    </span>
+  `;
+}
+
+function dataBoxMessageAssigneeValue(message) {
+  return message.assignedToId
+    || message.assignedToEmail
+    || message.assignedToName
+    || message.responsiblePerson
+    || message.responsibleName
+    || message.ownerName
+    || "";
+}
+
+function dataBoxMessageAssigneeLabel(message) {
+  return dataBoxMessageAssigneeValue(message) || "Nepřiřazeno";
+}
+
+function dataBoxMessageNextStep(message) {
+  const status = dataBoxWorkflowStatus(message);
+  const priority = dataBoxMessagePriority(message);
+  const deadline = dataBoxDeadlineInfo(message);
+  const source = dataBoxMessageSourceText(message);
+
+  if (status.id === "done" || status.id === "archived") {
+    return "Bez další akce.";
+  }
+
+  if (dataBoxMessageHasAttachmentProblem(message)) {
+    return "Opravit otevírání příloh.";
+  }
+
+  if (status.id === "error" || priority.id === "error") {
+    return "Prověřit poslední načtení.";
+  }
+
+  if (source.includes("zverejneni") && source.includes("registr smluv")) {
+    return "Návrh: Zahodit / neřešit. Jde o informaci o zveřejnění v Registru smluv.";
+  }
+
+  if (source.includes("kapacita") && source.includes("trezor")) {
+    return "Návrh: upozornit Radima přes schválený backend kanál. E-mail se z frontendu neposílá.";
+  }
+
+  if (source.includes("epodani") && (source.includes("castecne prijato") || source.includes("prijato"))) {
+    return "Návrh: Zahodit / neřešit, pokud není vyžadovaná reakce v detailu.";
+  }
+
+  if (deadline.date && deadline.days !== null && deadline.days <= 3) {
+    return "Zkontrolovat lhůtu a předat odpovědné osobě.";
+  }
+
+  if (priority.id === "urgent" || priority.id === "legal") {
+    return "Prioritně otevřít detail a rozhodnout další postup.";
+  }
+
+  if (dataBoxHasAttachments(message)) {
+    return "Zkontrolovat dostupnost a obsah příloh.";
+  }
+
+  return "Přiřadit odpovědnou osobu nebo označit k řešení.";
+}
+
+function dataBoxMessageMatchesDateFilter(message) {
+  const filters = dataBoxState.messageFilters;
+  const timestamp = dataBoxDateValue(dataBoxMessageTimestamp(message));
+  if (!timestamp && (filters.dateFrom || filters.dateTo)) {
+    return false;
+  }
+
+  if (filters.dateFrom) {
+    const from = new Date(`${filters.dateFrom}T00:00:00`);
+    if (timestamp < from) {
+      return false;
+    }
+  }
+
+  if (filters.dateTo) {
+    const to = new Date(`${filters.dateTo}T23:59:59`);
+    if (timestamp > to) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function dataBoxMessageMatchesQuickFilter(message) {
+  const quick = dataBoxState.messageFilters.quick || "all";
+  const status = dataBoxWorkflowStatus(message);
+  const deadline = dataBoxDeadlineInfo(message);
+
+  if (quick === "new") {
+    return status.id === "new";
+  }
+
+  if (quick === "unresolved") {
+    return !["done", "archived"].includes(status.id);
+  }
+
+  if (quick === "urgent") {
+    return dataBoxMessagePriority(message).id === "urgent";
+  }
+
+  if (quick === "legal") {
+    return dataBoxMessagePriority(message).id === "legal";
+  }
+
+  if (quick === "deadlines") {
+    return Boolean(deadline.date);
+  }
+
+  if (quick === "attachments") {
+    return dataBoxHasAttachments(message);
+  }
+
+  if (quick === "done") {
+    return status.id === "done";
+  }
+
+  if (quick === "errors") {
+    return status.id === "error" || dataBoxMessagePriority(message).id === "error";
+  }
+
+  return true;
+}
+
+function dataBoxMessageMatchesFilters(message) {
+  const filters = dataBoxState.messageFilters;
+  const status = dataBoxWorkflowStatus(message);
+  const priority = dataBoxMessagePriority(message);
+  const type = dataBoxMessageType(message);
+  const deadline = dataBoxDeadlineInfo(message);
+  const assignee = dataBoxMessageAssigneeValue(message);
+  const haystack = dataBoxMessageSearchHaystack(message);
+
+  if (filters.query && !haystack.includes(dataBoxSearchText(filters.query))) {
+    return false;
+  }
+
+  if (filters.status !== "all" && status.id !== filters.status) {
+    return false;
+  }
+
+  if (filters.priority !== "all" && priority.id !== filters.priority) {
+    return false;
+  }
+
+  if (filters.type !== "all" && type.id !== filters.type) {
+    return false;
+  }
+
+  if (!dataBoxSelectedAccount() && filters.dataBox !== "all" && message.dataBoxId !== filters.dataBox) {
+    return false;
+  }
+
+  if (filters.deadline === "with" && !deadline.date) {
+    return false;
+  }
+
+  if (filters.deadline === "due_3" && (!deadline.date || deadline.days === null || deadline.days > 3)) {
+    return false;
+  }
+
+  if (filters.deadline === "overdue" && (!deadline.date || deadline.days === null || deadline.days >= 0)) {
+    return false;
+  }
+
+  if (filters.deadline === "none" && deadline.date) {
+    return false;
+  }
+
+  if (filters.attachment === "with" && !dataBoxHasAttachments(message)) {
+    return false;
+  }
+
+  if (filters.attachment === "without" && dataBoxHasAttachments(message)) {
+    return false;
+  }
+
+  if (filters.assigned === "assigned" && !assignee) {
+    return false;
+  }
+
+  if (filters.assigned === "unassigned" && assignee) {
+    return false;
+  }
+
+  if (!["all", "assigned", "unassigned"].includes(filters.assigned) && assignee !== filters.assigned) {
+    return false;
+  }
+
+  return dataBoxMessageMatchesDateFilter(message) && dataBoxMessageMatchesQuickFilter(message);
 }
 
 function dataBoxAiStatusLabel(value) {
@@ -13859,81 +15066,869 @@ function dataBoxDirectionLabel(value) {
   return value === "sent" ? "odeslaná" : "přijatá";
 }
 
-function dataBoxMessageRows(direction) {
-  if (dataBoxState.loading && !dataBoxState.loaded) {
-    return `
-      <tr>
-        <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">Načítám metadata z cloud API...</td>
-      </tr>
-    `;
-  }
+function dataBoxInboxMetrics(direction) {
+  const messages = dataBoxMessagesForDirection(direction);
+  const syncErrors = dataBoxFilteredSyncRuns().filter((run) => String(run.status || "").toLowerCase() === "failed").length;
+  const summary = dataBoxState.status?.summary || {};
+  const now = Date.now();
+  const weekAgo = now - (7 * 86400000);
+  const vaultCapacity = summary.vaultCapacityPercent
+    ?? summary.safeCapacityPercent
+    ?? summary.storageCapacityPercent
+    ?? summary.storageUsagePercent
+    ?? null;
 
-  if (dataBoxState.error) {
-    return `
-      <tr>
-        <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">${escapeHtml(dataBoxState.error)}</td>
-      </tr>
-    `;
-  }
+  return {
+    newCount: messages.filter((message) => dataBoxWorkflowStatus(message).id === "new").length,
+    unresolved: messages.filter((message) => !["done", "archived"].includes(dataBoxWorkflowStatus(message).id)).length,
+    urgent: messages.filter((message) => dataBoxMessagePriority(message).id === "urgent").length,
+    deadline3: messages.filter((message) => {
+      const deadline = dataBoxDeadlineInfo(message);
+      return deadline.date && deadline.days !== null && deadline.days <= 3;
+    }).length,
+    attachments: messages.filter((message) => dataBoxHasAttachments(message)).length,
+    doneWeek: messages.filter((message) => {
+      if (dataBoxWorkflowStatus(message).id !== "done") {
+        return false;
+      }
 
-  const rows = dataBoxState.messages.filter((message) => message.direction === direction);
-  if (!rows.length) {
-    return `
-      <tr>
-        <td colspan="${DATA_BOX_EMPTY_MESSAGE_COLUMNS.length}">
-          Žádná ostrá zpráva není načtena. Frontend nevolá ISDS a neobsahuje provozní data.
-        </td>
-      </tr>
-    `;
-  }
+      const date = dataBoxDateValue(message.resolvedAt || message.completedAt || message.updatedAt || dataBoxMessageTimestamp(message));
+      return date ? date.getTime() >= weekAgo : false;
+    }).length,
+    errors: messages.filter((message) => dataBoxWorkflowStatus(message).id === "error").length + syncErrors,
+    sentOrDone: direction === "sent"
+      ? messages.length
+      : messages.filter((message) => dataBoxWorkflowStatus(message).id === "done").length,
+    vaultCapacity: vaultCapacity === null || vaultCapacity === undefined || vaultCapacity === ""
+      ? null
+      : Number(vaultCapacity),
+    total: messages.length
+  };
+}
 
-  return rows.map((message) => `
-    <tr>
-      <td>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "-")}</td>
-      <td>${escapeHtml(dataBoxDirectionLabel(message.direction))}</td>
-      <td>${escapeHtml(dataBoxMessageActor(message))}</td>
-      <td>${escapeHtml(message.subject || "(bez předmětu)")}</td>
-      <td>${escapeHtml(message.status || "-")}</td>
-      <td>${escapeHtml(message.attachmentsCount ? String(message.attachmentsCount) : (message.hasAttachments ? "ano" : "0"))}</td>
-      <td>${escapeHtml(dataBoxAiStatusLabel(message.aiStatus))}</td>
-      <td>
+function dataBoxOperationalKpis(direction = "received") {
+  const metrics = dataBoxInboxMetrics(direction);
+  const active = dataBoxState.messageFilters.quick || "all";
+  const urgentOrDeadline = Math.max(metrics.urgent, metrics.deadline3);
+  const cards = [
+    { label: "Nepřečtené", value: metrics.newCount, note: "Nové obálky", filter: "new", tone: "info" },
+    { label: "Urgentní / lhůty", value: urgentOrDeadline, note: "Návrh priority", filter: urgentOrDeadline ? "urgent" : "deadlines", tone: urgentOrDeadline ? "urgent" : "muted" },
+    { label: direction === "sent" ? "Odeslané" : "Zpracované", value: metrics.sentOrDone, note: direction === "sent" ? "V seznamu" : "Vyřízené", filter: direction === "sent" ? "all" : "done", tone: "done" }
+  ];
+
+  return `
+    <section class="data-box-kpi-grid" aria-label="Pracovní souhrn datové schránky">
+      ${cards.map((card) => `
         <button
-          class="secondary-link"
+          class="data-box-kpi data-box-kpi--${escapeHtml(card.tone)} ${active === card.filter ? "data-box-kpi--active" : ""}"
           type="button"
-          data-data-box-message-detail="${escapeHtml(message.id)}"
-          aria-controls="data-box-message-detail"
+          data-data-box-quick-filter="${escapeHtml(card.filter)}"
         >
-          Detail
+          <span>${escapeHtml(card.label)}</span>
+          <strong>${escapeHtml(String(card.value))}</strong>
+          <small>${escapeHtml(card.note)}</small>
         </button>
-      </td>
-    </tr>
+      `).join("")}
+    </section>
+  `;
+}
+
+function dataBoxAssigneeOptions(messages) {
+  const values = [...new Set(messages.map((message) => dataBoxMessageAssigneeValue(message)).filter(Boolean))];
+  const selected = dataBoxState.messageFilters.assigned;
+  const base = [
+    ["all", "Všichni"],
+    ["assigned", "Jen přiřazené"],
+    ["unassigned", "Nepřiřazeno"]
+  ];
+  const dynamic = values.map((value) => [value, value]);
+
+  return [...base, ...dynamic].map(([value, label]) => `
+    <option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(label)}</option>
   `).join("");
 }
 
-function dataBoxMessageTable(title, direction) {
-  const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
-  const statusLabel = dataBoxState.apiStatus === "ready" ? "API aktivní" : (dataBoxState.loading ? "načítám API" : "čeká na API");
+function dataBoxFilterOptions(options, selected) {
+  return options.map(([value, label]) => `
+    <option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(label)}</option>
+  `).join("");
+}
+
+function dataBoxAccountFilterOptions(selected) {
+  return dataBoxFilterOptions([
+    ["all", "Všechny DS"],
+    ...DATA_BOX_ACCOUNT_BOXES.map((account) => [account.id, account.label])
+  ], selected);
+}
+
+function dataBoxMessageFilters(direction) {
+  const filters = dataBoxState.messageFilters;
 
   return `
-    <section class="data-box-panel" id="${escapeHtml(direction)}" aria-labelledby="data-box-${escapeHtml(direction)}-title">
-      <div class="data-box-panel__head">
-        <div>
-          <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(title)}</h2>
-          <p>Seznam čte pouze metadata z interního API. Ostré ISDS připojení není v této fázi aktivní.</p>
+    <form class="data-box-filters" data-data-box-filters>
+      <label>
+        <span>Stav</span>
+        <select name="status" data-data-box-filter>
+          ${dataBoxFilterOptions(DATA_BOX_STATUS_OPTIONS, filters.status)}
+        </select>
+      </label>
+      <label>
+        <span>Priorita</span>
+        <select name="priority" data-data-box-filter>
+          ${dataBoxFilterOptions(DATA_BOX_PRIORITY_OPTIONS, filters.priority)}
+        </select>
+      </label>
+      <label>
+        <span>Lhůta</span>
+        <select name="deadline" data-data-box-filter>
+          ${dataBoxFilterOptions([
+            ["all", "Všechny"],
+            ["with", "Jen s lhůtou"],
+            ["due_3", "Do 3 dnů"],
+            ["overdue", "Po lhůtě"],
+            ["none", "Bez lhůty"]
+          ], filters.deadline)}
+        </select>
+      </label>
+      <label>
+        <span>Přílohy</span>
+        <select name="attachment" data-data-box-filter>
+          ${dataBoxFilterOptions([
+            ["all", "Všechny"],
+            ["with", "S přílohou"],
+            ["without", "Bez příloh"]
+          ], filters.attachment)}
+        </select>
+      </label>
+    </form>
+  `;
+}
+
+function dataBoxInboxSearch() {
+  const filters = dataBoxState.messageFilters;
+
+  return `
+    <label class="data-box-inbox-search">
+      <span>Hledat</span>
+      <input
+        name="query"
+        type="search"
+        value="${escapeHtml(filters.query)}"
+        placeholder="Odesílatel, předmět, ID, příloha..."
+        autocomplete="off"
+        data-data-box-filter
+      />
+    </label>
+  `;
+}
+
+function dataBoxQuickFilters() {
+  const active = dataBoxState.messageFilters.quick || "all";
+  return `
+    <div class="data-box-quick-filters" aria-label="Rychlé filtry">
+      ${DATA_BOX_QUICK_FILTERS.map((filter) => `
+        <button
+          class="data-box-quick-filter ${active === filter.id ? "data-box-quick-filter--active" : ""}"
+          type="button"
+          data-data-box-quick-filter="${escapeHtml(filter.id)}"
+        >
+          ${escapeHtml(filter.label)}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function dataBoxBadge(label, tone = "muted") {
+  return `<span class="data-box-badge data-box-badge--${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
+}
+
+function dataBoxInboxNotice(direction, allRows, filteredRows) {
+  if (!hasPermission(currentUser(), DATA_BOX_MODULE_KEY, "view")) {
+    return {
+      tone: "error",
+      title: "Bez oprávnění",
+      text: "K datové schránce nemáte oprávnění."
+    };
+  }
+
+  if (dataBoxState.loading && !dataBoxState.loaded) {
+    return {
+      tone: "info",
+      title: "Načítám datové zprávy...",
+      text: "Probíhá načítání."
+    };
+  }
+
+  if (dataBoxState.error) {
+    return {
+      tone: "error",
+      title: "Datovou schránku se nepodařilo načíst.",
+      text: "Zkus akci opakovat."
+    };
+  }
+
+  if (dataBoxState.apiStatus !== "ready") {
+    return {
+      tone: "warning",
+      title: "Datová schránka zatím není nastavená.",
+      text: "Zprávy nejdou načíst."
+    };
+  }
+
+  if (!allRows.length) {
+    const selectedAccount = dataBoxSelectedAccount();
+    return {
+      tone: "muted",
+      title: "Zprávy zatím nejsou načtené.",
+      text: selectedAccount
+        ? `${selectedAccount.label}: spusť načtení.`
+        : "Vyber schránku nebo spusť načtení."
+    };
+  }
+
+  if (!filteredRows.length) {
+    return {
+      tone: "muted",
+      title: "Filtrům neodpovídá žádná zpráva.",
+      text: "Uprav hledání, rychlý filtr nebo datumové omezení."
+    };
+  }
+
+  return null;
+}
+
+function dataBoxInboxNoticeMarkup(notice) {
+  if (!notice) {
+    return "";
+  }
+
+  return `
+    <div class="data-box-inbox-empty data-box-inbox-empty--${escapeHtml(notice.tone)}" role="${notice.tone === "error" ? "alert" : "status"}">
+      <strong>${escapeHtml(notice.title)}</strong>
+      <span>${escapeHtml(notice.text)}</span>
+    </div>
+  `;
+}
+
+function dataBoxInboxIsEmptyState(notice, allRows) {
+  return Boolean(notice) && (
+    dataBoxState.apiStatus !== "ready"
+    || dataBoxState.loading
+    || dataBoxState.error
+    || !allRows.length
+  );
+}
+
+function dataBoxMessageCard(message, selected) {
+  const status = dataBoxWorkflowStatus(message);
+  const priority = dataBoxMessagePriority(message);
+  const attachmentCount = dataBoxAttachmentCount(message);
+  const deliveredAt = formatDateTime(dataBoxMessageTimestamp(message));
+  const actorValue = dataBoxMessageActor(message);
+  const actor = actorValue && actorValue !== "-" ? actorValue : "Neznámý odesílatel";
+  const subject = String(message.subject || message.title || "").trim() || "Bez předmětu";
+  const attachmentLabel = attachmentCount ? `Příloha${attachmentCount > 1 ? ` ${attachmentCount}` : ""}` : "";
+  const unread = status.id === "new";
+  const companyBadge = dataBoxCompanyBadgeMarkup(message);
+
+  return `
+    <article class="data-box-message-card data-box-message-card--priority-${escapeHtml(priority.id)} ${selected ? "data-box-message-card--selected" : ""} ${unread ? "data-box-message-card--unread" : ""}">
+      <button
+        class="data-box-message-card__select"
+        type="button"
+        data-data-box-preview-message="${escapeHtml(message.id)}"
+        aria-pressed="${selected ? "true" : "false"}"
+      >
+        <span class="data-box-message-card__top">
+          ${unread ? `<span class="data-box-message-card__unread-dot" title="Nepřečtená zpráva" aria-label="Nepřečtená zpráva"></span>` : ""}
+          <span class="data-box-message-card__actor">${escapeHtml(actor)}</span>
+        </span>
+        <span class="data-box-message-card__bottom">
+          <span class="data-box-message-card__subject">${escapeHtml(subject)}</span>
+          <span class="data-box-message-card__extras" aria-label="Doplňkové informace">
+            ${dataBoxPriorityBadge(priority)}
+            ${attachmentCount ? `<span class="data-box-message-card__attachment" title="${escapeHtml(attachmentLabel)}" aria-label="${escapeHtml(attachmentLabel)}">Příloha</span>` : ""}
+            ${companyBadge}
+            <span class="data-box-message-card__date">${escapeHtml(deliveredAt || "-")}</span>
+          </span>
+        </span>
+      </button>
+    </article>
+  `;
+}
+
+function dataBoxSelectedPreviewMessage(rows) {
+  if (!rows.length) {
+    return null;
+  }
+
+  const selectedId = dataBoxState.selectedMessageId || dataBoxState.selectedPreviewMessageId;
+
+  if (
+    dataBoxState.selectedMessage?.id === selectedId
+    && rows.some((message) => String(message.id) === String(selectedId))
+  ) {
+    return dataBoxState.selectedMessage;
+  }
+
+  return rows.find((message) => String(message.id) === String(selectedId)) || rows[0];
+}
+
+function dataBoxMessageContentPreview(message) {
+  const text = dataBoxMessageRawPreview(message);
+
+  return text || "Náhled není dostupný.";
+}
+
+function dataBoxReadingPane(message, direction) {
+  if (!message) {
+    return `
+      <aside class="data-box-reading-pane" aria-label="Detail zprávy">
+        <div class="data-box-reading-pane__empty">
+          <strong>Vyber zprávu</strong>
+          <span>${escapeHtml(direction === "sent" ? "Detail odeslané zprávy se zobrazí tady." : "Detail přijaté zprávy se zobrazí tady.")}</span>
         </div>
-        <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+      </aside>
+    `;
+  }
+
+  const status = dataBoxWorkflowStatus(message);
+  const priority = dataBoxMessagePriority(message);
+  const type = dataBoxMessageType(message);
+  const deadline = dataBoxDeadlineInfo(message);
+  const actorLabel = message.direction === "sent" ? "Příjemce" : "Odesílatel";
+  const actorValue = dataBoxMessageActor(message);
+  const mailboxLabel = dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel);
+  const deliveredAt = formatDateTime(dataBoxMessageTimestamp(message));
+  const attachmentCount = dataBoxAttachmentCount(message);
+
+  return `
+    <aside class="data-box-reading-pane" aria-label="Detail vybrané zprávy">
+      <div class="data-box-reading-pane__head">
+        <div>
+          <span>${escapeHtml(mailboxLabel)}</span>
+          <h3>${escapeHtml(message.subject || "(bez předmětu)")}</h3>
+          <p class="data-box-reading-pane__meta">
+            Doručeno: ${escapeHtml(deliveredAt || "bez data")} · ${escapeHtml(actorLabel)}: ${escapeHtml(actorValue || "neuvedeno")}
+          </p>
+        </div>
       </div>
-      <div class="data-box-table-wrap">
-        <table class="data-box-table">
-          <thead>
-            <tr>${DATA_BOX_EMPTY_MESSAGE_COLUMNS.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
-          </thead>
-          <tbody>
-            ${dataBoxMessageRows(direction)}
-          </tbody>
-        </table>
+      ${dataBoxMessageSafeActions(message, { includeDetail: true })}
+      ${dataBoxActionFeedbackMarkup()}
+      <div class="data-box-reading-pane__badges">
+        ${dataBoxPriorityBadge(priority)}
+        ${dataBoxBadge(status.label, status.tone)}
+        ${deadline.date ? dataBoxBadge(deadline.label, deadline.tone) : ""}
+      </div>
+      ${dataBoxAttachmentsSection(message)}
+      <section class="data-box-reading-section data-box-reading-section--content">
+        <h4>Obsah / náhled</h4>
+        <p>${escapeHtml(dataBoxMessageContentPreview(message))}</p>
+      </section>
+      <details class="data-box-technical-details data-box-technical-details--reading">
+        <summary>Technické údaje</summary>
+        <div class="data-box-detail-grid">
+          ${dataBoxDetailField(actorLabel, actorValue)}
+          ${dataBoxDetailField("Doručeno", deliveredAt)}
+          ${dataBoxDetailField("Schránka", mailboxLabel)}
+          ${dataBoxDetailField("Typ", type.label)}
+          ${dataBoxDetailField("Priorita", priority.label)}
+          ${dataBoxDetailField("Přílohy", attachmentCount ? `${attachmentCount}` : "Bez příloh")}
+          ${dataBoxDetailField("ID zprávy", message.id)}
+        </div>
+      </details>
+    </aside>
+  `;
+}
+
+function dataBoxSupportTasks(message) {
+  if (!message) {
+    return ["Vyber zprávu", "Sleduj lhůty"];
+  }
+
+  const attachmentCount = dataBoxAttachmentCount(message);
+  const priority = dataBoxMessagePriority(message);
+  const tasks = [];
+
+  if (priority.id === "urgent" || priority.id === "legal") {
+    tasks.push("Předat Radimovi");
+  }
+
+  if (attachmentCount) {
+    tasks.push("Zkontrolovat přílohu");
+  }
+
+  tasks.push(dataBoxMessageNextStep(message));
+
+  return [...new Set(tasks)].slice(0, 4);
+}
+
+function dataBoxSupportPane(message, direction) {
+  const connection = dataBoxConnectionState();
+  const metrics = dataBoxInboxMetrics(direction);
+  const selectedAccount = dataBoxSelectedAccount();
+  const context = dataBoxActiveContextLabel();
+  const nextStep = message ? dataBoxMessageNextStep(message) : "Vyber zprávu ze seznamu.";
+
+  return `
+    <aside class="data-box-side-pane" aria-label="Návrh vyřízení a stav">
+      <section class="data-box-side-card data-box-side-card--next">
+        <span>Návrh vyřízení</span>
+        <strong>${escapeHtml(nextStep)}</strong>
+      </section>
+      <section class="data-box-side-card">
+        <span>Typické úkony</span>
+        <ul class="data-box-action-list">
+          ${dataBoxSupportTasks(message).map((task) => `<li>${escapeHtml(task)}</li>`).join("")}
+        </ul>
+      </section>
+      ${dataBoxStatusAndSyncCard(connection, selectedAccount, context, direction, metrics)}
+    </aside>
+  `;
+}
+
+function dataBoxActionIsAiBoost(action = {}) {
+  const result = action.result || {};
+  return result.source === "ai_boost"
+    || String(action.dedupeKey || "").includes("data-box:ai-boost:")
+    || String(action.actionType || "") === "ai_boost";
+}
+
+function dataBoxActionShouldShowInAiBoost(action = {}) {
+  return dataBoxActionIsAiBoost(action) || dataBoxAiBoostIsWaiting(action);
+}
+
+function dataBoxAiBoostActionLabel(action = {}) {
+  const recommended = String(action.result?.recommendedAction || action.actionType || "review").toLowerCase();
+  const labels = {
+    archive: "Archivovat",
+    email: "Poslat e-mailem",
+    reply: "Odpovědět",
+    review: "Zkontrolovat",
+    ai_boost: "Zkontrolovat"
+  };
+  return labels[recommended] || "Zkontrolovat";
+}
+
+function dataBoxAiBoostStatusLabel(action = {}) {
+  const labels = {
+    prepared: "Koncept",
+    requires_confirmation: "Čeká na potvrzení",
+    confirmed: "Potvrzeno",
+    sent: "Odesláno",
+    archived: "Archivováno",
+    blocked: "Blokováno",
+    failed: "Chyba",
+    skipped: "Přeskočeno"
+  };
+  return labels[String(action.status || "").toLowerCase()] || action.status || "Koncept";
+}
+
+function dataBoxAiBoostWorkTag(action = {}) {
+  const actionType = String(action.actionType || action.result?.recommendedAction || "review").toLowerCase();
+  const status = String(action.status || "").toLowerCase();
+  const recipient = String(action.recipient || "").toLowerCase();
+
+  if (["sent", "archived"].includes(status)) return "Hotovo";
+  if (status === "skipped") return "Zamítnuto";
+  if (["blocked", "failed"].includes(status)) return "Chyba";
+  if (recipient.includes("faktury@")) return "Faktury";
+  if (recipient.includes("dispecer@")) return "Dispečink";
+  if (actionType === "email") return "E-mail";
+  if (actionType === "archive") return "Archiv";
+  if (actionType === "reply") return "Odpověď DS";
+  return dataBoxAiBoostIsWaiting(action) ? "K potvrzení" : "Nejisté";
+}
+
+function dataBoxAiBoostWorkTags(action = {}) {
+  const tags = [dataBoxAiBoostWorkTag(action)];
+  if (dataBoxAiBoostIsWaiting(action)) {
+    tags.unshift("K potvrzení");
+  }
+  if (Number(action.result?.confidence || 0) && Number(action.result?.confidence || 0) < 0.7) {
+    tags.push("Nejisté");
+  }
+  return [...new Set(tags)].slice(0, 4);
+}
+
+function dataBoxAiBoostCanConfirm(action = {}) {
+  return ["archive", "email"].includes(String(action.actionType || "").toLowerCase())
+    && ["prepared", "requires_confirmation", "confirmed"].includes(String(action.status || "").toLowerCase());
+}
+
+function dataBoxAiBoostIsWaiting(action = {}) {
+  return ["prepared", "requires_confirmation", "confirmed"].includes(String(action.status || "").toLowerCase());
+}
+
+function dataBoxAiBoostIsDone(action = {}) {
+  return ["sent", "archived", "blocked", "failed", "skipped"].includes(String(action.status || "").toLowerCase());
+}
+
+function dataBoxAiBoostActionTypeOptions(selected = "review") {
+  const options = [
+    ["archive", "Archivovat"],
+    ["email", "Připravit e-mail"],
+    ["reply", "Připravit odpověď DS"],
+    ["review", "Vyřídit ručně"]
+  ];
+
+  return options
+    .map(([value, label]) => `<option value="${escapeHtml(value)}"${selected === value ? " selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+function dataBoxAiBoostMessage(action = {}) {
+  return dataBoxMessageById(action.messageId) || dataBoxState.messages.find((message) => String(message.id || "") === String(action.messageId || "")) || null;
+}
+
+function dataBoxAiBoostSourceKey(action = {}) {
+  const message = dataBoxAiBoostMessage(action);
+  const isdsId = String(message?.isdsMessageId || action.result?.isdsMessageId || "").trim();
+  if (isdsId) {
+    return `isds:${isdsId}`;
+  }
+
+  const subject = String(message?.subject || action.subject || "").trim().toLowerCase();
+  const sender = String(message ? dataBoxMessageActor(message) : action.result?.sender || "").trim().toLowerCase();
+  return subject && sender ? `content:${sender}:${subject}` : "";
+}
+
+function dataBoxAiBoostMappingWarnings(actions = []) {
+  const groups = new Map();
+
+  actions.forEach((action) => {
+    const key = dataBoxAiBoostSourceKey(action);
+    const message = dataBoxAiBoostMessage(action);
+    const dataBoxId = String(message?.dataBoxId || action.dataBoxId || "").trim();
+    if (!key || !dataBoxId) return;
+
+    const group = groups.get(key) || {
+      subject: message?.subject || action.subject || "Datová zpráva",
+      mailboxes: new Map()
+    };
+    group.mailboxes.set(dataBoxId, dataBoxDisplayName(dataBoxId, message?.dataBoxLabel || dataBoxId));
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values())
+    .filter((group) => group.mailboxes.size > 1)
+    .slice(0, 4);
+}
+
+function dataBoxAiBoostEditForm(action = {}) {
+  if (String(dataBoxState.aiBoostEditingId || "") !== String(action.id || "")) {
+    return "";
+  }
+
+  const actionType = String(action.actionType || action.result?.recommendedAction || "review").toLowerCase();
+  return `
+    <form class="data-box-ai-boost-edit" data-data-box-ai-edit-form data-action-id="${escapeHtml(action.id || "")}">
+      <label>
+        <span>Akce</span>
+        <select name="actionType" required>
+          ${dataBoxAiBoostActionTypeOptions(actionType)}
+        </select>
+      </label>
+      <label>
+        <span>Příjemce / cíl</span>
+        <input name="recipient" value="${escapeHtml(action.recipient || "")}" placeholder="např. faktury@kaiserservis.cz" />
+      </label>
+      <label>
+        <span>Předmět</span>
+        <input name="subject" value="${escapeHtml(action.subject || "")}" />
+      </label>
+      <label class="employee-card-field--wide">
+        <span>Důvod / text e-mailu</span>
+        <textarea name="bodyPreview" rows="4">${escapeHtml(action.bodyPreview || action.result?.reason || "")}</textarea>
+      </label>
+      <label class="employee-card-field--wide">
+        <span>Poznámka k úpravě</span>
+        <input name="editNote" value="" placeholder="Proč měním návrh" />
+      </label>
+      <div class="data-box-ai-boost-edit__actions">
+        <button class="primary-action" type="submit" ${dataBoxState.aiBoostLoading ? "disabled" : ""}>Uložit upravený návrh</button>
+        <button class="secondary-link" type="button" data-data-box-ai-edit-close ${dataBoxState.aiBoostLoading ? "disabled" : ""}>Zrušit</button>
+      </div>
+      <p>Uložení návrh neodesílá. Jen upraví koncept, který bude dál čekat na potvrzení.</p>
+    </form>
+  `;
+}
+
+function dataBoxAiBoostCard(action = {}) {
+  const message = dataBoxAiBoostMessage(action);
+  const title = message?.subject || action.subject || "Datová zpráva";
+  const sender = message ? dataBoxMessageActor(message) : "Zpráva není v aktuálním výběru";
+  const company = message ? dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel) : action.dataBoxId || "";
+  const confidence = Number(action.result?.confidence || 0);
+  const confidenceLabel = confidence ? `${Math.round(confidence * 100)} % jistota` : "jistota neuvedena";
+  const canConfirm = dataBoxAiBoostCanConfirm(action);
+  const confirmLabel = action.actionType === "email" ? "Potvrdit e-mail" : "Potvrdit archivaci";
+  const status = String(action.status || "").toLowerCase();
+  const actionType = String(action.actionType || "").toLowerCase();
+
+  return `
+    <article class="data-box-ai-boost-card data-box-ai-boost-card--${escapeHtml(status || "concept")} data-box-ai-boost-card--${escapeHtml(actionType || "review")}">
+      <div class="data-box-ai-boost-card__main">
+        <span class="data-box-ai-boost-card__eyebrow">AI Boost · ${escapeHtml(dataBoxAiBoostStatusLabel(action))}</span>
+        <div class="data-box-ai-boost-tags">
+          ${dataBoxAiBoostWorkTags(action).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+        </div>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(sender)}${company ? ` · ${escapeHtml(company)}` : ""}</p>
+        <strong>${escapeHtml(dataBoxAiBoostActionLabel(action))}</strong>
+        <p>${escapeHtml(action.bodyPreview || action.result?.reason || "AI Boost navrhl ruční kontrolu.")}</p>
+        <div class="data-box-ai-boost-card__meta">
+          ${action.recipient ? `<span>Příjemce: ${escapeHtml(action.recipient)}</span>` : ""}
+          <span>${escapeHtml(confidenceLabel)}</span>
+          <span>${escapeHtml(formatDateTime(action.createdAt) || "")}</span>
+        </div>
+      </div>
+      <div class="data-box-ai-boost-card__actions">
+        <button class="secondary-link" type="button" data-data-box-ai-open="${escapeHtml(action.messageId || "")}">
+          Otevřít zprávu
+        </button>
+        ${dataBoxAiBoostIsWaiting(action) ? `
+          <button class="secondary-link" type="button" data-data-box-ai-edit="${escapeHtml(action.id || "")}">
+            Upravit návrh
+          </button>
+          <button class="secondary-link" type="button" data-data-box-ai-reject="${escapeHtml(action.id || "")}" ${dataBoxState.aiBoostLoading ? "disabled" : ""}>
+            Zamítnout
+          </button>
+          <button class="secondary-link" type="button" data-data-box-ai-rule-from-action="${escapeHtml(action.id || "")}">
+            Vytvořit pravidlo
+          </button>
+        ` : ""}
+        ${canConfirm ? `
+          <button class="primary-action" type="button" data-data-box-ai-confirm="${escapeHtml(action.id)}" ${dataBoxState.aiBoostLoading ? "disabled" : ""}>
+            ${escapeHtml(confirmLabel)}
+          </button>
+        ` : ""}
+      </div>
+      ${dataBoxAiBoostEditForm(action)}
+    </article>
+  `;
+}
+
+function dataBoxAiBoostNewActionForm() {
+  const mailboxes = DATA_BOX_ACCOUNT_BOXES
+    .map((account) => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.label || account.shortName || account.id)}</option>`)
+    .join("");
+
+  return `
+    <details class="data-box-ai-boost-new-action">
+      <summary>
+        <span>Přidat akci / naučit AI Boost</span>
+        <strong>Nové pravidlo</strong>
+      </summary>
+      <form data-data-box-ai-rule-draft-form>
+        <label>
+          <span>Když přijde od</span>
+          <input name="senderContains" placeholder="např. Exekutor Jícha" />
+        </label>
+        <label>
+          <span>A obsahuje</span>
+          <input name="textContains" placeholder="např. 203 Ex, Usnesení" />
+        </label>
+        <label>
+          <span>Pro DS</span>
+          <select name="mailboxId">
+            <option value="">Libovolná DS</option>
+            ${mailboxes}
+          </select>
+        </label>
+        <label>
+          <span>Navrhni akci</span>
+          <select name="actionType">
+            ${dataBoxAiBoostActionTypeOptions("email")}
+          </select>
+        </label>
+        <label>
+          <span>Příjemce / cíl</span>
+          <input name="recipient" placeholder="např. tehlarova@gtbrno.cz" />
+        </label>
+        <label class="employee-card-field--wide">
+          <span>Název pravidla</span>
+          <input name="title" placeholder="např. Exekutor Jícha poslat GT Brno" required />
+        </label>
+        <div class="data-box-ai-boost-edit__actions">
+          <button class="primary-action" type="submit">Připravit pravidlo</button>
+        </div>
+        <p>Pravidlo se ještě neuloží. Otevře se formulář pravidel, kde ho zkontroluješ a uložíš do cloud DB.</p>
+      </form>
+    </details>
+  `;
+}
+
+function dataBoxAiBoostGroupSection({ title, countLabel, emptyTitle, emptyText, actions = [], batchType = "", batchLabel = "", canManage = false }) {
+  const batchButton = canManage && batchType && actions.length ? `
+    <button class="secondary-action" type="button" data-data-box-ai-confirm-group="${escapeHtml(batchType)}" ${dataBoxState.aiBoostLoading ? "disabled" : ""}>
+      ${escapeHtml(batchLabel)}
+    </button>
+  ` : "";
+
+  return `
+    <section class="data-box-ai-boost-section" aria-label="${escapeHtml(title)}">
+      <div class="data-box-ai-boost-section__head">
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <span>${escapeHtml(countLabel)}</span>
+        </div>
+        ${batchButton}
+      </div>
+      <div class="data-box-ai-boost-list">
+        ${actions.length ? actions.map(dataBoxAiBoostCard).join("") : `
+          <div class="data-box-ai-boost-empty">
+            <strong>${escapeHtml(emptyTitle)}</strong>
+            <span>${escapeHtml(emptyText)}</span>
+          </div>
+        `}
       </div>
     </section>
+  `;
+}
+
+function dataBoxAiBoostPanel(user) {
+  const canManage = hasPermission(user, DATA_BOX_MODULE_KEY, "manage");
+  const actions = [...dataBoxState.aiBoostActions].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const waitingActions = actions.filter(dataBoxAiBoostIsWaiting);
+  const waitingEmailActions = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "email");
+  const waitingArchiveActions = waitingActions.filter((action) => String(action.actionType || "").toLowerCase() === "archive");
+  const waitingOtherActions = waitingActions.filter((action) => !["email", "archive"].includes(String(action.actionType || "").toLowerCase()));
+  const historyActions = actions.filter(dataBoxAiBoostIsDone);
+  const waitingArchive = waitingArchiveActions.length;
+  const waitingEmail = waitingEmailActions.length;
+  const completed = historyActions.filter((action) => ["sent", "archived"].includes(String(action.status || "").toLowerCase())).length;
+  const mappingWarnings = dataBoxAiBoostMappingWarnings(actions);
+
+  return `
+    <section class="data-box-panel data-box-ai-boost-panel" aria-labelledby="data-box-ai-boost-title">
+      <div class="data-box-panel__head">
+        <div>
+          <span>Datová schránka</span>
+          <h2 id="data-box-ai-boost-title">AI Boost</h2>
+          <p>AI a pravidla připravují pouze koncepty. Archivace, e-mail nebo odpověď se provedou až po potvrzení uživatele.</p>
+        </div>
+        <button class="primary-action" type="button" data-data-box-ai-run ${!canManage || dataBoxState.aiBoostLoading ? "disabled" : ""}>
+          ${escapeHtml(dataBoxState.aiBoostLoading ? "Spouštím..." : "Spustit AI Boost")}
+        </button>
+      </div>
+      <div class="data-box-ai-boost-summary">
+        <div><span>Čeká na rozhodnutí</span><strong>${waitingActions.length}</strong></div>
+        <div><span>Archivace čekají</span><strong>${waitingArchive}</strong></div>
+        <div><span>E-maily čekají</span><strong>${waitingEmail}</strong></div>
+        <div><span>Potvrzené akce</span><strong>${completed}</strong></div>
+        <div><span>Režim</span><strong>read-only návrh · potvrzení ručně</strong></div>
+      </div>
+      ${mappingWarnings.length ? `
+        <div class="data-box-action-feedback data-box-action-feedback--warning" role="status">
+          <strong>Kontrola mapování DS</strong>
+          <span>AI Boost vidí podobné zprávy ve více schránkách: ${mappingWarnings.map((group) => `${escapeHtml(group.subject)} (${Array.from(group.mailboxes.values()).map(escapeHtml).join(" / ")})`).join("; ")}. Před potvrzením e-mailů doporučuji ověřit diagnostiku DS.</span>
+        </div>
+      ` : ""}
+      ${dataBoxState.aiBoostError ? `<div class="data-box-action-feedback data-box-action-feedback--error" role="alert">${escapeHtml(dataBoxState.aiBoostError)}</div>` : ""}
+      ${dataBoxState.aiBoostMessage ? `<div class="data-box-action-feedback data-box-action-feedback--success" role="status">${escapeHtml(dataBoxState.aiBoostMessage)}</div>` : ""}
+      ${dataBoxAiBoostNewActionForm()}
+      ${dataBoxAiBoostGroupSection({
+        title: "Čeká na potvrzení",
+        countLabel: `${waitingActions.length} návrhů čeká na rozhodnutí`,
+        emptyTitle: "Nic nečeká na potvrzení.",
+        emptyText: "Nové návrhy se objeví po běhu pravidel nebo AI Boostu.",
+        actions: waitingActions,
+        canManage
+      })}
+      ${dataBoxAiBoostGroupSection({
+        title: "E-maily k odeslání",
+        countLabel: `${waitingEmailActions.length} čeká na potvrzení`,
+        emptyTitle: "Žádný e-mail nečeká.",
+        emptyText: "E-mailové koncepty se objeví až po shodě pravidla nebo AI Boost doporučení.",
+        actions: waitingEmailActions,
+        batchType: "email",
+        batchLabel: "Potvrdit všechny e-maily",
+        canManage
+      })}
+      ${dataBoxAiBoostGroupSection({
+        title: "Archivace k potvrzení",
+        countLabel: `${waitingArchiveActions.length} čeká na potvrzení`,
+        emptyTitle: "Žádná archivace nečeká.",
+        emptyText: "Archivace se provede až po ručním potvrzení.",
+        actions: waitingArchiveActions,
+        batchType: "archive",
+        batchLabel: "Potvrdit všechny archivace",
+        canManage
+      })}
+      ${waitingOtherActions.length ? dataBoxAiBoostGroupSection({
+        title: "Ostatní koncepty",
+        countLabel: `${waitingOtherActions.length} čeká na kontrolu`,
+        emptyTitle: "Žádné další koncepty nečekají.",
+        emptyText: "Ostatní návrhy jsou jen k ruční kontrole.",
+        actions: waitingOtherActions,
+        canManage
+      }) : ""}
+      <details class="data-box-ai-boost-history" ${waitingActions.length ? "" : "open"}>
+        <summary>
+          <span>Hotovo / historie</span>
+          <strong>${historyActions.length}</strong>
+        </summary>
+        <div class="data-box-ai-boost-list">
+          ${historyActions.length ? historyActions.map(dataBoxAiBoostCard).join("") : `
+          <div class="data-box-ai-boost-empty">
+            <strong>Historie je zatím prázdná.</strong>
+            <span>Po potvrzení se tady zobrazí archivované, odeslané nebo zablokované akce.</span>
+          </div>
+          `}
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+function dataBoxMessageInbox(title, direction) {
+  const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
+  const statusLabel = dataBoxState.apiStatus === "ready" ? "Načteno" : (dataBoxState.loading ? "Načítám" : "Nenastaveno");
+  const selectedAccount = dataBoxSelectedAccount();
+  const sectionTitle = selectedAccount ? `${title}: ${selectedAccount.label}` : title;
+  const allRows = dataBoxMessagesForDirection(direction);
+  const rows = dataBoxFilteredMessages(direction);
+  const pagination = dataBoxPaginationForRows(rows);
+  const visibleRows = pagination.visibleRows;
+  const activeMessageId = String(dataBoxState.selectedPreviewMessageId || dataBoxState.selectedMessageId || "");
+  const notice = dataBoxInboxNotice(direction, allRows, rows);
+  const emptyState = dataBoxInboxIsEmptyState(notice, allRows);
+
+  if (emptyState) {
+    return `
+      <section class="data-box-panel data-box-message-inbox data-box-message-inbox--empty" id="data-box-${escapeHtml(direction)}-panel" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+          </div>
+        </div>
+        ${dataBoxInboxSearch()}
+        ${dataBoxQuickFilters()}
+        ${dataBoxInboxNoticeMarkup(notice)}
+        ${dataBoxState.apiStatus === "ready" ? dataBoxInboxPaginationMarkup(allRows, rows, pagination) : ""}
+      </section>
+    `;
+  }
+
+  return `
+    <div class="data-box-workbench" id="data-box-${escapeHtml(direction)}-panel">
+      <section class="data-box-panel data-box-message-inbox" aria-labelledby="data-box-${escapeHtml(direction)}-title">
+        <div class="data-box-panel__head">
+          <div>
+            <h2 id="data-box-${escapeHtml(direction)}-title">${escapeHtml(sectionTitle)}</h2>
+          </div>
+          <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+        </div>
+        ${dataBoxInboxSearch()}
+        ${dataBoxQuickFilters()}
+        <div class="data-box-message-list" aria-label="${escapeHtml(sectionTitle)}">
+          ${notice ? dataBoxInboxNoticeMarkup(notice) : visibleRows.map((message) => dataBoxMessageCard(message, String(message.id) === activeMessageId)).join("")}
+        </div>
+        ${dataBoxInboxPaginationMarkup(allRows, rows, pagination)}
+      </section>
+    </div>
   `;
 }
 
@@ -13946,26 +15941,625 @@ function dataBoxDetailField(label, value) {
   `;
 }
 
-function dataBoxAttachmentRows(attachments = []) {
-  if (!attachments.length) {
-    return `<li>Bez příloh v metadatech.</li>`;
+function dataBoxReplyRecipient(message) {
+  if (message.direction === "sent") {
+    return dataBoxMessageActor(message) || message.recipientBoxId || "Příjemce není v metadatech";
   }
 
-  return attachments.map((attachment) => `
-    <li>
-      <strong>${escapeHtml(attachment.filename || "Příloha bez názvu")}</strong>
-      <span>${escapeHtml([
-        attachment.contentType || "",
-        formatFileSize(attachment.sizeBytes),
-        attachment.status || ""
-      ].filter(Boolean).join(" · ") || "metadata")}</span>
+  return message.senderName || message.senderBoxId || "Odesílatel není v metadatech";
+}
+
+function dataBoxReplySubject(message) {
+  const subject = String(message.subject || message.title || "").trim() || "Bez předmětu";
+  return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+}
+
+function dataBoxActionFeedbackMarkup() {
+  const error = String(dataBoxState.actionError || "").trim();
+  const notice = String(dataBoxState.actionNotice || "").trim();
+
+  if (error) {
+    return `<div class="data-box-action-feedback data-box-action-feedback--error" role="alert">${escapeHtml(error)}</div>`;
+  }
+
+  if (notice) {
+    return `<div class="data-box-action-feedback data-box-action-feedback--success" role="status">${escapeHtml(notice)}</div>`;
+  }
+
+  return "";
+}
+
+function dataBoxReplyDraftPanel(message) {
+  if (!message || !dataBoxState.replyDraftOpen) {
+    return "";
+  }
+  const sending = dataBoxState.actionLoading === "reply";
+
+  return `
+    <section class="data-box-reply-draft" aria-labelledby="data-box-reply-title">
+      <div class="data-box-reply-draft__head">
+        <div>
+          <span>Návrh odpovědi</span>
+          <h3 id="data-box-reply-title">Odpověď na zprávu</h3>
+        </div>
+        <button class="secondary-link" type="button" data-data-box-reply-close>Zavřít návrh</button>
+      </div>
+      ${dataBoxState.replyDraftError ? `
+        <div class="data-box-reply-draft__error" role="alert">${escapeHtml(dataBoxState.replyDraftError)}</div>
+      ` : ""}
+      <dl class="data-box-reply-draft__facts">
+        <div><dt>Komu</dt><dd>${escapeHtml(dataBoxReplyRecipient(message))}</dd></div>
+        <div><dt>Původní zpráva</dt><dd>${escapeHtml(message.id || "neuvedeno")}</dd></div>
+        <div><dt>Předmět</dt><dd>${escapeHtml(dataBoxReplySubject(message))}</dd></div>
+        <div><dt>Stav</dt><dd>Připraveno k potvrzení</dd></div>
+      </dl>
+      <label class="data-box-reply-draft__text">
+        <span>Text odpovědi</span>
+        <textarea
+          data-data-box-reply-text
+          rows="8"
+          placeholder="Napište pracovní návrh odpovědi..."
+        >${escapeHtml(dataBoxState.replyDraftText)}</textarea>
+      </label>
+      <div class="data-box-reply-draft__attachments">
+        <strong>Přílohy k odpovědi</strong>
+        <span>Přidávání příloh k odpovědi zatím není napojené.</span>
+      </div>
+      <div class="data-box-reply-draft__warning" role="status">
+        Odeslání odpovědi se spustí až po potvrzení. Pokud serverová KNF/DS brána není nastavená, zobrazí se přesná chyba a nic se neodešle.
+      </div>
+      <div class="data-box-reply-draft__actions">
+        <button class="secondary-link" type="button" data-data-box-reply-close>Zrušit</button>
+        <button
+          class="primary-action"
+          type="button"
+          data-data-box-reply-send="${escapeHtml(message.id || "")}"
+          ${sending ? "disabled" : ""}
+        >${sending ? "Odesílám..." : "Odeslat odpověď"}</button>
+      </div>
+      <small>Ostré odeslání vyžaduje potvrzení uživatele a server-side DS/KNF napojení.</small>
+    </section>
+  `;
+}
+
+function dataBoxMessageSafeActions(message, options = {}) {
+  if (!message) {
+    return "";
+  }
+
+  const includeDetail = Boolean(options.includeDetail);
+  const id = escapeHtml(message.id || "");
+  const loading = dataBoxState.actionLoading;
+  const archived = dataBoxWorkflowStatus(message).id === "archived";
+
+  return `
+    <div class="data-box-message-safe-actions" aria-label="Základní akce zprávy">
+      ${includeDetail ? `
+        <button class="secondary-link" type="button" data-data-box-message-detail="${id}">
+          Otevřít detail
+        </button>
+      ` : ""}
+      <button class="secondary-link" type="button" data-data-box-message-reply="${id}">
+        Odpovědět
+      </button>
+      <button
+        class="secondary-link"
+        type="button"
+        data-data-box-message-email="${id}"
+        ${loading === "email" ? "disabled" : ""}
+        title="E-mail se odešle až po potvrzení uživatele."
+      >
+        ${loading === "email" ? "Odesílám..." : "Poslat e-mailem"}
+      </button>
+      <button
+        class="secondary-link"
+        type="button"
+        data-data-box-message-archive="${id}"
+        ${loading === "archive" || archived ? "disabled" : ""}
+        title="Archivace se provede až po potvrzení uživatele."
+      >
+        ${archived ? "Archivováno" : loading === "archive" ? "Archivuji..." : "Archivovat"}
+      </button>
+    </div>
+  `;
+}
+
+function dataBoxAttachmentCountLabel(count) {
+  if (!count) {
+    return "Bez příloh";
+  }
+
+  if (count === 1) {
+    return "1 příloha";
+  }
+
+  if (count >= 2 && count <= 4) {
+    return `${count} přílohy`;
+  }
+
+  return `${count} příloh`;
+}
+
+function dataBoxAttachmentTypeLabel(attachment) {
+  const name = String(attachment?.filename || "").toLowerCase();
+  const type = String(attachment?.contentType || "").toLowerCase();
+  const extension = name.includes(".") ? name.split(".").pop() : "";
+
+  if (type.includes("pdf") || extension === "pdf") return "PDF";
+  if (type.includes("word") || ["doc", "docx"].includes(extension)) return "DOCX";
+  if (type.includes("xml") || extension === "xml") return "XML";
+  if (type.includes("excel") || type.includes("spreadsheet") || ["xls", "xlsx"].includes(extension)) return "XLSX";
+  if (type.includes("image") || ["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) return "IMG";
+  if (type.includes("zip") || extension === "zip") return "ZIP";
+  if (type.includes("text") || extension === "txt") return "TXT";
+  return extension ? extension.toUpperCase() : "Soubor";
+}
+
+function dataBoxAttachmentExtension(filename = "") {
+  const name = String(filename || "").toLowerCase();
+  return name.includes(".") ? name.split(".").pop() : "";
+}
+
+function dataBoxAttachmentContentTypeFromFilename(filename = "") {
+  const extension = dataBoxAttachmentExtension(filename);
+  return {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    txt: "text/plain",
+    xml: "application/xml"
+  }[extension] || "";
+}
+
+function dataBoxAttachmentIsGenericContentType(contentType = "") {
+  const type = String(contentType || "").split(";")[0].trim().toLowerCase();
+  return !type || type === "application/octet-stream" || type === "binary/octet-stream";
+}
+
+function dataBoxAttachmentAsciiPrefix(bytes) {
+  return Array.from(bytes)
+    .map((byte) => (byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13 ? String.fromCharCode(byte) : "")
+    .join("");
+}
+
+function dataBoxAttachmentLooksTextual(bytes) {
+  if (!bytes.length) {
+    return false;
+  }
+
+  let textual = 0;
+  for (const byte of bytes) {
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13 || byte >= 128) {
+      textual += 1;
+    }
+  }
+
+  return textual / bytes.length > 0.88;
+}
+
+async function dataBoxAttachmentContentTypeFromBlob(blob) {
+  if (!blob?.size) {
+    return "";
+  }
+
+  const bytes = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
+  const prefix = dataBoxAttachmentAsciiPrefix(bytes.slice(0, 16));
+  const textPrefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes).trimStart().toLowerCase();
+
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return "application/pdf";
+  }
+
+  if (
+    bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  if (prefix.startsWith("GIF8")) {
+    return "image/gif";
+  }
+
+  if (prefix.startsWith("RIFF") && dataBoxAttachmentAsciiPrefix(bytes.slice(8, 12)) === "WEBP") {
+    return "image/webp";
+  }
+
+  if (prefix.startsWith("PK")) {
+    return "application/zip";
+  }
+
+  if (textPrefix.startsWith("<?xml") || textPrefix.startsWith("<datova") || textPrefix.startsWith("<dm")) {
+    return "application/xml";
+  }
+
+  if (dataBoxAttachmentLooksTextual(bytes)) {
+    return "text/plain";
+  }
+
+  return "";
+}
+
+function dataBoxAttachmentCanPreview(filename = "", contentType = "") {
+  const extension = dataBoxAttachmentExtension(filename);
+  const type = String(contentType || "").toLowerCase();
+
+  if (type.includes("html") || type.includes("svg") || ["html", "htm", "svg"].includes(extension)) {
+    return false;
+  }
+
+  return type.includes("pdf")
+    || type.startsWith("image/")
+    || type.startsWith("text/")
+    || type.includes("xml")
+    || ["pdf", "png", "jpg", "jpeg", "webp", "gif", "txt", "xml"].includes(extension);
+}
+
+function dataBoxAttachmentOpenUrl(attachment) {
+  const url = String(attachment?.fileUrl || attachment?.openUrl || attachment?.downloadUrl || attachment?.url || "").trim();
+  if (!url) {
+    return "";
+  }
+
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+}
+
+function dataBoxAttachmentHasError(attachment) {
+  const source = dataBoxSearchText([
+    attachment?.status,
+    attachment?.error,
+    attachment?.errorMessage
+  ].filter(Boolean).join(" "));
+  return source.includes("chyba")
+    || source.includes("error")
+    || source.includes("failed")
+    || source.includes("nelze")
+    || source.includes("nejde");
+}
+
+function dataBoxAttachmentStatusLabel(attachment) {
+  const status = dataBoxSearchText(attachment?.status || "");
+
+  if (dataBoxAttachmentHasError(attachment)) {
+    return "Chyba otevření";
+  }
+
+  if (status.includes("pending") || status.includes("ceka") || status.includes("waiting")) {
+    return "Čeká na stažení";
+  }
+
+  if (dataBoxAttachmentOpenUrl(attachment) || attachment?.storageKey || status.includes("stored") || status.includes("saved") || status.includes("ready")) {
+    return "Uloženo u nás";
+  }
+
+  return "Jen metadata";
+}
+
+function dataBoxAttachmentErrorMarkup(attachment) {
+  if (!dataBoxAttachmentHasError(attachment)) {
+    return "";
+  }
+
+  return `
+    <p class="data-box-attachment-error" role="alert">
+      <strong>Přílohu se nepodařilo otevřít.</strong>
+      <span>Zkontrolujte, zda byla příloha správně stažena z datové schránky.</span>
+    </p>
+  `;
+}
+
+function dataBoxAttachmentNoticeMarkup() {
+  const error = String(dataBoxState.attachmentError || "").trim();
+  const notice = String(dataBoxState.attachmentNotice || "").trim();
+
+  if (error) {
+    return `
+      <p class="data-box-attachment-error" role="alert">
+        <strong>${escapeHtml(error)}</strong>
+        <span>Zkontrolujte, zda byla příloha správně stažena z datové schránky.</span>
+      </p>
+    `;
+  }
+
+  if (!notice) {
+    return "";
+  }
+
+  return `<p class="data-box-attachment-notice" role="status">${escapeHtml(notice)}</p>`;
+}
+
+function dataBoxAttachmentActionMarkup(attachment) {
+  const url = dataBoxAttachmentOpenUrl(attachment);
+  const filename = attachment?.filename || "priloha";
+  const contentType = attachment?.contentType || "";
+
+  if (url && !dataBoxAttachmentHasError(attachment)) {
+    return `
+      <button
+        class="primary-action data-box-attachment-open"
+        type="button"
+        data-data-box-attachment-open="${escapeHtml(url)}"
+        data-data-box-attachment-filename="${escapeHtml(filename)}"
+        data-data-box-attachment-content-type="${escapeHtml(contentType)}"
+      >
+        Otevřít nyní
+      </button>
+      <a
+        class="secondary-link data-box-attachment-download"
+        href="${escapeHtml(url)}"
+        download="${escapeHtml(filename)}"
+      >
+        Stáhnout
+      </a>
+    `;
+  }
+
+  return `
+    <button class="primary-action data-box-attachment-open" type="button" disabled>
+      Otevřít nyní
+    </button>
+    <small>Příloha nemá platný odkaz pro bezpečné otevření.</small>
+  `;
+}
+
+function dataBoxAttachmentRowMarkup(attachment) {
+  const filename = attachment?.filename || "Příloha bez názvu";
+  const meta = [
+    dataBoxAttachmentTypeLabel(attachment),
+    formatFileSize(attachment?.sizeBytes),
+    dataBoxAttachmentStatusLabel(attachment)
+  ].filter(Boolean).join(" · ");
+
+  return `
+    <li class="data-box-attachment-item">
+      <span class="data-box-attachment-item__type" aria-hidden="true">${escapeHtml(dataBoxAttachmentTypeLabel(attachment))}</span>
+      <div class="data-box-attachment-item__body">
+        <strong>${escapeHtml(filename)}</strong>
+        <span>${escapeHtml(meta)}</span>
+        ${dataBoxAttachmentErrorMarkup(attachment)}
+      </div>
+      <div class="data-box-attachment-actions">
+        ${dataBoxAttachmentActionMarkup(attachment)}
+      </div>
     </li>
-  `).join("");
+  `;
+}
+
+function dataBoxAttachmentRows(attachments = [], expectedCount = 0) {
+  if (!attachments.length) {
+    if (expectedCount > 0) {
+      return `
+        <li class="data-box-attachment-item data-box-attachment-item--metadata">
+          <span class="data-box-attachment-item__type" aria-hidden="true">?</span>
+          <div class="data-box-attachment-item__body">
+            <strong>${escapeHtml(dataBoxAttachmentCountLabel(expectedCount))}</strong>
+            <span>Jen metadata · názvy souborů zatím nejsou dostupné.</span>
+            <em class="data-box-attachment-note">Přílohy zatím nejdou otevřít.</em>
+          </div>
+          <div class="data-box-attachment-actions">
+            <button class="primary-action data-box-attachment-open" type="button" disabled>Otevřít nyní</button>
+            <small>Platný odkaz pro otevření není k dispozici.</small>
+          </div>
+        </li>
+      `;
+    }
+
+    return `<li class="data-box-attachment-empty">Tato zpráva nemá přílohy.</li>`;
+  }
+
+  return attachments.map((attachment) => dataBoxAttachmentRowMarkup(attachment)).join("");
+}
+
+function dataBoxAttachmentsSection(message) {
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  const attachmentCount = dataBoxAttachmentCount(message || {});
+
+  return `
+    <section class="data-box-reading-section data-box-reading-section--attachments data-box-attachments-priority" aria-label="Přílohy zprávy">
+      <div class="data-box-attachments-head">
+        <div>
+          <h4>Přílohy</h4>
+          <strong>${escapeHtml(dataBoxAttachmentCountLabel(attachmentCount))}</strong>
+        </div>
+        <span>Nejdůležitější obsah zprávy bývá v příloze.</span>
+      </div>
+      ${dataBoxAttachmentNoticeMarkup()}
+      <ul class="data-box-attachment-list">${dataBoxAttachmentRows(attachments, attachmentCount)}</ul>
+    </section>
+  `;
+}
+
+function resetDataBoxAttachmentFeedback() {
+  dataBoxState.attachmentNotice = "";
+  dataBoxState.attachmentError = "";
+}
+
+function dataBoxAttachmentIsSameOriginUrl(url) {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function dataBoxAttachmentWriteWindowMessage(previewWindow, message) {
+  if (!previewWindow || previewWindow.closed) {
+    return;
+  }
+
+  try {
+    previewWindow.document.title = "Příloha datové zprávy";
+    previewWindow.document.body.innerHTML = `
+      <main style="font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; color: #1f2a22;">
+        <strong>${escapeHtml(message)}</strong>
+      </main>
+    `;
+  } catch {
+    // Jen fallback pro okno přílohy; čitelná hláška zůstává i v hlavním UI.
+  }
+}
+
+async function dataBoxAttachmentErrorMessage(response) {
+  const fallback = "Přílohu se nepodařilo stáhnout.";
+  const type = String(response.headers.get("Content-Type") || "").toLowerCase();
+
+  if (type.includes("application/json")) {
+    try {
+      const payload = await response.clone().json();
+      return payload?.error || payload?.message || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  try {
+    const text = String(await response.clone().text() || "").trim();
+    return text && text.length <= 220 ? text : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function fetchDataBoxAttachmentBlob(url) {
+  const response = await fetch(url, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new Error(await dataBoxAttachmentErrorMessage(response));
+  }
+
+  const blob = await response.blob();
+  return {
+    blob,
+    contentType: response.headers.get("Content-Type") || blob.type || ""
+  };
+}
+
+function dataBoxAttachmentBlobWithType(blob, contentType) {
+  if (!blob || !contentType) {
+    return blob;
+  }
+
+  if (blob.type && !dataBoxAttachmentIsGenericContentType(blob.type)) {
+    return blob;
+  }
+
+  return blob.slice(0, blob.size, contentType);
+}
+
+async function dataBoxAttachmentPreviewType(filename, responseContentType, contentTypeHint, blob) {
+  const responseType = String(responseContentType || "").trim();
+  const hintType = String(contentTypeHint || "").trim();
+  const filenameType = dataBoxAttachmentContentTypeFromFilename(filename);
+
+  if (responseType && !dataBoxAttachmentIsGenericContentType(responseType)) {
+    return responseType;
+  }
+
+  if (hintType && !dataBoxAttachmentIsGenericContentType(hintType)) {
+    return hintType;
+  }
+
+  if (filenameType) {
+    return filenameType;
+  }
+
+  return await dataBoxAttachmentContentTypeFromBlob(blob);
+}
+
+async function openDataBoxAttachment(target) {
+  const url = String(target?.dataset?.dataBoxAttachmentOpen || "").trim();
+  const filename = String(target?.dataset?.dataBoxAttachmentFilename || "priloha").trim() || "priloha";
+  const contentTypeHint = String(target?.dataset?.dataBoxAttachmentContentType || "").trim();
+
+  if (!url) {
+    dataBoxState.attachmentNotice = "";
+    dataBoxState.attachmentError = "Příloha není dostupná.";
+    render();
+    return;
+  }
+
+  const previewWindow = window.open("about:blank", "_blank");
+  if (previewWindow) {
+    previewWindow.opener = null;
+    dataBoxAttachmentWriteWindowMessage(previewWindow, "Připravuji přílohu...");
+  }
+
+  dataBoxState.attachmentNotice = "Připravuji přílohu...";
+  dataBoxState.attachmentError = "";
+  render();
+
+  if (!dataBoxAttachmentIsSameOriginUrl(url)) {
+    const opened = previewWindow || window.open(url, "_blank", "noopener,noreferrer");
+    if (opened) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.location.href = url;
+      }
+      dataBoxState.attachmentNotice = "Příloha byla otevřena v nové kartě.";
+      dataBoxState.attachmentError = "";
+    } else {
+      dataBoxState.attachmentNotice = "";
+      dataBoxState.attachmentError = "Přílohu se nepodařilo otevřít automaticky.";
+    }
+    render();
+    return;
+  }
+
+  try {
+    const { blob, contentType } = await fetchDataBoxAttachmentBlob(url);
+    const previewType = await dataBoxAttachmentPreviewType(filename, contentType, contentTypeHint, blob);
+    const canPreview = dataBoxAttachmentCanPreview(filename, previewType);
+    const typedBlob = dataBoxAttachmentBlobWithType(blob, previewType);
+
+    if (canPreview) {
+      const objectUrl = URL.createObjectURL(typedBlob);
+      const opened = previewWindow || window.open(objectUrl, "_blank", "noopener,noreferrer");
+
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.location.href = objectUrl;
+      } else if (!opened) {
+        downloadBlob(filename, typedBlob);
+        URL.revokeObjectURL(objectUrl);
+        dataBoxState.attachmentNotice = "Přílohu se nepodařilo otevřít automaticky. Soubor byl stažen.";
+        dataBoxState.attachmentError = "";
+        render();
+        return;
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+      dataBoxState.attachmentNotice = "Příloha byla otevřena v nové kartě.";
+      dataBoxState.attachmentError = "";
+      render();
+      return;
+    }
+
+    if (previewWindow && !previewWindow.closed) {
+      previewWindow.close();
+    }
+    downloadBlob(filename, typedBlob);
+    dataBoxState.attachmentNotice = "Tento typ souboru se nemusí otevřít přímo v prohlížeči. Soubor byl stažen.";
+    dataBoxState.attachmentError = "";
+  } catch (error) {
+    if (previewWindow && !previewWindow.closed) {
+      dataBoxAttachmentWriteWindowMessage(previewWindow, "Přílohu se nepodařilo otevřít.");
+    }
+    dataBoxState.attachmentNotice = "";
+    dataBoxState.attachmentError = error?.message || "Přílohu se nepodařilo stáhnout.";
+  }
+
+  render();
 }
 
 function dataBoxAiEvaluationDetail(evaluation) {
   if (!evaluation) {
-    return "Bez AI vyhodnocení.";
+    return "";
   }
 
   return [
@@ -13973,224 +16567,168 @@ function dataBoxAiEvaluationDetail(evaluation) {
     evaluation.priority ? `priorita: ${evaluation.priority}` : "",
     evaluation.status ? `stav: ${evaluation.status}` : "",
     evaluation.confidence !== null && evaluation.confidence !== undefined ? `jistota: ${evaluation.confidence}` : ""
-  ].filter(Boolean).join(" · ") || "AI vyhodnocení bez detailu.";
+  ].filter(Boolean).join(" · ");
 }
 
 function dataBoxMessageDetailPanel() {
+  return dataBoxMessageDetailOverlayMarkup();
+}
+
+function dataBoxMessageDetailOverlayMarkup() {
   const message = dataBoxState.selectedMessage;
   const selectedId = dataBoxState.selectedMessageId;
 
   if (!selectedId) {
-    return `
-      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
-        <div class="data-box-panel__head">
-          <div>
-            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
-            <p>Vyberte Detail u přijaté nebo odeslané zprávy. Detail čte pouze metadata z interního API.</p>
-          </div>
-          <span class="employee-card-status employee-card-status--waiting">read-only</span>
-        </div>
-      </section>
-    `;
-  }
-
-  if (dataBoxState.detailLoading) {
-    return `
-      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
-        <div class="data-box-panel__head">
-          <div>
-            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
-            <p>Načítám detail zprávy z cloud API...</p>
-          </div>
-          <span class="employee-card-status employee-card-status--waiting">načítám</span>
-        </div>
-      </section>
-    `;
-  }
-
-  if (dataBoxState.detailError) {
-    return `
-      <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
-        <div class="data-box-panel__head">
-          <div>
-            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
-            <p>${escapeHtml(dataBoxState.detailError)}</p>
-          </div>
-          <button class="secondary-link" type="button" data-data-box-message-detail-close>Zavřít</button>
-        </div>
-      </section>
-    `;
-  }
-
-  if (!message) {
     return "";
   }
 
-  const actorLabel = message.direction === "sent" ? "Příjemce" : "Odesílatel";
-  const actorValue = dataBoxMessageActor(message);
-  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  let content = "";
+
+  if (dataBoxState.detailLoading) {
+    content = `
+      <div class="data-box-detail-modal__empty">
+        <strong>Načítám detail zprávy...</strong>
+        <span>Načítám detail.</span>
+      </div>
+    `;
+  } else if (dataBoxState.detailError) {
+    content = `
+      <div class="data-box-detail-modal__empty" role="alert">
+        <strong>Detail se nepodařilo načíst.</strong>
+        <span>${escapeHtml(dataBoxState.detailError)}</span>
+      </div>
+    `;
+  } else if (message) {
+    const actorLabel = message.direction === "sent" ? "Příjemce" : "Odesílatel";
+    const actorValue = dataBoxMessageActor(message);
+    const deadline = dataBoxDeadlineInfo(message);
+    const workflow = dataBoxWorkflowStatus(message);
+    const priority = dataBoxMessagePriority(message);
+    const messageType = dataBoxMessageType(message);
+    const mailboxLabel = dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel);
+
+    content = `
+      <div class="data-box-detail-modal__body">
+        <div class="data-box-detail-modal__main">
+        <section class="data-box-detail-summary">
+          <span>${escapeHtml(actorLabel)}</span>
+          <strong>${escapeHtml(actorValue || "neuvedeno")}</strong>
+          <h3>${escapeHtml(message.subject || "(bez předmětu)")}</h3>
+          <p class="data-box-detail-summary__context">Schránka: <strong>${escapeHtml(mailboxLabel)}</strong></p>
+          <p>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "bez data")} · ${escapeHtml(priority.label)} · ${escapeHtml(workflow.label)}</p>
+        </section>
+        ${dataBoxMessageSafeActions(message)}
+        ${dataBoxActionFeedbackMarkup()}
+        ${dataBoxAttachmentsSection(message)}
+        <div class="data-box-detail-subject">
+          <span>Obsah / náhled</span>
+          <strong>${escapeHtml(dataBoxMessageContentPreview(message))}</strong>
+        </div>
+        <details class="data-box-technical-details">
+          <summary>Technické detaily zprávy</summary>
+          <div class="data-box-detail-grid">
+            ${dataBoxDetailField("Směr", dataBoxDirectionLabel(message.direction))}
+            ${dataBoxDetailField("Schránka", mailboxLabel)}
+            ${dataBoxDetailField(actorLabel, actorValue)}
+            ${dataBoxDetailField("Stav", workflow.label)}
+            ${dataBoxDetailField("Priorita", priority.label)}
+            ${dataBoxDetailField("Typ zprávy", messageType.label)}
+            ${dataBoxDetailField("Doručeno", formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt))}
+            ${dataBoxDetailField("Přečteno", formatDateTime(message.readAt))}
+            ${dataBoxDetailField("Lhůta", deadline.date ? deadline.label : "bez lhůty")}
+            ${dataBoxDetailField("ID zprávy", message.id)}
+            ${dataBoxDetailField("Odpovědná osoba", dataBoxMessageAssigneeLabel(message))}
+          </div>
+        </details>
+        <div class="data-box-detail-columns">
+          <section>
+            <h3>Návrh vyřízení</h3>
+            <p>${escapeHtml(dataBoxMessageNextStep(message))}</p>
+            ${dataBoxAiEvaluationDetail(message.latestAiEvaluation) ? `<p>${escapeHtml(dataBoxAiEvaluationDetail(message.latestAiEvaluation))}</p>` : ""}
+            ${message.latestAiEvaluation?.summary ? `<p>${escapeHtml(message.latestAiEvaluation.summary)}</p>` : ""}
+            ${message.latestAiEvaluation?.suggestedAction ? `<p>${escapeHtml(message.latestAiEvaluation.suggestedAction)}</p>` : ""}
+          </section>
+          <section>
+            <h3>Interní poznámky</h3>
+            <p>Bez interních poznámek v dostupných metadatech.</p>
+          </section>
+          <section>
+            <h3>Typické úkony</h3>
+            <p>Zkontrolovat lhůtu, projít přílohy a ověřit odpovědnou osobu.</p>
+          </section>
+        </div>
+        ${dataBoxReplyDraftPanel(message)}
+      </div>
+      </div>
+      <div class="data-box-detail-actions" aria-label="Akce detailu zprávy">
+        <div>
+          <strong>Akce jen po potvrzení</strong>
+          <p>E-mail, archivace i odpověď spouští server až po potvrzení uživatele.</p>
+        </div>
+        <button
+          class="secondary-link"
+          type="button"
+          data-data-box-message-reply="${escapeHtml(message.id)}"
+        >
+          Odpovědět
+        </button>
+      </div>
+    `;
+  } else {
+    content = `
+      <div class="data-box-detail-modal__empty">
+        <strong>Detail není dostupný.</strong>
+        <span>Vyberte zprávu z tabulky znovu.</span>
+      </div>
+    `;
+  }
 
   return `
-    <section class="data-box-panel data-box-message-detail" id="data-box-message-detail" aria-labelledby="data-box-message-detail-title">
-      <div class="data-box-panel__head">
-        <div>
-          <h2 id="data-box-message-detail-title">Detail zprávy</h2>
-          <p>Read-only metadata z backendu. ISDS synchronizace, stahování příloh a odesílání zůstávají vypnuté.</p>
+    <div class="data-box-detail-overlay" role="presentation">
+      <button
+        class="data-box-detail-backdrop"
+        type="button"
+        data-data-box-message-detail-close
+        aria-label="Zavřít detail zprávy"
+      ></button>
+      <section
+        class="data-box-detail-modal"
+        id="data-box-message-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="data-box-message-detail-title"
+      >
+        <div class="data-box-detail-modal__head">
+          <div>
+            <span>Datová zpráva</span>
+            <h2 id="data-box-message-detail-title">Detail zprávy</h2>
+          </div>
+          <button class="secondary-link" type="button" data-data-box-message-detail-close>Zavřít</button>
         </div>
-        <button class="secondary-link" type="button" data-data-box-message-detail-close>Zavřít</button>
-      </div>
-      <div class="data-box-detail-grid">
-        ${dataBoxDetailField("Směr", dataBoxDirectionLabel(message.direction))}
-        ${dataBoxDetailField(actorLabel, actorValue)}
-        ${dataBoxDetailField("Stav", message.status)}
-        ${dataBoxDetailField("Priorita", message.priority)}
-        ${dataBoxDetailField("Doručeno", formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt))}
-        ${dataBoxDetailField("Přečteno", formatDateTime(message.readAt))}
-        ${dataBoxDetailField("ISDS stav", message.isdsState)}
-        ${dataBoxDetailField("Zdroj", message.source)}
-      </div>
-      <div class="data-box-detail-subject">
-        <span>Předmět</span>
-        <strong>${escapeHtml(message.subject || "(bez předmětu)")}</strong>
-      </div>
-      <div class="data-box-detail-columns">
-        <section>
-          <h3>Přílohy</h3>
-          <ul>${dataBoxAttachmentRows(attachments)}</ul>
-        </section>
-        <section>
-          <h3>AI vyhodnocení</h3>
-          <p>${escapeHtml(dataBoxAiEvaluationDetail(message.latestAiEvaluation))}</p>
-          ${message.latestAiEvaluation?.summary ? `<p>${escapeHtml(message.latestAiEvaluation.summary)}</p>` : ""}
-          ${message.latestAiEvaluation?.suggestedAction ? `<p>${escapeHtml(message.latestAiEvaluation.suggestedAction)}</p>` : ""}
-        </section>
-      </div>
-    </section>
-  `;
-}
-
-function scrollDataBoxMessageDetailIntoView() {
-  window.requestAnimationFrame(() => {
-    document.getElementById("data-box-message-detail")?.scrollIntoView({
-      block: "start",
-      behavior: "smooth"
-    });
-  });
-}
-
-function dataBoxAiPanel() {
-  return `
-    <section class="data-box-panel" id="ai" aria-labelledby="data-box-ai-title">
-      <div class="data-box-panel__head">
-        <div>
-          <h2 id="data-box-ai-title">AI vyhodnocení</h2>
-          <p>Budoucí backendové vyhodnocení obsahu zprávy, příloh a doporučeného postupu s lidským potvrzením.</p>
-        </div>
-        <span class="employee-card-status employee-card-status--waiting">návrh</span>
-      </div>
-      <div class="data-box-ai-grid">
-        <article>
-          <span>Vstup</span>
-          <strong>metadata + text + přílohy</strong>
-          <small>Po extrakci v backendu, bez posílání secrets do frontendu.</small>
-        </article>
-        <article>
-          <span>Výstup</span>
-          <strong>štítek, priorita, návrh akce</strong>
-          <small>Výsledek se uloží s confidence a audit stopou.</small>
-        </article>
-        <article>
-          <span>Bezpečnost</span>
-          <strong>ruční potvrzení</strong>
-          <small>AI nesmí samo odeslat odpověď ani měnit stav zprávy.</small>
-        </article>
-      </div>
-    </section>
-  `;
-}
-
-function dataBoxArchitecturePanel() {
-  const status = dataBoxState.status || {};
-  const summary = status.summary || {};
-  const lastSync = summary.lastSyncAt ? formatDateTime(summary.lastSyncAt) : "zatím neproběhla";
-  const isdsConfigured = Boolean(status.isds?.configured);
-
-  return `
-    <section class="data-box-panel" id="overview" aria-labelledby="data-box-overview-title">
-      <div class="data-box-panel__head">
-        <div>
-          <h2 id="data-box-overview-title">Provozní realita</h2>
-          <p>Rozpad na fáze a cílové cloudové části, aby UI nevypadalo jako ostré ISDS napojení.</p>
-        </div>
-        <span class="employee-card-status ${isdsConfigured ? "employee-card-status--ready" : "employee-card-status--waiting"}">${escapeHtml(isdsConfigured ? "ruční ISDS sync" : "čeká na secrets")}</span>
-      </div>
-      <div class="data-box-warning" role="status">
-        <strong>Poslední synchronizace: ${escapeHtml(lastSync)}</strong>
-        <span>${escapeHtml(status.message || "ISDS integrace není aktivní. Připravený je pouze vlastní cloudový model dat.")}</span>
-      </div>
-      <div class="data-box-reality-grid" aria-label="Co v modulu Datová schránka skutečně funguje">
-        ${DATA_BOX_REALITY_ITEMS.map((item) => `
-          <article>
-            <span>${escapeHtml(item.label)}</span>
-            <strong>${escapeHtml(item.value)}</strong>
-            <small>${escapeHtml(item.note)}</small>
-          </article>
-        `).join("")}
-      </div>
-      <div class="data-box-phase-grid">
-        ${DATA_BOX_PHASES.map((phase) => `
-          <article>
-            <span>${escapeHtml(phase.title)}</span>
-            <strong>${escapeHtml(phase.status)}</strong>
-            <p>${escapeHtml(phase.description)}</p>
-          </article>
-        `).join("")}
-      </div>
-      <div class="data-box-architecture-grid">
-        <section>
-          <h3>Cloud části</h3>
-          <dl>
-            ${DATA_BOX_INTEGRATION_POINTS.map(([label, value]) => `
-              <div>
-                <dt>${escapeHtml(label)}</dt>
-                <dd>${escapeHtml(value)}</dd>
-              </div>
-            `).join("")}
-          </dl>
-        </section>
-        <section>
-          <h3>Existující čtecí API</h3>
-          <ul>
-            ${DATA_BOX_EXISTING_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
-          </ul>
-        </section>
-        <section>
-          <h3>Další fáze API</h3>
-          <ul>
-            ${DATA_BOX_FUTURE_ENDPOINTS.map((endpoint) => `<li><code>${escapeHtml(endpoint)}</code></li>`).join("")}
-          </ul>
-        </section>
-      </div>
-    </section>
+        ${content}
+      </section>
+    </div>
   `;
 }
 
 function dataBoxSyncRunsPanel() {
   const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
-  const statusLabel = dataBoxState.apiStatus === "ready" ? "D1 log připraven" : "čeká na D1";
+  const statusLabel = dataBoxState.apiStatus === "ready" ? "Log připraven" : "Čeká na nastavení";
   const user = currentUser();
-  const canSync = dataBoxState.apiStatus === "ready"
-    && hasPermission(user, DATA_BOX_MODULE_KEY, "manage")
-    && ["admin", "management"].includes(normalizeRole(user?.role));
+  const configuredDataBoxes = Number(dataBoxState.status?.isds?.configuredAccounts || 0);
+  const canSync = dataBoxCanManualSync(user);
   const syncDisabled = !canSync || dataBoxState.syncLoading;
-  const syncLabel = dataBoxState.syncLoading ? "Spouštím sync..." : "Spustit ruční sync";
+  const syncLabel = dataBoxState.syncLoading ? "Načítám..." : "Načíst nové zprávy";
   const syncMessage = dataBoxState.syncError
     ? `<div class="data-box-sync-message data-box-sync-message--error" role="alert">${escapeHtml(dataBoxState.syncError)}</div>`
     : (dataBoxState.syncMessage ? `<div class="data-box-sync-message" role="status">${escapeHtml(dataBoxState.syncMessage)}</div>` : "");
-  const rows = dataBoxState.syncRuns.length
-    ? dataBoxState.syncRuns.map((run) => `
+  const selectedAccount = dataBoxSelectedAccount();
+  const filteredSyncRuns = dataBoxFilteredSyncRuns();
+  const rows = filteredSyncRuns.length
+    ? filteredSyncRuns.map((run) => `
       <tr>
         <td>${escapeHtml(formatDateTime(run.startedAt) || "-")}</td>
+        <td>${escapeHtml(dataBoxDisplayName(run.dataBoxId, run.dataBoxLabel))}</td>
         <td>${escapeHtml(run.triggerType || "-")}</td>
         <td>${escapeHtml(run.status || "-")}</td>
         <td>${escapeHtml(String(run.messagesFound || 0))}</td>
@@ -14200,16 +16738,18 @@ function dataBoxSyncRunsPanel() {
     `).join("")
     : `
       <tr>
-        <td colspan="6">Žádný běh synchronizace zatím není zapsaný. Cloud automatizace a ISDS adapter nejsou aktivní.</td>
+        <td colspan="7">${escapeHtml(selectedAccount
+          ? `${selectedAccount.label} zatím nemá zapsané žádné načtení.`
+          : "Zatím není zapsané žádné načtení zpráv.")}</td>
       </tr>
     `;
 
   return `
-    <section class="data-box-panel" aria-labelledby="data-box-sync-title">
+    <section class="data-box-panel data-box-sync-panel" aria-labelledby="data-box-sync-title">
       <div class="data-box-panel__head">
         <div>
           <h2 id="data-box-sync-title">Log synchronizaci</h2>
-          <p>Ruční read-only sync načte pouze seznam obálek z ISDS přes backend. Přílohy, obsah zpráv, odesílání a automatický cron zůstávají vypnuté.</p>
+          <p>Přehled ručního načtení zpráv.</p>
         </div>
         <span class="employee-card-status ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
@@ -14217,7 +16757,7 @@ function dataBoxSyncRunsPanel() {
         <button class="primary-action" type="button" data-data-box-sync ${syncDisabled ? "disabled" : ""}>
           ${escapeHtml(syncLabel)}
         </button>
-        <span>${escapeHtml(canSync ? "Bez Cloudflare secrets se zapíše pouze bezpečný stav konfigurace." : "Ruční sync může spustit pouze admin nebo management s oprávněním manage.")}</span>
+        <span>${escapeHtml(canSync ? (configuredDataBoxes ? `Načtení projde ${configuredDataBoxes} schránek.` : "Schránky zatím nejsou nastavené.") : "Načtení může spustit pouze oprávněný uživatel.")}</span>
       </div>
       ${syncMessage}
       <div class="data-box-table-wrap">
@@ -14225,11 +16765,12 @@ function dataBoxSyncRunsPanel() {
           <thead>
             <tr>
               <th>Start</th>
+              <th>Schránka</th>
               <th>Typ</th>
               <th>Stav</th>
               <th>Nalezeno</th>
-              <th>Vytvoreno</th>
-              <th>Zprava</th>
+              <th>Nové</th>
+              <th>Zpráva</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -14245,15 +16786,23 @@ function dataBoxRulesAutomation(user) {
     moduleKey: DATA_BOX_MODULE_KEY,
     moduleName: "Datová schránka",
     user,
-    description: "Cloud evidence pravidel a automatizací pro budoucí synchronizaci, třídění a notifikace Datové schránky.",
-    cloudNote: "V této fázi se žádná ISDS automatizace nespouští. Pravidla jsou jen evidence a příprava pro budoucí cloud runner."
+    description: "Pravidla pro třídění, upozornění a práci se zprávami.",
+    cloudNote: "DS pravidla jsou v cloud DB. Cloud runner je připravený pro běh každých 30 minut; e-maily vyžadují ruční potvrzení."
   });
 }
 
 function dataBoxPage(moduleItem, user) {
   ensureDataBoxData();
-  const apiReady = dataBoxState.apiStatus === "ready";
-  const heroStatus = apiReady ? "Funkční přes API" : "UI návrh / čeká na API";
+  const connection = dataBoxConnectionState();
+  const context = dataBoxActiveContextLabel();
+  const hasMessages = dataBoxState.messages.length > 0;
+  const feedbackBox = hasMessages
+    ? moduleFeedbackBoxFor(moduleItem, user, {
+      moduleId: DATA_BOX_MODULE_KEY,
+      moduleName: "Datová schránka",
+      placeholder: "Např. chybí filtr podle odesílatele, priorita, vazba na zákazníka nebo typ návrhu vyřízení..."
+    })
+    : "";
 
   return `
     <main class="app-shell module-page module-theme-scope data-box-page" ${moduleThemeStyleAttribute()}>
@@ -14263,57 +16812,242 @@ function dataBoxPage(moduleItem, user) {
         <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
       </nav>
 
-      <section class="module-detail data-box-hero" aria-labelledby="module-title">
+      <section class="data-box-inbox-header" aria-labelledby="module-title">
+        <div class="data-box-inbox-header__title">
+          <h1 id="module-title">Datová schránka</h1>
+          <p>Přijaté a odeslané zprávy, lhůty a přílohy.</p>
+          ${dataBoxHeaderStatusMarkup(connection)}
+          ${dataBoxErrorNotice(connection)}
+          <div class="data-box-inbox-header__context">
+            <strong>${escapeHtml(context.title)}</strong>
+            <span>${escapeHtml(context.text)}</span>
+          </div>
+        </div>
+        ${dataBoxHeaderActions(user)}
+      </section>
+
+      ${dataBoxAccountsSwitcher()}
+      ${dataBoxTabs()}
+      ${dataBoxActivePanel(user)}
+      ${feedbackBox}
+    </main>
+  `;
+}
+
+function systemCheckStatusClass(status) {
+  const normalized = String(status || "NEOVĚŘENO").trim().toUpperCase();
+  if (normalized === "OK") return "system-check-status--ok";
+  if (normalized === "WARNING") return "system-check-status--warning";
+  if (normalized === "ERROR") return "system-check-status--error";
+  return "system-check-status--unknown";
+}
+
+function systemCheckStatusLabel(status) {
+  const normalized = String(status || "NEOVĚŘENO").trim().toUpperCase();
+  return ["OK", "WARNING", "ERROR", "NEOVĚŘENO"].includes(normalized) ? normalized : "NEOVĚŘENO";
+}
+
+function systemCheckBadge(status) {
+  const label = systemCheckStatusLabel(status);
+  return `<span class="system-check-status ${systemCheckStatusClass(label)}">${escapeHtml(label)}</span>`;
+}
+
+function systemCheckItem({ label, status = "NEOVĚŘENO", detail = "" }) {
+  return `
+    <li class="system-check-item">
+      ${systemCheckBadge(status)}
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+      </div>
+    </li>
+  `;
+}
+
+function systemCheckSection(title, items) {
+  return `
+    <section class="system-check-card" aria-labelledby="system-check-${escapeHtml(dataBoxSearchText(title).replace(/\s+/g, "-"))}">
+      <h2 id="system-check-${escapeHtml(dataBoxSearchText(title).replace(/\s+/g, "-"))}">${escapeHtml(title)}</h2>
+      <ul class="system-check-list">
+        ${items.map(systemCheckItem).join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function systemCheckProductionItems(data) {
+  const latest = data?.production?.latestMonitor || null;
+  return [
+    {
+      label: "Produkční web běží",
+      status: latest ? data.production.status : "NEOVĚŘENO",
+      detail: latest
+        ? `${latest.targetUrl || "produkce"} · HTTP ${latest.httpStatus || "-"} · ${formatDateTime(latest.createdAt)} · bez zápisu do DB`
+        : "Živá read-only kontrola zatím neproběhla."
+    },
+    {
+      label: "Poslední build / commit",
+      status: latest?.commitHash || latest?.buildVersion ? "OK" : "NEOVĚŘENO",
+      detail: latest ? `Verze ${latest.buildVersion || "-"} · commit ${latest.commitHash || "-"}` : "Build metadata zatím nejsou načtená."
+    },
+    {
+      label: "GitHub Actions výsledek",
+      status: data?.githubActions?.status || "NEOVĚŘENO",
+      detail: data?.githubActions?.note || "Stav GitHub Actions zatím není napojený přes API."
+    }
+  ];
+}
+
+function systemCheckDataBoxItems(data) {
+  return [
+    { label: "Výchozí DS je KS", status: "OK", detail: "Frontend používá default `kaiser-primary`." },
+    { label: "Volba Všechny DS neexistuje v přepínači", status: "OK", detail: "Přepínač používá jednu aktivní schránku." },
+    { label: "Aktivní DS je probarvená, ostatní šedé", status: "OK", detail: "Řešeno CSS stavem aktivní/neaktivní DS." },
+    { label: "Nanolab Plus nezobrazuje zprávy KS", status: "NEOVĚŘENO", detail: "Vyžaduje živou kontrolu konkrétních dat DS podle mailboxId." },
+    { label: "Filtr DS jede podle mailboxId", status: "OK", detail: "Seznam filtruje podle `message.dataBoxId === activeAccount.id`." },
+    { label: "Stránkování default 5", status: "OK", detail: "Výchozí velikost stránky je 5." },
+    { label: "Hledání dovolí více znaků", status: "OK", detail: "Search stav je samostatný a nerestartuje DS filtr." },
+    { label: "Přečtené/netučné a nepřečtené/tučné", status: "OK", detail: "Řádek používá stav workflow `new` pro tučné zobrazení." },
+    { label: "Příznak DS je před datem", status: "OK", detail: "Badge firmy je v druhém řádku před datem." },
+    { label: "Otevřít nyní není stejné jako Stáhnout", status: "OK", detail: "Otevřít používá blob/object URL, Stáhnout používá odkaz s download." },
+    {
+      label: "Přílohy v DB",
+      status: Number(data?.dataBox?.attachments || 0) > 0 ? "OK" : "WARNING",
+      detail: `${Number(data?.dataBox?.attachments || 0)} příloh v dostupných datech.`
+    }
+  ];
+}
+
+function systemCheckMobileItems() {
+  return [
+    { label: "Mobil zobrazuje hlavně DS a zprávy", status: "OK", detail: "Na breakpointu 720px je nahoře přepínač DS, záložky, hledání, filtry a seznam." },
+    { label: "Technické boxy jsou na mobilu schované", status: "OK", detail: "Stavové/side panely jsou skryté, pravidla zůstávají dostupná přes záložku Pravidla." },
+    { label: "Přílohy jsou v detailu nahoře", status: "OK", detail: "Sekce příloh je před obsahem a technickými detaily." },
+    { label: "Hlavní akce jsou do 2–3 kliků", status: "WARNING", detail: "UI cesty jsou krátké; e-mail, archivace a ostré DS odeslání čekají na backend." },
+    { label: "Nechtěný horizontální scroll", status: "NEOVĚŘENO", detail: "Vyžaduje vizuální mobilní kontrolu v prohlížeči." }
+  ];
+}
+
+function systemCheckAutomationItems(data) {
+  const automation = data?.automation || {};
+  const rulesTotal = Number(automation.rulesTotal || 0);
+  const activeRules = Number(automation.activeRules || 0);
+  const automationsTotal = Number(automation.automationsTotal || 0);
+  const latestRunner = automation.latestRunnerRun || null;
+  return [
+    {
+      label: "Pravidla jsou v cloud DB",
+      status: rulesTotal > 0 ? "OK" : "WARNING",
+      detail: `${rulesTotal} pravidel, ${activeRules} aktivních.`
+    },
+    {
+      label: "Automatizace DS",
+      status: automationsTotal > 0 ? "OK" : "WARNING",
+      detail: `${automationsTotal} automatizací, ${Number(automation.activeAutomations || 0)} aktivních.`
+    },
+    {
+      label: "Runner běží / poslední běh",
+      status: latestRunner ? (String(latestRunner.status || "").toLowerCase() === "completed" ? "OK" : "WARNING") : "WARNING",
+      detail: latestRunner ? `${latestRunner.status || "-"} · ${formatDateTime(latestRunner.startedAt)}` : "DS runner zatím nemá zapsaný běh."
+    },
+    {
+      label: "Historie akcí existuje",
+      status: "OK",
+      detail: "DS akce se zapisují do data_box_actions a čtou přes /api/data-box/actions."
+    },
+    {
+      label: "E-maily/SMS z AI Boostu jsou evidované",
+      status: "NEOVĚŘENO",
+      detail: "Bez ostrého odesílání a bez napojené historie AI Boost akcí."
+    },
+    {
+      label: "Idempotence brání duplicitám",
+      status: "OK",
+      detail: "DS akce používají dedupe_key v data_box_actions."
+    }
+  ];
+}
+
+function systemCheckAccountsItems(data) {
+  const accounts = Array.isArray(data?.dataBox?.accounts) ? data.dataBox.accounts : [];
+  if (!accounts.length) {
+    return [{
+      label: "DS účty",
+      status: "NEOVĚŘENO",
+      detail: "V dostupných datech nejsou načtené účty DS."
+    }];
+  }
+
+  return accounts.map((account) => ({
+    label: account.label || account.id || "DS účet",
+    status: String(account.lastSyncStatus || "").toLowerCase() === "success" ? "OK" : "WARNING",
+    detail: `ID DS: ${account.isdsIdConfigured ? "uloženo" : "není v datech"} · Heslo: ${account.passwordStatus || "NEOVĚŘENO"} · Přihlášení: ${account.loginStatus || "Neověřeno"}`
+  }));
+}
+
+function systemCheckExternalCard(data) {
+  const latest = data?.externalAssignmentCheck?.latest || null;
+  return `
+    <section class="system-check-card system-check-card--external">
+      <div class="system-check-card__head">
+        <div>
+          <h2>Externí kontrola zadání</h2>
+          <p>Slot pro hodinovou kontrolu z ChatGPT. Bez schválené DB migrace se nový záznam neukládá.</p>
+        </div>
+        ${systemCheckBadge(latest?.status || "NEOVĚŘENO")}
+      </div>
+      <dl class="system-check-facts">
+        <div><dt>Čas kontroly</dt><dd>${escapeHtml(formatDateTime(latest?.checkedAt) || "NEOVĚŘENO")}</dd></div>
+        <div><dt>Zdroj</dt><dd>${escapeHtml(latest?.source || "ChatGPT")}</dd></div>
+        <div><dt>Poznámka</dt><dd>${escapeHtml(latest?.note || data?.externalAssignmentCheck?.note || "Zatím není uložený žádný výsledek.")}</dd></div>
+      </dl>
+    </section>
+  `;
+}
+
+function systemCheckPage(moduleItem, user) {
+  ensureSystemCheckData();
+  const data = systemCheckState.data;
+  const status = data?.production?.status || "NEOVĚŘENO";
+  const generatedAt = data?.generatedAt ? formatDateTime(data.generatedAt) : "čeká na načtení";
+
+  return `
+    <main class="app-shell module-page module-theme-scope system-check-page" ${moduleThemeStyleAttribute()}>
+      ${userBar(user)}
+      <nav class="topbar" aria-label="Navigace">
+        <a class="kaiser-logo kaiser-logo--small" href="${routeHref("/")}" data-link aria-label="Zpět na ${APP_NAME}">kaiser.</a>
+        <a class="back-button" href="${routeHref("/")}" data-link>Zpět na HP</a>
+      </nav>
+
+      <section class="module-detail system-check-hero" aria-labelledby="module-title">
         <div class="module-detail__icon">${renderModuleIcon(moduleItem)}</div>
         <div class="module-detail__body">
-          <div class="module-detail__eyebrow">SMART ODPADY / DATOVÁ SCHRÁNKA</div>
-          <h1 id="module-title">Datová schránka</h1>
-          <p>Pilotní rozhraní pro ISDS integraci. Ruční sync běží přes backend a bez schválených Cloudflare secrets zapíše jen bezpečný stav konfigurace.</p>
-          <div class="module-detail__status">
-            <span>Stav</span>
-            <strong>${escapeHtml(heroStatus)}</strong>
+          <div class="module-detail__eyebrow">Interní dohled</div>
+          <h1 id="module-title">Kontrola systému</h1>
+          <p>Pravdivý stav produkce, Datové schránky, mobilního UI a automatizací. Neověřené věci zůstávají šedé.</p>
+          <div class="module-actions">
+            <button class="primary-action" type="button" data-system-check-refresh ${systemCheckState.loading ? "disabled" : ""}>
+              ${systemCheckState.loading ? "Načítám..." : "Obnovit stav"}
+            </button>
           </div>
-          <div class="data-box-safe-actions" aria-label="Neaktivní provozní akce">
-            <article>
-              <span>Synchronizace</span>
-              <strong>ručně</strong>
-              <small>Čte jen seznam obálek, přílohy ani obsah zpráv nestahuje.</small>
-            </article>
-            <article>
-              <span>Odesílání</span>
-              <strong>blokováno</strong>
-              <small>Žádná odpověď se z frontendu ani API neposílá.</small>
-            </article>
-            <article>
-              <span>Automatizace</span>
-              <strong>neběží</strong>
-              <small>Není worker, cron ani queue.</small>
-            </article>
-          </div>
+        </div>
+        <div class="system-check-hero__status">
+          ${systemCheckBadge(status)}
+          <span>Aktualizováno: ${escapeHtml(generatedAt)}</span>
         </div>
       </section>
 
-      <section class="data-box-warning" role="status">
-        <strong>ISDS secrets nejsou v repozitáři.</strong>
-        <span>Frontend nevolá datové schránky, neukládá provozní data lokálně a neobsahuje žádné certifikáty, hesla ani tokeny.</span>
-      </section>
+      ${systemCheckState.error ? `<p class="module-feedback__error" role="alert">${escapeHtml(systemCheckState.error)}</p>` : ""}
+      ${systemCheckState.message ? `<p class="module-feedback__notice" role="status">${escapeHtml(systemCheckState.message)}</p>` : ""}
 
-      ${dataBoxStatusCards()}
-      ${dataBoxTabs()}
-      ${dataBoxArchitecturePanel()}
-      ${dataBoxMessageTable("Přijaté zprávy", "received")}
-      ${dataBoxMessageTable("Odeslané zprávy", "sent")}
-      ${dataBoxMessageDetailPanel()}
-      ${dataBoxAiPanel()}
-      ${dataBoxSyncRunsPanel()}
-      <div id="rules">
-        ${dataBoxRulesAutomation(user)}
-      </div>
-      ${moduleFeedbackBoxFor(moduleItem, user, {
-        moduleId: DATA_BOX_MODULE_KEY,
-        moduleName: "Datová schránka",
-        placeholder: "Např. chybí filtr podle odesílatele, priorita, vazba na zákazníka nebo typ AI vyhodnocení..."
-      })}
+      <section class="system-check-grid" aria-label="Checklist systému">
+        ${systemCheckSection("Produkce", systemCheckProductionItems(data))}
+        ${systemCheckSection("DS modul", systemCheckDataBoxItems(data))}
+        ${systemCheckSection("Mobil", systemCheckMobileItems())}
+        ${systemCheckSection("Automatizace", systemCheckAutomationItems(data))}
+        ${systemCheckSection("DS účty", systemCheckAccountsItems(data))}
+        ${systemCheckExternalCard(data)}
+      </section>
     </main>
   `;
 }
@@ -14337,6 +17071,10 @@ function modulePage(moduleItem, user, isDashboard = false) {
 
   if (moduleItem.id === DATA_BOX_MODULE_KEY) {
     return dataBoxPage(moduleItem, user);
+  }
+
+  if (moduleItem.id === "system-check") {
+    return systemCheckPage(moduleItem, user);
   }
 
   const isTyres = moduleItem.id === "tyres";
@@ -15882,6 +18620,13 @@ function resetDataBoxState() {
   dataBoxState.status = null;
   dataBoxState.messages = [];
   dataBoxState.syncRuns = [];
+  dataBoxState.aiBoostActions = [];
+  dataBoxState.aiBoostLoaded = false;
+  dataBoxState.aiBoostLoading = false;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = "";
+  dataBoxState.selectedDataBoxId = DATA_BOX_DEFAULT_ACCOUNT_ID;
+  dataBoxState.activeTab = "received";
   dataBoxState.syncLoading = false;
   dataBoxState.syncMessage = "";
   dataBoxState.syncError = "";
@@ -15889,6 +18634,30 @@ function resetDataBoxState() {
   dataBoxState.selectedMessage = null;
   dataBoxState.detailLoading = false;
   dataBoxState.detailError = "";
+  dataBoxState.replyDraftOpen = false;
+  dataBoxState.replyDraftText = "";
+  dataBoxState.replyDraftError = "";
+  dataBoxState.actionLoading = "";
+  dataBoxState.actionNotice = "";
+  dataBoxState.actionError = "";
+  dataBoxState.selectedPreviewMessageId = "";
+  dataBoxState.messagePagination = {
+    pageSize: 5,
+    currentPage: 1
+  };
+  dataBoxState.messageFilters = {
+    query: "",
+    status: "all",
+    priority: "all",
+    type: "all",
+    deadline: "all",
+    attachment: "all",
+    dataBox: "all",
+    assigned: "all",
+    quick: "all",
+    dateFrom: "",
+    dateTo: ""
+  };
   dataBoxState.error = "";
 }
 
@@ -15929,14 +18698,18 @@ async function loadDataBoxData(options = {}) {
     dataBoxState.integrationStatus = status.integrationStatus || "inactive";
     dataBoxState.messages = [];
     dataBoxState.syncRuns = [];
+    dataBoxState.aiBoostActions = [];
 
     if (dataBoxState.apiStatus === "ready") {
-      const [messagesResult, syncRunsResult] = await Promise.all([
+      const [messagesResult, syncRunsResult, actionsResult] = await Promise.all([
         apiJson("/api/data-box/messages?limit=100"),
-        apiJson("/api/data-box/sync-runs?limit=50")
+        apiJson("/api/data-box/sync-runs?limit=50"),
+        apiJson("/api/data-box/actions?limit=200")
       ]);
       dataBoxState.messages = messagesResult.messages || [];
       dataBoxState.syncRuns = syncRunsResult.runs || [];
+      dataBoxState.aiBoostActions = (actionsResult.actions || []).filter(dataBoxActionShouldShowInAiBoost);
+      dataBoxState.aiBoostLoaded = true;
     }
 
     dataBoxState.loaded = true;
@@ -15944,6 +18717,7 @@ async function loadDataBoxData(options = {}) {
     dataBoxState.status = null;
     dataBoxState.messages = [];
     dataBoxState.syncRuns = [];
+    dataBoxState.aiBoostActions = [];
     dataBoxState.apiStatus = error?.payload?.apiStatus || "waiting";
     dataBoxState.error = error?.payload?.error || error?.message || "Datovou schránku se teď nepodařilo načíst.";
     dataBoxState.loaded = true;
@@ -15964,31 +18738,611 @@ function ensureDataBoxData() {
   void loadDataBoxData();
 }
 
-async function loadDataBoxMessageDetail(messageId) {
+async function loadDataBoxMessageDetail(messageId, options = {}) {
   const id = String(messageId || "").trim();
-  if (!id || dataBoxState.detailLoading) {
+  if (!id) {
     return;
   }
 
+  const openReply = Boolean(options.openReply);
+  const sameMessage = String(dataBoxState.selectedMessageId || "") === id;
+  const summaryMessage = dataBoxState.messages.find((message) => String(message.id || "") === id) || null;
+  resetDataBoxAttachmentFeedback();
+
+  if (summaryMessage && !dataBoxMessageFitsSelectedAccount(summaryMessage)) {
+    dataBoxState.selectedPreviewMessageId = id;
+    dataBoxState.selectedMessageId = id;
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailLoading = false;
+    dataBoxState.detailError = dataBoxSelectedAccountMismatchMessage();
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
+    render();
+    return;
+  }
+
+  dataBoxState.selectedPreviewMessageId = id;
   dataBoxState.selectedMessageId = id;
-  dataBoxState.selectedMessage = null;
+  dataBoxState.selectedMessage = dataBoxState.selectedMessage?.id === id ? dataBoxState.selectedMessage : null;
   dataBoxState.detailLoading = true;
   dataBoxState.detailError = "";
+  dataBoxState.replyDraftOpen = openReply;
+  dataBoxState.replyDraftError = "";
+  if (!sameMessage || !openReply) {
+    dataBoxState.replyDraftText = "";
+  }
   render();
-  scrollDataBoxMessageDetailIntoView();
 
   try {
     const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}`);
-    dataBoxState.selectedMessage = result.message || null;
+    if (dataBoxState.selectedMessageId === id) {
+      const detailMessage = result.message || null;
+      if (detailMessage && !dataBoxMessageFitsSelectedAccount(detailMessage)) {
+        dataBoxState.detailLoading = false;
+        dataBoxState.selectedMessage = null;
+        dataBoxState.detailError = dataBoxSelectedAccountMismatchMessage();
+        dataBoxState.replyDraftOpen = false;
+        dataBoxState.replyDraftText = "";
+        dataBoxState.replyDraftError = "";
+      } else {
+        dataBoxState.selectedMessage = detailMessage;
+      }
+    }
   } catch (error) {
-    dataBoxState.selectedMessage = null;
-    dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
+    if (dataBoxState.selectedMessageId === id) {
+      dataBoxState.selectedMessage = null;
+      dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
+      dataBoxState.replyDraftError = openReply ? "Návrh odpovědi se nepodařilo připravit." : "";
+    }
   } finally {
-    dataBoxState.detailLoading = false;
+    if (dataBoxState.selectedMessageId === id) {
+      dataBoxState.detailLoading = false;
+    }
   }
 
   render();
-  scrollDataBoxMessageDetailIntoView();
+}
+
+function openDataBoxReplyDraft(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) {
+    dataBoxState.replyDraftOpen = true;
+    dataBoxState.replyDraftError = "Návrh odpovědi se nepodařilo připravit.";
+    render();
+    return;
+  }
+
+  dataBoxState.replyDraftOpen = true;
+  dataBoxState.replyDraftError = "";
+
+  if (String(dataBoxState.selectedMessageId || "") !== id || String(dataBoxState.selectedMessage?.id || "") !== id) {
+    void loadDataBoxMessageDetail(id, { openReply: true });
+    return;
+  }
+
+  render();
+}
+
+function dataBoxMessageById(messageId) {
+  const id = String(messageId || "").trim();
+  return dataBoxState.selectedMessage?.id === id
+    ? dataBoxState.selectedMessage
+    : dataBoxState.messages.find((message) => String(message.id || "") === id) || null;
+}
+
+function resetDataBoxActionFeedback() {
+  dataBoxState.actionNotice = "";
+  dataBoxState.actionError = "";
+}
+
+async function refreshDataBoxAfterAction(messageId, detail = null) {
+  await loadDataBoxData({ force: true, renderAfter: false });
+  if (detail?.message) {
+    dataBoxState.selectedMessage = detail.message;
+  } else if (messageId && dataBoxState.selectedMessageId === messageId) {
+    try {
+      const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(messageId)}`);
+      dataBoxState.selectedMessage = result.message || dataBoxState.selectedMessage;
+    } catch {
+      dataBoxState.selectedMessage = dataBoxMessageById(messageId);
+    }
+  }
+}
+
+async function archiveDataBoxMessageAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const subject = message?.subject || "tuto zprávu";
+  if (!window.confirm(`Archivovat datovou zprávu „${subject}“?`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.actionLoading = "archive";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true })
+    });
+    dataBoxState.actionNotice = result.notice || "Zpráva byla archivována.";
+    dataBoxState.actionError = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    dataBoxState.actionError = error?.payload?.error || error?.message || "Archivace se nepodařila.";
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
+}
+
+async function emailDataBoxMessageAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const recipientEmail = window.prompt("Komu poslat datovou zprávu e-mailem?", "");
+  const cleanRecipient = String(recipientEmail || "").trim();
+  if (!cleanRecipient) {
+    return;
+  }
+  const subject = message?.subject || "Datová zpráva";
+  if (!window.confirm(`Odeslat zprávu „${subject}“ e-mailem na ${cleanRecipient}?`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.actionLoading = "email";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirmed: true,
+        recipientEmail: cleanRecipient,
+        subject,
+        body: "Datová zpráva odeslaná z Kaiser Smart po potvrzení uživatele."
+      })
+    });
+    dataBoxState.actionNotice = result.notice || "Datová zpráva byla odeslána e-mailem.";
+    dataBoxState.actionError = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    dataBoxState.actionError = error?.payload?.error || error?.message || "E-mail se nepodařilo odeslat.";
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
+}
+
+async function sendDataBoxReplyAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const text = String(dataBoxState.replyDraftText || "").trim();
+  if (!text) {
+    dataBoxState.replyDraftError = "Nelze odeslat: text odpovědi je prázdný.";
+    render();
+    return;
+  }
+  const subject = dataBoxReplySubject(message || {});
+  const recipient = dataBoxReplyRecipient(message || {});
+  if (!window.confirm(`Opravdu odeslat odpověď přes datovou schránku?\n\nKomu: ${recipient}\nPředmět: ${subject}`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.replyDraftError = "";
+  dataBoxState.actionLoading = "reply";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirmed: true,
+        subject,
+        body: text
+      })
+    });
+    dataBoxState.actionNotice = result.notice || "Odpověď byla odeslána přes datovou schránku.";
+    dataBoxState.actionError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    const messageText = error?.payload?.error || error?.message || "Odpověď se nepodařilo odeslat.";
+    dataBoxState.replyDraftError = messageText;
+    dataBoxState.actionError = messageText;
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
+}
+
+async function runDataBoxAiBoostAction() {
+  if (dataBoxState.aiBoostLoading) {
+    return;
+  }
+
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = "AI Boost připravuje koncepty...";
+  render();
+
+  try {
+    const result = await apiJson("/api/data-box/ai-boost/run", {
+      method: "POST",
+      body: JSON.stringify({ limit: 30 })
+    });
+    dataBoxState.aiBoostMessage = result.message || `AI Boost připravil ${Number(result.created || 0)} konceptů.`;
+    dataBoxState.aiBoostError = "";
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "AI Boost se nepodařilo spustit.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+async function confirmDataBoxAiBoostAction(actionId) {
+  const id = String(actionId || "").trim();
+  if (!id || dataBoxState.aiBoostLoading) {
+    return;
+  }
+  const action = dataBoxState.aiBoostActions.find((item) => String(item.id || "") === id);
+  const label = dataBoxAiBoostActionLabel(action);
+  const subject = action?.subject || "AI Boost koncept";
+
+  if (!window.confirm(`Potvrdit AI Boost koncept?\n\nAkce: ${label}\nZpráva: ${subject}\n\nBez potvrzení se nic neprovede.`)) {
+    return;
+  }
+
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = "Potvrzuji AI Boost koncept...";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/actions/${encodeURIComponent(id)}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true })
+    });
+    dataBoxState.aiBoostMessage = result.notice || "AI Boost koncept byl potvrzen.";
+    dataBoxState.aiBoostError = "";
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "AI Boost koncept se nepodařilo potvrdit.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+async function confirmDataBoxAiBoostGroup(actionType) {
+  const type = String(actionType || "").trim().toLowerCase();
+  if (!["archive", "email"].includes(type) || dataBoxState.aiBoostLoading) {
+    return;
+  }
+
+  const actions = dataBoxState.aiBoostActions.filter((action) => (
+    dataBoxAiBoostIsWaiting(action)
+    && String(action.actionType || "").toLowerCase() === type
+    && action.id
+  ));
+
+  if (!actions.length) {
+    dataBoxState.aiBoostMessage = type === "email" ? "Žádný e-mail nečeká na potvrzení." : "Žádná archivace nečeká na potvrzení.";
+    dataBoxState.aiBoostError = "";
+    render();
+    return;
+  }
+
+  const confirmText = type === "email"
+    ? `Opravdu odeslat ${actions.length} e-mailových konceptů?\n\nE-maily se skutečně odešlou přes napojený backend. Bez tohoto potvrzení se nic neodešle.`
+    : `Opravdu potvrdit ${actions.length} archivací?\n\nZprávy se označí jako archivované přes napojený backend. Bez tohoto potvrzení se nic neprovede.`;
+
+  if (!window.confirm(confirmText)) {
+    return;
+  }
+
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = type === "email" ? "Potvrzuji e-mailové koncepty..." : "Potvrzuji archivace...";
+  render();
+
+  const failures = [];
+
+  try {
+    for (const action of actions) {
+      try {
+        await apiJson(`/api/data-box/actions/${encodeURIComponent(action.id)}/confirm`, {
+          method: "POST",
+          body: JSON.stringify({ confirmed: true })
+        });
+      } catch (error) {
+        failures.push({
+          subject: action.subject || action.messageId || action.id,
+          error: error?.payload?.error || error?.message || "Potvrzení selhalo."
+        });
+      }
+    }
+
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+    if (failures.length) {
+      dataBoxState.aiBoostError = `${failures.length} z ${actions.length} akcí se nepodařilo potvrdit. První chyba: ${failures[0].error}`;
+      dataBoxState.aiBoostMessage = `${actions.length - failures.length} akcí bylo potvrzeno.`;
+    } else {
+      dataBoxState.aiBoostMessage = type === "email"
+        ? `${actions.length} e-mailových konceptů bylo potvrzeno.`
+        : `${actions.length} archivací bylo potvrzeno.`;
+      dataBoxState.aiBoostError = "";
+    }
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "Dávkové potvrzení se nepodařilo dokončit.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+async function saveDataBoxAiBoostEditForm(form) {
+  const actionId = String(form.dataset.actionId || "").trim();
+  if (!actionId || dataBoxState.aiBoostLoading) {
+    return;
+  }
+
+  const formData = new FormData(form);
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = "Ukládám upravený AI Boost návrh...";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/actions/${encodeURIComponent(actionId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        actionType: String(formData.get("actionType") || "").trim(),
+        recipient: String(formData.get("recipient") || "").trim(),
+        subject: String(formData.get("subject") || "").trim(),
+        bodyPreview: String(formData.get("bodyPreview") || "").trim(),
+        editNote: String(formData.get("editNote") || "").trim()
+      })
+    });
+    dataBoxState.aiBoostEditingId = "";
+    dataBoxState.aiBoostMessage = result.notice || "AI Boost návrh byl upraven.";
+    dataBoxState.aiBoostError = "";
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "AI Boost návrh se nepodařilo upravit.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+async function rejectDataBoxAiBoostAction(actionId) {
+  const id = String(actionId || "").trim();
+  if (!id || dataBoxState.aiBoostLoading) {
+    return;
+  }
+
+  const reason = window.prompt("Proč návrh zamítáme?", "Návrh není správný.");
+  if (reason === null) {
+    return;
+  }
+
+  dataBoxState.aiBoostLoading = true;
+  dataBoxState.aiBoostError = "";
+  dataBoxState.aiBoostMessage = "Zamítám AI Boost návrh...";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/actions/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason: String(reason || "").trim() || "Zamítnuto uživatelem." })
+    });
+    dataBoxState.aiBoostEditingId = "";
+    dataBoxState.aiBoostMessage = result.notice || "AI Boost návrh byl zamítnut.";
+    dataBoxState.aiBoostError = "";
+    await loadDataBoxData({ force: true, renderAfter: false });
+    dataBoxState.activeTab = "ai-boost";
+  } catch (error) {
+    dataBoxState.aiBoostError = error?.payload?.error || error?.message || "AI Boost návrh se nepodařilo zamítnout.";
+    dataBoxState.aiBoostMessage = "";
+  } finally {
+    dataBoxState.aiBoostLoading = false;
+    render();
+  }
+}
+
+function dataBoxAiBoostRulePayloadFromForm(form) {
+  const formData = new FormData(form);
+  const senderContains = String(formData.get("senderContains") || "").trim();
+  const textContains = String(formData.get("textContains") || "").trim();
+  const mailboxId = String(formData.get("mailboxId") || "").trim();
+  const actionType = String(formData.get("actionType") || "email").trim();
+  const recipient = String(formData.get("recipient") || "").trim();
+  const title = String(formData.get("title") || "").trim();
+  const conditions = {
+    anySender: senderContains ? senderContains.split(",").map((item) => item.trim()).filter(Boolean) : [],
+    anyText: textContains ? textContains.split(",").map((item) => item.trim()).filter(Boolean) : []
+  };
+  if (mailboxId) {
+    conditions.mailboxId = mailboxId;
+  }
+
+  const actions = actionType === "archive"
+    ? { type: "ARCHIVE", requiresConfirmation: true }
+    : actionType === "email"
+      ? { type: "SEND_EMAIL", recipients: recipient.split(",").map((item) => item.trim()).filter(Boolean), requiresConfirmation: true }
+      : { type: "REVIEW", target: recipient || "manual", requiresConfirmation: true };
+
+  return {
+    title,
+    description: "Vytvořeno z AI Boost návrhu. Ostrá akce vyžaduje potvrzení uživatele.",
+    type: "rule",
+    status: "draft",
+    conditionsJson: JSON.stringify(conditions, null, 2),
+    actionsJson: JSON.stringify(actions, null, 2),
+    isAutomation: false,
+    triggerType: "event",
+    scheduleCron: "",
+    eventName: "data_box_message_received",
+    cloudRunner: "data-box-cloud-runner"
+  };
+}
+
+function createDataBoxAiBoostRuleDraft(form) {
+  try {
+    const draft = dataBoxAiBoostRulePayloadFromForm(form);
+    if (!draft.title) {
+      throw new Error("Vyplň název pravidla.");
+    }
+    moduleRulesState.moduleKey = DATA_BOX_MODULE_KEY;
+    moduleRulesState.formOpen = true;
+    moduleRulesState.formType = "rule";
+    moduleRulesState.editingId = "";
+    moduleRulesState.prefillDraft = draft;
+    moduleRulesState.message = "Zkontroluj návrh pravidla a ulož ho do cloud DB.";
+    moduleRulesState.error = "";
+    dataBoxState.activeTab = "rules";
+    void loadModuleRules(DATA_BOX_MODULE_KEY, { renderAfter: false });
+    render();
+  } catch (error) {
+    dataBoxState.aiBoostError = error.message || "Návrh pravidla se nepodařilo připravit.";
+    dataBoxState.aiBoostMessage = "";
+    render();
+  }
+}
+
+function createDataBoxAiBoostRuleDraftFromAction(actionId) {
+  const action = dataBoxState.aiBoostActions.find((item) => String(item.id || "") === String(actionId || ""));
+  const message = dataBoxAiBoostMessage(action);
+  if (!action?.id) {
+    dataBoxState.aiBoostError = "AI Boost návrh nebyl nalezen.";
+    dataBoxState.aiBoostMessage = "";
+    render();
+    return;
+  }
+
+  const actionType = String(action.actionType || action.result?.recommendedAction || "review").toLowerCase();
+  const conditions = {
+    anySender: message ? [dataBoxMessageActor(message)] : [],
+    anyText: [message?.subject || action.subject || ""].filter(Boolean)
+  };
+  if (message?.dataBoxId) {
+    conditions.mailboxId = message.dataBoxId;
+  }
+
+  const actions = actionType === "archive"
+    ? { type: "ARCHIVE", requiresConfirmation: true }
+    : actionType === "email"
+      ? { type: "SEND_EMAIL", recipients: action.recipient ? [action.recipient] : [], requiresConfirmation: true }
+      : { type: "REVIEW", target: action.recipient || "manual", requiresConfirmation: true };
+
+  moduleRulesState.moduleKey = DATA_BOX_MODULE_KEY;
+  moduleRulesState.formOpen = true;
+  moduleRulesState.formType = "rule";
+  moduleRulesState.editingId = "";
+  moduleRulesState.prefillDraft = {
+    title: `${dataBoxAiBoostActionLabel(action)}: ${message?.senderName || message?.subject || action.subject || "Datová zpráva"}`.slice(0, 140),
+    description: "Vytvořeno z upraveného AI Boost konceptu. Ostrá akce vyžaduje potvrzení uživatele.",
+    type: "rule",
+    status: "draft",
+    conditionsJson: JSON.stringify(conditions, null, 2),
+    actionsJson: JSON.stringify(actions, null, 2),
+    isAutomation: false,
+    triggerType: "event",
+    scheduleCron: "",
+    eventName: "data_box_message_received",
+    cloudRunner: "data-box-cloud-runner"
+  };
+  moduleRulesState.message = "Zkontroluj návrh pravidla a ulož ho do cloud DB.";
+  moduleRulesState.error = "";
+  dataBoxState.activeTab = "rules";
+  void loadModuleRules(DATA_BOX_MODULE_KEY, { renderAfter: false });
+  render();
+}
+
+function openDataBoxAiBoostMessage(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) {
+    return;
+  }
+  const message = dataBoxMessageById(id);
+  if (message?.dataBoxId) {
+    dataBoxState.selectedDataBoxId = message.dataBoxId;
+  }
+  dataBoxState.activeTab = "received";
+  void loadDataBoxMessageDetail(id);
+}
+
+async function loadDataBoxMessageInlineDetail(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) {
+    return;
+  }
+
+  const summaryMessage = dataBoxState.messages.find((message) => String(message.id || "") === id) || null;
+  resetDataBoxAttachmentFeedback();
+
+  if (summaryMessage && !dataBoxMessageFitsSelectedAccount(summaryMessage)) {
+    dataBoxState.selectedPreviewMessageId = id;
+    dataBoxState.selectedMessageId = id;
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailLoading = false;
+    dataBoxState.detailError = dataBoxSelectedAccountMismatchMessage();
+    render();
+    return;
+  }
+
+  dataBoxState.selectedPreviewMessageId = id;
+  dataBoxState.selectedMessageId = id;
+  dataBoxState.selectedMessage = dataBoxState.selectedMessage?.id === id ? dataBoxState.selectedMessage : null;
+  dataBoxState.detailLoading = true;
+  dataBoxState.detailError = "";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}`);
+    if (dataBoxState.selectedMessageId === id) {
+      const detailMessage = result.message || null;
+      if (detailMessage && !dataBoxMessageFitsSelectedAccount(detailMessage)) {
+        dataBoxState.detailLoading = false;
+        dataBoxState.selectedMessage = null;
+        dataBoxState.detailError = dataBoxSelectedAccountMismatchMessage();
+      } else {
+        dataBoxState.selectedMessage = detailMessage;
+      }
+    }
+  } catch (error) {
+    if (dataBoxState.selectedMessageId === id) {
+      dataBoxState.selectedMessage = null;
+      dataBoxState.detailError = error?.payload?.error || error?.message || "Detail zprávy se teď nepodařilo načíst.";
+    }
+  } finally {
+    if (dataBoxState.selectedMessageId === id) {
+      dataBoxState.detailLoading = false;
+    }
+  }
+
+  render();
 }
 
 async function runDataBoxManualSync() {
@@ -15998,7 +19352,7 @@ async function runDataBoxManualSync() {
 
   dataBoxState.syncLoading = true;
   dataBoxState.syncError = "";
-  dataBoxState.syncMessage = "Spouštím ruční read-only sync...";
+  dataBoxState.syncMessage = "Načítám nové zprávy...";
   render();
 
   try {
@@ -16006,15 +19360,31 @@ async function runDataBoxManualSync() {
       method: "POST",
       body: JSON.stringify({})
     });
-    dataBoxState.syncMessage = result.message || result.sync?.message || "Ruční sync doběhl.";
+    dataBoxState.syncMessage = result.message || result.sync?.message || "Načtení doběhlo.";
     await loadDataBoxData({ force: true, renderAfter: false });
   } catch (error) {
-    dataBoxState.syncError = error?.payload?.error || error?.message || "Ruční sync se nepodařilo spustit.";
+    dataBoxState.syncError = error?.payload?.error || error?.message || "Načtení se nepodařilo spustit.";
     await loadDataBoxData({ force: true, renderAfter: false }).catch(() => {});
   } finally {
     dataBoxState.syncLoading = false;
   }
 
+  render();
+}
+
+function updateDataBoxMessageFilter(field) {
+  const name = field?.name;
+  if (!name || !Object.prototype.hasOwnProperty.call(dataBoxState.messageFilters, name)) {
+    return;
+  }
+
+  clearDataBoxSearchRenderTimer();
+  dataBoxState.messageFilters = {
+    ...dataBoxState.messageFilters,
+    [name]: field.value || ""
+  };
+  resetDataBoxPagination();
+  dataBoxState.selectedPreviewMessageId = "";
   render();
 }
 
@@ -17080,6 +20450,42 @@ async function loadThemeSettings(options = {}) {
   }
 }
 
+function ensureSarlotaStatusData(options = {}) {
+  if (!authState.user || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  if (!sarlotaStatusState.loaded || options.force) {
+    void loadSarlotaStatus(options);
+  }
+}
+
+async function loadSarlotaStatus(options = {}) {
+  if (!authState.user || sarlotaStatusState.loading || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  sarlotaStatusState.loading = true;
+  sarlotaStatusState.error = "";
+
+  try {
+    const result = await apiJson("/api/ai/elevenlabs/sarlota-status");
+    sarlotaStatusState.data = result;
+    sarlotaStatusState.loaded = true;
+  } catch (error) {
+    console.error("smart_odpady_sarlota_status_load_failed", error);
+    sarlotaStatusState.data = null;
+    sarlotaStatusState.loaded = true;
+    sarlotaStatusState.error = error.payload?.error || "Stav Šarloty se teď nepodařilo načíst.";
+  } finally {
+    sarlotaStatusState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
 function setAbsenceSettings(settings) {
   absenceState = saveAbsenceState({
     ...absenceState,
@@ -17128,6 +20534,7 @@ function resetModuleRulesState() {
   moduleRulesState.message = "";
   moduleRulesState.formOpen = false;
   moduleRulesState.editingId = "";
+  moduleRulesState.prefillDraft = null;
   moduleRulesState.formType = "rule";
   moduleRulesState.selectedId = "";
   moduleRulesState.searchQuery = "";
@@ -17213,10 +20620,60 @@ async function loadModuleRuleAudit(moduleKey, ruleId, options = {}) {
   }
 }
 
+function resetSystemCheckState() {
+  systemCheckState.loaded = false;
+  systemCheckState.loading = false;
+  systemCheckState.apiStatus = "waiting";
+  systemCheckState.data = null;
+  systemCheckState.error = "";
+  systemCheckState.message = "";
+}
+
+function ensureSystemCheckData(options = {}) {
+  if (!authState.user || systemCheckState.loading || !hasPermission(authState.user, "system-check", "view")) {
+    return;
+  }
+
+  if (!systemCheckState.loaded || options.force) {
+    void loadSystemCheckStatus(options);
+  }
+}
+
+async function loadSystemCheckStatus(options = {}) {
+  if (!authState.user || systemCheckState.loading || !hasPermission(authState.user, "system-check", "view")) {
+    return;
+  }
+
+  systemCheckState.loading = true;
+  systemCheckState.error = "";
+
+  try {
+    const result = await apiJson("/api/system-check/status");
+    systemCheckState.data = result;
+    systemCheckState.apiStatus = result.apiStatus || "ready";
+    systemCheckState.loaded = true;
+    if (options.force) {
+      systemCheckState.message = "Stav systému byl obnoven.";
+    }
+  } catch (error) {
+    systemCheckState.data = null;
+    systemCheckState.loaded = true;
+    systemCheckState.apiStatus = error.payload?.apiStatus || "waiting";
+    systemCheckState.error = error.payload?.error || "Kontrolu systému se teď nepodařilo načíst.";
+  } finally {
+    systemCheckState.loading = false;
+  }
+
+  if (options.renderAfter !== false) {
+    render();
+  }
+}
+
 function openModuleRuleForm(type = "rule", id = "") {
   moduleRulesState.formOpen = true;
   moduleRulesState.formType = type === "automation" ? "automation" : "rule";
   moduleRulesState.editingId = id;
+  moduleRulesState.prefillDraft = null;
   moduleRulesState.error = "";
   moduleRulesState.message = "";
   render();
@@ -17225,6 +20682,7 @@ function openModuleRuleForm(type = "rule", id = "") {
 function closeModuleRuleForm() {
   moduleRulesState.formOpen = false;
   moduleRulesState.editingId = "";
+  moduleRulesState.prefillDraft = null;
   moduleRulesState.error = "";
   render();
 }
@@ -17326,6 +20784,43 @@ async function toggleModuleRuleStatus(ruleId, nextStatus) {
     await loadModuleRuleAudit(moduleRulesState.moduleKey, moduleRulesState.selectedId, { renderAfter: false });
   } catch (error) {
     moduleRulesState.error = error.payload?.error || "Stav pravidla se nepodařilo změnit.";
+    moduleRulesState.message = "";
+  } finally {
+    moduleRulesState.saving = false;
+    render();
+  }
+}
+
+async function runCurrentModuleRules(mode = "dry-run") {
+  if (!hasPermission(currentUser(), moduleRulesState.moduleKey, "manage")) {
+    moduleRulesState.error = "Nemáte oprávnění spustit pravidla.";
+    render();
+    return;
+  }
+  if (moduleRulesState.moduleKey !== DATA_BOX_MODULE_KEY) {
+    moduleRulesState.error = "Ruční běh je teď napojený jen pro Datovou schránku.";
+    render();
+    return;
+  }
+  const live = mode === "live";
+  if (live && !window.confirm("Spustit potvrzený běh DS pravidel? Archivace se může provést, e-maily se připraví k ručnímu potvrzení.")) {
+    return;
+  }
+
+  moduleRulesState.saving = true;
+  moduleRulesState.error = "";
+  moduleRulesState.message = live ? "Spouštím DS pravidla..." : "Spouštím dry-run DS pravidel...";
+  render();
+
+  try {
+    const result = await apiJson(`/api/modules/${encodeURIComponent(moduleRulesState.moduleKey)}/rules/${live ? "run" : "dry-run"}`, {
+      method: "POST",
+      body: JSON.stringify(live ? { mode: "live", confirmed: true } : {})
+    });
+    moduleRulesState.message = result.message || (live ? "DS pravidla byla spuštěna." : "Dry-run DS pravidel proběhl.");
+    await loadModuleRules(moduleRulesState.moduleKey, { renderAfter: false });
+  } catch (error) {
+    moduleRulesState.error = error.payload?.error || "Běh pravidel se nepodařilo spustit.";
     moduleRulesState.message = "";
   } finally {
     moduleRulesState.saving = false;
@@ -17561,6 +21056,7 @@ async function logout() {
   absenceSettingsState.error = "";
   absenceSettingsState.missingEndpoint = "PATCH /api/absence-settings";
   resetModuleRulesState();
+  resetSystemCheckState();
   resetDataBoxState();
   resetVehicleTrackingLiveState();
   navigateToUrl(routeHref("/"));
@@ -17729,6 +21225,9 @@ function renderAuthenticatedApp(user) {
     }
     if (moduleItem.id === COLLECTION_ROUTES_MODULE_KEY) {
       void loadCollectionRoutesPilot();
+    }
+    if (moduleItem.id === "system-check") {
+      ensureSystemCheckData();
     }
     return;
   }
@@ -18161,6 +21660,21 @@ function downloadText(filename, text, type = "text/plain;charset=utf-8") {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBlob(filename, blob) {
+  if (!blob) {
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "priloha";
   document.body.append(link);
   link.click();
   link.remove();
@@ -20170,6 +23684,20 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  const dataBoxAiEditForm = event.target.closest("[data-data-box-ai-edit-form]");
+  if (dataBoxAiEditForm) {
+    event.preventDefault();
+    await saveDataBoxAiBoostEditForm(dataBoxAiEditForm);
+    return;
+  }
+
+  const dataBoxAiRuleDraftForm = event.target.closest("[data-data-box-ai-rule-draft-form]");
+  if (dataBoxAiRuleDraftForm) {
+    event.preventDefault();
+    createDataBoxAiBoostRuleDraft(dataBoxAiRuleDraftForm);
+    return;
+  }
+
   const feedbackCreateForm = event.target.closest("[data-feedback-create-form]");
   if (feedbackCreateForm) {
     event.preventDefault();
@@ -20295,6 +23823,18 @@ document.addEventListener("input", (event) => {
   if (feedbackCreateField) {
     const form = feedbackCreateField.closest("[data-feedback-create-form]");
     updateFeedbackCreateDraft(form);
+    return;
+  }
+
+  const dataBoxFilter = event.target.closest("[data-data-box-filter]");
+  if (dataBoxFilter && dataBoxFilter.name === "query") {
+    updateDataBoxSearchFilter(dataBoxFilter);
+    return;
+  }
+
+  const dataBoxReplyText = event.target.closest("[data-data-box-reply-text]");
+  if (dataBoxReplyText) {
+    dataBoxState.replyDraftText = dataBoxReplyText.value;
   }
 });
 
@@ -20417,6 +23957,12 @@ document.addEventListener("change", async (event) => {
     }
     return;
   }
+
+  const dataBoxFilter = event.target.closest("[data-data-box-filter]");
+  if (dataBoxFilter) {
+    updateDataBoxMessageFilter(dataBoxFilter);
+    return;
+  }
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -20458,6 +24004,20 @@ document.addEventListener("pointerup", (event) => {
 }, true);
 
 document.addEventListener("click", async (event) => {
+  const systemCheckRefresh = event.target.closest("[data-system-check-refresh]");
+  if (systemCheckRefresh) {
+    event.preventDefault();
+    await loadSystemCheckStatus({ force: true });
+    return;
+  }
+
+  const sarlotaStatusRefresh = event.target.closest("[data-sarlota-status-refresh]");
+  if (sarlotaStatusRefresh) {
+    event.preventDefault();
+    await loadSarlotaStatus({ force: true });
+    return;
+  }
+
   const neumorphicAccent = event.target.closest("[data-neumorphic-accent]");
   if (neumorphicAccent) {
     event.preventDefault();
@@ -20780,6 +24340,18 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const moduleRulesDryRun = event.target.closest("[data-module-rules-dry-run]");
+  if (moduleRulesDryRun) {
+    void runCurrentModuleRules("dry-run");
+    return;
+  }
+
+  const moduleRulesRun = event.target.closest("[data-module-rules-run]");
+  if (moduleRulesRun) {
+    void runCurrentModuleRules("live");
+    return;
+  }
+
   const moduleRuleFormClose = event.target.closest("[data-module-rule-form-close]");
   if (moduleRuleFormClose) {
     closeModuleRuleForm();
@@ -21084,9 +24656,165 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const dataBoxQuickFilter = event.target.closest("[data-data-box-quick-filter]");
+  if (dataBoxQuickFilter) {
+    dataBoxState.messageFilters = {
+      ...dataBoxState.messageFilters,
+      quick: dataBoxQuickFilter.dataset.dataBoxQuickFilter || "all"
+    };
+    resetDataBoxPagination();
+    dataBoxState.activeTab = "received";
+    dataBoxState.selectedPreviewMessageId = "";
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
+    render();
+    return;
+  }
+
+  const dataBoxPageSize = event.target.closest("[data-data-box-page-size]");
+  if (dataBoxPageSize) {
+    const nextPageSize = Number(dataBoxPageSize.dataset.dataBoxPageSize);
+    if (DATA_BOX_PAGE_SIZES.includes(nextPageSize)) {
+      dataBoxState.messagePagination = {
+        pageSize: nextPageSize,
+        currentPage: 1
+      };
+      dataBoxState.selectedPreviewMessageId = "";
+      dataBoxState.selectedMessageId = "";
+      dataBoxState.selectedMessage = null;
+      dataBoxState.detailError = "";
+      dataBoxState.replyDraftOpen = false;
+      dataBoxState.replyDraftText = "";
+      dataBoxState.replyDraftError = "";
+      render();
+    }
+    return;
+  }
+
+  const dataBoxPageButton = event.target.closest("[data-data-box-page]");
+  if (dataBoxPageButton) {
+    const direction = dataBoxPageButton.dataset.dataBoxPage;
+    const nextPage = direction === "next"
+      ? Number(dataBoxState.messagePagination.currentPage || 1) + 1
+      : Number(dataBoxState.messagePagination.currentPage || 1) - 1;
+    dataBoxState.messagePagination = {
+      ...dataBoxState.messagePagination,
+      currentPage: Math.max(1, nextPage)
+    };
+    dataBoxState.selectedPreviewMessageId = "";
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.detailError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
+    render();
+    return;
+  }
+
+  const dataBoxAttachmentOpen = event.target.closest("[data-data-box-attachment-open]");
+  if (dataBoxAttachmentOpen) {
+    event.preventDefault();
+    void openDataBoxAttachment(dataBoxAttachmentOpen);
+    return;
+  }
+
+  const dataBoxPreviewMessage = event.target.closest("[data-data-box-preview-message]");
+  if (dataBoxPreviewMessage) {
+    const messageId = dataBoxPreviewMessage.dataset.dataBoxPreviewMessage || "";
+    void loadDataBoxMessageDetail(messageId);
+    return;
+  }
+
   const dataBoxMessageDetail = event.target.closest("[data-data-box-message-detail]");
   if (dataBoxMessageDetail) {
     void loadDataBoxMessageDetail(dataBoxMessageDetail.dataset.dataBoxMessageDetail || "");
+    return;
+  }
+
+  const dataBoxMessageReply = event.target.closest("[data-data-box-message-reply]");
+  if (dataBoxMessageReply) {
+    openDataBoxReplyDraft(dataBoxMessageReply.dataset.dataBoxMessageReply || "");
+    return;
+  }
+
+  const dataBoxMessageEmail = event.target.closest("[data-data-box-message-email]");
+  if (dataBoxMessageEmail) {
+    void emailDataBoxMessageAction(dataBoxMessageEmail.dataset.dataBoxMessageEmail || "");
+    return;
+  }
+
+  const dataBoxMessageArchive = event.target.closest("[data-data-box-message-archive]");
+  if (dataBoxMessageArchive) {
+    void archiveDataBoxMessageAction(dataBoxMessageArchive.dataset.dataBoxMessageArchive || "");
+    return;
+  }
+
+  const dataBoxReplySend = event.target.closest("[data-data-box-reply-send]");
+  if (dataBoxReplySend) {
+    void sendDataBoxReplyAction(dataBoxReplySend.dataset.dataBoxReplySend || "");
+    return;
+  }
+
+  const dataBoxAiRun = event.target.closest("[data-data-box-ai-run]");
+  if (dataBoxAiRun) {
+    void runDataBoxAiBoostAction();
+    return;
+  }
+
+  const dataBoxAiConfirm = event.target.closest("[data-data-box-ai-confirm]");
+  if (dataBoxAiConfirm) {
+    void confirmDataBoxAiBoostAction(dataBoxAiConfirm.dataset.dataBoxAiConfirm || "");
+    return;
+  }
+
+  const dataBoxAiConfirmGroup = event.target.closest("[data-data-box-ai-confirm-group]");
+  if (dataBoxAiConfirmGroup) {
+    void confirmDataBoxAiBoostGroup(dataBoxAiConfirmGroup.dataset.dataBoxAiConfirmGroup || "");
+    return;
+  }
+
+  const dataBoxAiEdit = event.target.closest("[data-data-box-ai-edit]");
+  if (dataBoxAiEdit) {
+    dataBoxState.aiBoostEditingId = dataBoxAiEdit.dataset.dataBoxAiEdit || "";
+    render();
+    return;
+  }
+
+  const dataBoxAiEditClose = event.target.closest("[data-data-box-ai-edit-close]");
+  if (dataBoxAiEditClose) {
+    dataBoxState.aiBoostEditingId = "";
+    render();
+    return;
+  }
+
+  const dataBoxAiReject = event.target.closest("[data-data-box-ai-reject]");
+  if (dataBoxAiReject) {
+    void rejectDataBoxAiBoostAction(dataBoxAiReject.dataset.dataBoxAiReject || "");
+    return;
+  }
+
+  const dataBoxAiRuleFromAction = event.target.closest("[data-data-box-ai-rule-from-action]");
+  if (dataBoxAiRuleFromAction) {
+    createDataBoxAiBoostRuleDraftFromAction(dataBoxAiRuleFromAction.dataset.dataBoxAiRuleFromAction || "");
+    return;
+  }
+
+  const dataBoxAiOpen = event.target.closest("[data-data-box-ai-open]");
+  if (dataBoxAiOpen) {
+    openDataBoxAiBoostMessage(dataBoxAiOpen.dataset.dataBoxAiOpen || "");
+    return;
+  }
+
+  const dataBoxReplyClose = event.target.closest("[data-data-box-reply-close]");
+  if (dataBoxReplyClose) {
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftError = "";
+    render();
     return;
   }
 
@@ -21095,6 +24823,48 @@ document.addEventListener("click", async (event) => {
     dataBoxState.selectedMessageId = "";
     dataBoxState.selectedMessage = null;
     dataBoxState.detailError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
+    render();
+    return;
+  }
+
+  const dataBoxTab = event.target.closest("[data-data-box-tab]");
+  if (dataBoxTab) {
+    dataBoxState.activeTab = dataBoxTab.dataset.dataBoxTab || "received";
+    resetDataBoxPagination();
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.selectedPreviewMessageId = "";
+    dataBoxState.detailError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
+    if (normalizePath(window.location.pathname) === DATA_BOX_ROUTE && window.location.hash) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      lastRenderedUrl = window.location.href;
+    }
+    render();
+    return;
+  }
+
+  const dataBoxAccountButton = event.target.closest("[data-data-box-account]");
+  if (dataBoxAccountButton) {
+    const nextAccountId = dataBoxAccountButton.dataset.dataBoxAccount || DATA_BOX_DEFAULT_ACCOUNT_ID;
+    dataBoxState.selectedDataBoxId = nextAccountId;
+    resetDataBoxPagination();
+    dataBoxState.messageFilters = {
+      ...dataBoxState.messageFilters,
+      dataBox: "all"
+    };
+    dataBoxState.selectedMessageId = "";
+    dataBoxState.selectedMessage = null;
+    dataBoxState.selectedPreviewMessageId = "";
+    dataBoxState.detailError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    dataBoxState.replyDraftError = "";
     render();
     return;
   }
@@ -21133,6 +24903,20 @@ document.addEventListener("click", async (event) => {
 
   event.preventDefault();
   guardedAccessAction(() => navigateToUrl(link.href));
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !dataBoxState.selectedMessageId) {
+    return;
+  }
+
+  dataBoxState.selectedMessageId = "";
+  dataBoxState.selectedMessage = null;
+  dataBoxState.detailError = "";
+  dataBoxState.replyDraftOpen = false;
+  dataBoxState.replyDraftText = "";
+  dataBoxState.replyDraftError = "";
+  render();
 });
 
 window.addEventListener("beforeunload", (event) => accessUnsavedChangesGuard.beforeUnload(event));

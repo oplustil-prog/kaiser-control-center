@@ -52,7 +52,7 @@ export const modules = [
   {
     id: "data-box",
     title: "Datová schránka",
-    description: "Pilotní modul pro přijaté a odeslané datové zprávy, audit, AI vyhodnocení a budoucí cloud synchronizaci ISDS.",
+    description: "Přijaté a odeslané datové zprávy, lhůty, přílohy a stav vyřízení.",
     route: "/datova-schranka",
     icon: ReportsIcon,
     status: "ROZPRACOVÁN",
@@ -190,6 +190,17 @@ export const modules = [
     active: true,
     disabled: false,
     order: 13
+  },
+  {
+    id: "system-check",
+    title: "Kontrola systému",
+    description: "Produkční monitoring, DS checklist, stav automatizací a ověřenost běhů.",
+    route: "/kontrola-systemu",
+    icon: SettingsIcon,
+    status: "NEOVĚŘENO",
+    active: true,
+    disabled: false,
+    order: 13.5
   }
 ];
 

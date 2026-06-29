@@ -90,6 +90,7 @@ let mockCollectionRouteSourceBatches = [];
 let mockCollectionRouteSourceFiles = [];
 let mockCollectionRouteSourceRows = [];
 let mockDataBoxSyncRuns = [];
+let mockDataBoxActions = [];
 
 const mockVehicleWimSites = [
   ["wim-d0-0781-modletice-jesenice", "D0", "km 78,1 / cca km 79", "mezi Modleticemi a Jesenici", "Cernosice", "vpravo + vlevo", "active", "v provozu", 49.9706, 14.5288, 2],
@@ -887,6 +888,8 @@ function mockDataBoxStatusPayload() {
       received: 0,
       sent: 0,
       attachments: 0,
+      dataBoxes: 1,
+      configuredDataBoxes: 0,
       syncRuns: mockDataBoxSyncRuns.length,
       lastSyncAt: latestRun?.startedAt || ""
     },
@@ -899,6 +902,26 @@ function mockDataBoxStatusPayload() {
       hasUsername: false,
       hasPassword: false,
       missing: ["DATA_BOX_ISDS_ENABLED", "DATA_BOX_ISDS_USERNAME", "DATA_BOX_ISDS_PASSWORD"],
+      configuredAccounts: 0,
+      accountCount: 1,
+      maxAccounts: 6,
+      accounts: [{
+        slot: 1,
+        id: "kaiser-primary",
+        label: "Kaiser Smart Datova schranka",
+        isdsId: "",
+        enabled: false,
+        configured: false,
+        mode: "local-dev",
+        baseUrl: "https://ws1.datovka.gov.cz",
+        infoEndpointUrl: "https://ws1.datovka.gov.cz/DS/dx",
+        hasUsername: false,
+        hasPassword: false,
+        missing: ["DATA_BOX_ISDS_ENABLED", "DATA_BOX_ISDS_USERNAME", "DATA_BOX_ISDS_PASSWORD"],
+        limit: 50,
+        lookbackDays: 30,
+        documentationStatus: "official-isds-wsdl-3.11-2026-06-26"
+      }],
       documentationStatus: "official-isds-wsdl-3.11-2026-06-26"
     },
     message: latestRun?.message || "Lokalni dev API je pripravene, ostre ISDS napojeni neni aktivni."
@@ -2554,6 +2577,62 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if ((url.pathname === "/api/modules/data-box/rules/run" || url.pathname === "/api/modules/data-box/rules/dry-run") && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni spustit pravidla Datove schranky." });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      mode: url.pathname.endsWith("dry-run") ? "dry-run" : "live",
+      confirmed: false,
+      runner: "data-box-cloud-runner",
+      status: "dry_run",
+      message: "Lokální mock DS runneru nespouští ostré akce.",
+      rulesTotal: 0,
+      dryRunCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      results: []
+    });
+    return true;
+  }
+
+  if ((url.pathname === "/api/ds/rules" || url.pathname === "/api/ds/rules/run" || url.pathname === "/api/ds/rules/dry-run")) {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canViewMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni." });
+      return true;
+    }
+    if (url.pathname === "/api/ds/rules" && request.method === "GET") {
+      sendJson(response, 200, { rules: [], apiStatus: "ready" });
+      return true;
+    }
+    if (request.method === "POST") {
+      sendJson(response, 200, {
+        apiStatus: "ready",
+        mode: url.pathname.endsWith("dry-run") ? "dry-run" : "live",
+        confirmed: false,
+        runner: "data-box-cloud-runner",
+        status: "dry_run",
+        message: "Lokální mock DS pravidel nespouští ostré akce.",
+        rulesTotal: 0,
+        results: []
+      });
+      return true;
+    }
+  }
+
   if (url.pathname === "/api/vehicles" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
@@ -2670,6 +2749,95 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/data-box/actions" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canViewMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni." });
+      return true;
+    }
+
+    sendJson(response, 200, { actions: mockDataBoxActions, apiStatus: "ready" });
+    return true;
+  }
+
+  if (url.pathname === "/api/data-box/ai-boost/run" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni spustit AI Boost Datove schranky." });
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const action = {
+      id: `mock-ai-boost-${randomUUID()}`,
+      messageId: "mock-data-box-message",
+      dataBoxId: "kaiser-primary",
+      actionType: "ai_boost",
+      status: "requires_confirmation",
+      recipient: "",
+      subject: "Lokální AI Boost koncept",
+      bodyPreview: "Lokální mock: AI Boost by připravil koncept k ruční kontrole. Bez OpenAI secretu nic neposílá.",
+      dedupeKey: `data-box:ai-boost:mock:${now}`,
+      result: {
+        source: "ai_boost",
+        provider: "local-mock",
+        recommendedAction: "review",
+        reason: "Lokální mock pro ověření záložky AI Boost.",
+        confidence: 0.7,
+        requiresConfirmation: true
+      },
+      createdAt: now,
+      updatedAt: now
+    };
+    mockDataBoxActions = [action, ...mockDataBoxActions].slice(0, 50);
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      status: "prepared",
+      provider: "local-mock",
+      created: 1,
+      actions: [action],
+      message: "Lokální mock připravil 1 AI Boost koncept. Nic se neodeslalo."
+    });
+    return true;
+  }
+
+  const dataBoxActionConfirmMatch = /^\/api\/data-box\/actions\/([^/]+)\/confirm$/.exec(url.pathname);
+  if (dataBoxActionConfirmMatch && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni potvrdit AI Boost koncept." });
+      return true;
+    }
+
+    const actionId = decodeURIComponent(dataBoxActionConfirmMatch[1] || "");
+    const action = mockDataBoxActions.find((item) => item.id === actionId);
+    if (!action) {
+      sendJson(response, 404, { error: "Koncept akce nebyl nalezen.", apiStatus: "ready" });
+      return true;
+    }
+    action.status = action.actionType === "archive" ? "archived" : action.actionType === "email" ? "sent" : "skipped";
+    action.updatedAt = new Date().toISOString();
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      status: action.status,
+      action,
+      notice: "Lokální mock: koncept byl potvrzen bez ostrého odeslání."
+    });
+    return true;
+  }
+
   const dataBoxMessageMatch = /^\/api\/data-box\/messages\/([^/]+)$/.exec(url.pathname);
   if (dataBoxMessageMatch && request.method === "GET") {
     const user = currentDevUser(request);
@@ -2683,6 +2851,45 @@ async function handleApi(request, response) {
     }
 
     sendJson(response, 404, { error: "Zprava nebyla nalezena.", apiStatus: "ready" });
+    return true;
+  }
+
+  const dataBoxActionMatch = /^\/api\/data-box\/messages\/([^/]+)\/(archive|email|reply)$/.exec(url.pathname);
+  if (dataBoxActionMatch && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni provest akci Datove schranky." });
+      return true;
+    }
+
+    const action = dataBoxActionMatch[2];
+    if (action === "reply") {
+      sendJson(response, 503, {
+        error: "Lokální mock nemá napojenou serverovou KNF/DS bránu pro odeslání odpovědi.",
+        code: "data_box_reply_sender_missing",
+        apiStatus: "ready"
+      });
+      return true;
+    }
+    if (action === "email") {
+      sendJson(response, 503, {
+        error: "Lokální mock neposílá e-maily. Produkce vyžaduje SendGrid nastavení.",
+        code: "data_box_email_send_failed",
+        apiStatus: "ready"
+      });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      status: "archived",
+      notice: "Lokální mock: zpráva by byla archivována po potvrzení.",
+      action: { id: `mock-data-box-action-${randomUUID()}`, actionType: "archive", status: "archived" }
+    });
     return true;
   }
 
@@ -2716,6 +2923,7 @@ async function handleApi(request, response) {
     const run = {
       id: `data-box-sync-${randomUUID()}`,
       dataBoxId: "kaiser-primary",
+      dataBoxLabel: "Kaiser Smart Datova schranka",
       triggerType: "manual",
       startedAt: now,
       finishedAt: now,

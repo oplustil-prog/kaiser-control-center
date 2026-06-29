@@ -319,6 +319,55 @@ function renderVersionNewsEmail({ title, text, authorName, createdAt, ctaUrl }) 
 </html>`;
 }
 
+function renderDataBoxForwardEmail({ message, body, ctaUrl }) {
+  const subject = cleanString(message?.subject) || "Datová zpráva";
+  const mailbox = cleanString(message?.dataBoxLabel || message?.data_box_label);
+  const sender = cleanString(message?.senderName || message?.sender_name);
+  const deliveredAt = formatDateTime(message?.deliveredAt || message?.delivered_at || message?.acceptedAt || message?.accepted_at || message?.storedAt || message?.stored_at);
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  const attachmentText = attachments.length
+    ? attachments.map((attachment) => cleanString(attachment.filename || "Příloha")).filter(Boolean).join(", ")
+    : "Bez příloh nebo přílohy nejsou v metadatech.";
+  const cleanBody = cleanString(body);
+
+  return `<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kaiser Smart – datová zpráva</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f9f4;font-family:'Quicksand',Arial,Helvetica,sans-serif;color:#1f2921;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f7f9f4;">
+    <tr>
+      <td align="center" style="padding:42px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:640px;background:#ffffff;border:1px solid #e1e6de;border-radius:16px;box-shadow:0 24px 64px rgba(31,41,33,0.14);overflow:hidden;">
+          <tr>
+            <td style="padding:40px 42px;">
+              <div style="display:inline-block;background:#75bd25;border-radius:14px;padding:12px 24px;color:#ffffff;font-size:28px;line-height:32px;font-weight:700;margin:0 0 34px 0;">kaiser.</div>
+              <h1 style="margin:0 0 12px 0;font-size:34px;line-height:40px;font-weight:800;color:#1f2921;">${htmlEscape(subject)}</h1>
+              <p style="margin:0 0 26px 0;font-size:18px;line-height:28px;font-weight:600;color:#647064;">Datová zpráva byla po potvrzení uživatele předána e-mailem ze serverové části Kaiser Smart.</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fbf4;border:1px solid #dfe8d9;border-radius:14px;margin:0 0 24px 0;">
+                <tr><td style="padding:20px 22px;font-size:16px;line-height:24px;">
+                  <p style="margin:0 0 10px 0;"><strong>Schránka:</strong> ${htmlEscape(mailbox || "neuvedeno")}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Odesílatel:</strong> ${htmlEscape(sender || "neuvedeno")}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Doručeno:</strong> ${htmlEscape(deliveredAt || "neuvedeno")}</p>
+                  <p style="margin:0;"><strong>Přílohy:</strong> ${htmlEscape(attachmentText)}</p>
+                </td></tr>
+              </table>
+              ${cleanBody ? `<p style="margin:0 0 24px 0;font-size:17px;line-height:27px;color:#405044;">${htmlEscape(cleanBody).replace(/\n/g, "<br>")}</p>` : ""}
+              <a href="${htmlEscape(ctaUrl)}" style="display:block;text-align:center;background:#75bd25;border-radius:14px;padding:18px 24px;color:#ffffff;font-size:18px;line-height:24px;font-weight:800;text-decoration:none;">Otevřít datovou zprávu</a>
+              <p style="margin:28px 0 0 0;font-size:13px;line-height:20px;color:#8a9388;">Automatická zpráva ze systému Smart odpady.<br>Kaiser servis, spol. s r.o.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 function renderMedicalExamReminderEmail({ exam, ctaUrl }) {
   const statusLabel = cleanString(exam.statusLabel) || "Chybí údaje";
   const intro = exam.status === "overdue"
@@ -667,6 +716,29 @@ export async function sendVersionNewsNotification(env, news, options = {}) {
     moduleId: "dashboard",
     relatedEntityType: "version_news",
     messagePreview
+  });
+}
+
+export async function sendDataBoxForwardNotification(env, message, options = {}) {
+  const title = cleanString(options.subject || message?.subject || "Datová zpráva");
+  const recipientEmail = cleanString(options.recipientEmail);
+  const ctaUrl = `${appBaseUrl(env).replace(/\/+$/, "")}/datova-schranka?message=${encodeURIComponent(cleanString(message?.id))}`;
+
+  return sendEmail(env, {
+    type: "data_box_forward_email",
+    to: recipientEmail,
+    subject: `Kaiser Smart – ${title}`,
+    html: renderDataBoxForwardEmail({
+      message,
+      body: cleanString(options.body),
+      ctaUrl
+    }),
+    relatedEntityId: cleanString(message?.id),
+    recipientName: cleanString(options.recipientName || recipientEmail),
+    fromName: cleanString(options.fromName || "Kaiser Smart"),
+    moduleId: "data-box",
+    relatedEntityType: "data_box_message",
+    messagePreview: title
   });
 }
 

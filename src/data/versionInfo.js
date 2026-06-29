@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.196"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.223"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,110 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: read-only ověření ElevenLabs agenta",
+    text: "Stavový panel Šarloty umí serverově a read-only ověřit agenta v ElevenLabs přes API, potvrdit first message, model a tool names bez vracení promptu, signed URL, tokenů nebo secretů do UI."
+  },
+  {
+    title: "Šarlota: stav signed-url napojení",
+    text: "Nastavení má nový read-only panel Šarlota a chráněný backendový status endpoint pro kontrolu ElevenLabs konfigurace, intro_announcement, personalizace, vocativu a lokálních client tools bez vracení signed URL nebo secretů."
+  },
+  {
+    title: "Šarlota: serverový voice endpoint",
+    text: "Hlasová Šarlota má nový backend endpoint /api/voice/sarlota pro ElevenLabs webhook, server-side OpenAI rozhodování, ověření Smart odpady identity a bezpečné připravené nástroje bez ostrých SMS."
+  },
+  {
+    title: "Datová schránka: otevření příloh",
+    text: "Tlačítko Otevřít nyní u příloh lépe rozpozná PDF, obrázky, XML a text i při obecném MIME typu a pokusí se je otevřít v nové kartě místo prostého stažení."
+  },
+  {
+    title: "Datová schránka: oprava vyhledávání",
+    text: "Vyhledávací pole v inboxu drží celý napsaný text, neztrácí fokus po prvním znaku a dál respektuje aktivní datovou schránku."
+  },
+  {
+    title: "Datová schránka: přílohy a přečtené zprávy",
+    text: "Tlačítko Otevřít nyní u příloh se pokusí otevřít podporované soubory v nové kartě a přečtené zprávy jsou v inboxu klidnější než nepřečtené."
+  },
+  {
+    title: "Datová schránka: DS příznak v řádku zprávy",
+    text: "Firemní příznak datové schránky je nově na druhém řádku před datem, rozlišuje všechny aktuální DS schránky a nepřidává třetí řádek."
+  },
+  {
+    title: "Datová schránka: mobilní pracovní pohled",
+    text: "Na mobilu je Datová schránka zúžená na přepínače DS, seznam zpráv, detail, přílohy a bezpečné akce. Výchozí schránka je KS a režim Všechny DS se nepoužívá."
+  },
+  {
+    title: "Datová schránka: bezpečný detail zprávy",
+    text: "Detail zprávy nově hlídá aktuálně vybranou datovou schránku, zobrazuje schránku přímo v hlavičce detailu a přílohy zůstávají hlavní sekcí hned pod ní."
+  },
+  {
+    title: "Datová schránka: stav AI a stránkování",
+    text: "AI třídění je přesunuté do boxu Stav a synchronizace a inbox nově začíná na 5 zprávách na stránku s volbami 5/10/20/30/50/100."
+  },
+  {
+    title: "Datová schránka: firemní příznaky ve zprávách",
+    text: "Řádky zpráv nově ukazují kompaktní příznak firmy nebo datové schránky, aby bylo hned vidět, zda zpráva patří Kaiseru, Nanolabu nebo další schránce."
+  },
+  {
+    title: "Datová schránka: endpoint příloh",
+    text: "Stažení detailu zprávy a příloh používá samostatný ISDS endpoint pro datové zprávy, zatímco seznam obálek zůstává na informační službě."
+  },
+  {
+    title: "Datová schránka: diagnostika příloh",
+    text: "Log ruční synchronizace nově ukáže první bezpečnou ISDS chybu při automatickém stažení příloh, bez logování hesel, tokenů nebo obsahu souborů."
+  },
+  {
+    title: "Datová schránka: automatické přílohy",
+    text: "Ruční načtení nových zpráv nově automaticky zkusí stáhnout přílohy z ISDS, uložit je do cloudového úložiště a v detailu povolit bezpečné otevření jen u skutečně uložených souborů."
+  },
+  {
+    title: "Datová schránka: přílohy a pravý panel",
+    text: "Detail zprávy nově zvýrazňuje přílohy hned pod hlavičkou, inbox má stránkování 10/20/30 a pomocné informace jsou kompaktně v pravém panelu."
+  },
+  {
+    title: "Datová schránka: očištěný pracovní modul",
+    text: "Modul Datová schránka má odstraněné rušivé texty, grafiku a speciální rozložení. Zůstávají zachované výběry schránek, přijaté a odeslané zprávy, přílohy, log a ruční read-only synchronizace."
+  },
+  {
+    title: "Datová schránka: třísloupcový glass inbox",
+    text: "Modul Datová schránka má světlý třísloupcový pracovní layout: zprávy vlevo, detail uprostřed, návrh vyřízení a stav vpravo. Zůstává čistě read-only."
+  },
+  {
+    title: "Datová schránka: priority a fulltext",
+    text: "Inbox Datové schránky má read-only návrh priority, rozšířený fulltext přes odesílatele, předmět, ID, náhled i přílohy, kompaktní filtry a barvy odvozené z Nastavení vzhledu."
+  },
+  {
+    title: "Datová schránka: hezčí pracovní inbox",
+    text: "Inbox Datové schránky má užší pracovní kontejner, větší čitelnější písmo, výraznější vybranou zprávu a klidnější detail pro denní práci."
+  },
+  {
+    title: "Datová schránka: rozumná desktopová šířka",
+    text: "Inbox Datové schránky má na širokých monitorech centrovaný pracovní kontejner, pevnější šířku seznamu zpráv a čitelnější detail bez extrémně dlouhých řádků."
+  },
+  {
+    title: "Datová schránka: zprávy nahoře",
+    text: "Modul je zjednodušený na pracovní inbox: krátká horní lišta, kompaktní schránky, čtyři malé počty a hned seznam zpráv s detailem vedle sebe."
+  },
+  {
+    title: "Datová schránka: pracovní inbox",
+    text: "Přijaté zprávy mají KPI, rychlé filtry, pracovní seznam, read-only detail, bezpečné přílohy a responzivní rozložení pro desktop, tablet i mobil."
+  },
+  {
+    title: "Datová schránka: záložky bez skoku stránky",
+    text: "Záložky v modulu Datová schránka už nejsou kotvové odkazy; přepínají obsah na místě, takže klik na Přijaté zprávy neposune stránku dolů."
+  },
+  {
+    title: "Datová schránka: čistý chlívek a lehčí písmo",
+    text: "Klik na firemní schránku nově otevře samostatný pohled pouze pro tuto DS a texty v modulu používají lehčí Quicksand, aby se data vešla a zůstala čitelná."
+  },
+  {
+    title: "Datová schránka: firemní chlívky",
+    text: "Modul Datová schránka má šest klikacích boxů pro Kaiser servis, Kaiser technology, Nanolab plus, Nanolab shop, LeFleur a Kaisermanův nadační fond; klik přepne zprávy i log synchronizace do vybrané schránky."
+  },
+  {
+    title: "Datová schránka: více DS účtů",
+    text: "Ruční read-only sync nově projde původní datovou schránku a až pět dalších sad Cloudflare secrets, metadata ukládá odděleně podle schránky a log ukazuje, kterého DS účtu se běh týkal."
+  },
   {
     title: "Karta zaměstnance: Pinya dokumenty read-only preview",
     text: "Karta zaměstnance má bezpečný read-only stav pro budoucí napojení dokumentů z Pinya. Endpoint zatím Pinya nevolá, nestahuje soubory a nic neukládá."

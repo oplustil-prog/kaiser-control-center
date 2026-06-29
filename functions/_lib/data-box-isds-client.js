@@ -1,10 +1,13 @@
 const DEFAULT_ISDS_BASE_URL = "https://ws1.datovka.gov.cz";
 const TEST_ISDS_BASE_URL = "https://ws1.datovka-test.gov.cz";
 const ISDS_INFO_PATH = "/DS/dx";
+const ISDS_MESSAGE_PATH = "/DS/dz";
 const ISDS_NAMESPACE = "http://isds.czechpoint.cz/v20";
 const ISDS_TIMEOUT_MS = 25000;
 const DEFAULT_LIMIT = 50;
 const DEFAULT_LOOKBACK_DAYS = 30;
+const MAX_ISDS_ACCOUNTS = 6;
+const PRIMARY_DATA_BOX_ID = "kaiser-primary";
 
 export class DataBoxIsdsError extends Error {
   constructor(message, status = 502, code = "data_box_isds_error") {
@@ -47,46 +50,156 @@ function baseUrlFromEnv(env = {}) {
     : DEFAULT_ISDS_BASE_URL;
 }
 
-export function dataBoxIsdsStatus(env = {}) {
-  const enabled = enabledFlag(env.DATA_BOX_ISDS_ENABLED);
-  const username = cleanString(env.DATA_BOX_ISDS_USERNAME || env.DATA_BOX_ISDS_LOGIN);
-  const password = cleanString(env.DATA_BOX_ISDS_PASSWORD);
+function modeFromEnv(env = {}) {
+  return cleanString(env.DATA_BOX_ISDS_ENVIRONMENT).toLowerCase() === "test" ? "test" : "production";
+}
+
+function dataBoxAccountId(slot) {
+  return slot === 1 ? PRIMARY_DATA_BOX_ID : `kaiser-data-box-${slot}`;
+}
+
+function slotEnvValue(env = {}, baseName, slot, allowPrimaryFallback = true) {
+  const slotted = cleanString(env[`${baseName}_${slot}`]);
+  if (slotted) {
+    return slotted;
+  }
+
+  if (slot === 1 && allowPrimaryFallback) {
+    return cleanString(env[baseName]);
+  }
+
+  return "";
+}
+
+function accountUsername(env = {}, slot) {
+  return slotEnvValue(env, "DATA_BOX_ISDS_USERNAME", slot)
+    || slotEnvValue(env, "DATA_BOX_ISDS_LOGIN", slot);
+}
+
+function accountPassword(env = {}, slot) {
+  return slotEnvValue(env, "DATA_BOX_ISDS_PASSWORD", slot);
+}
+
+function accountMissingName(baseName, slot) {
+  return slot === 1 ? `${baseName} nebo ${baseName}_1` : `${baseName}_${slot}`;
+}
+
+function accountLabel(env = {}, slot) {
+  return slotEnvValue(env, "DATA_BOX_ISDS_LABEL", slot)
+    || (slot === 1 ? "Kaiser Smart Datova schranka" : `Datova schranka ${slot}`);
+}
+
+function shouldExposeAccount(env = {}, slot, account) {
+  if (slot === 1) {
+    return true;
+  }
+
+  return Boolean(
+    account.username
+    || account.password
+    || account.isdsId
+    || slotEnvValue(env, "DATA_BOX_ISDS_LABEL", slot, false)
+    || cleanString(env[`DATA_BOX_ISDS_ENABLED_${slot}`])
+  );
+}
+
+function accountConfig(env = {}, slot) {
+  const globalEnabled = enabledFlag(env.DATA_BOX_ISDS_ENABLED);
   const baseUrl = baseUrlFromEnv(env);
+  const username = accountUsername(env, slot);
+  const password = accountPassword(env, slot);
+  const slotEnabledValue = cleanString(env[`DATA_BOX_ISDS_ENABLED_${slot}`]);
+  const slotEnabled = slotEnabledValue ? enabledFlag(slotEnabledValue) : true;
+  const enabled = globalEnabled && slotEnabled;
   const configured = enabled && Boolean(username && password);
   const missing = [];
 
-  if (!enabled) missing.push("DATA_BOX_ISDS_ENABLED");
-  if (!username) missing.push("DATA_BOX_ISDS_USERNAME");
-  if (!password) missing.push("DATA_BOX_ISDS_PASSWORD");
+  if (!globalEnabled) missing.push("DATA_BOX_ISDS_ENABLED");
+  if (slotEnabledValue && !slotEnabled) missing.push(`DATA_BOX_ISDS_ENABLED_${slot}`);
+  if (!username) missing.push(accountMissingName("DATA_BOX_ISDS_USERNAME", slot));
+  if (!password) missing.push(accountMissingName("DATA_BOX_ISDS_PASSWORD", slot));
 
   return {
+    slot,
+    id: dataBoxAccountId(slot),
+    label: accountLabel(env, slot),
+    isdsId: slotEnvValue(env, "DATA_BOX_ISDS_ID", slot),
     enabled,
     configured,
-    mode: cleanString(env.DATA_BOX_ISDS_ENVIRONMENT).toLowerCase() === "test" ? "test" : "production",
+    mode: modeFromEnv(env),
     baseUrl,
     infoEndpointUrl: `${baseUrl}${ISDS_INFO_PATH}`,
+    messageEndpointUrl: `${baseUrl}${ISDS_MESSAGE_PATH}`,
     hasUsername: Boolean(username),
     hasPassword: Boolean(password),
     missing,
+    username,
+    password,
+    limit: positiveInteger(env.DATA_BOX_ISDS_MESSAGE_LIMIT, DEFAULT_LIMIT, 100),
+    lookbackDays: positiveInteger(env.DATA_BOX_ISDS_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, 365),
+    documentationStatus: "official-isds-wsdl-3.11-2026-06-26"
+  };
+}
+
+function publicAccountStatus(config) {
+  const {
+    username,
+    password,
+    ...safeConfig
+  } = config;
+  return safeConfig;
+}
+
+function allAccountConfigs(env = {}) {
+  const accounts = [];
+  for (let slot = 1; slot <= MAX_ISDS_ACCOUNTS; slot += 1) {
+    const config = accountConfig(env, slot);
+    if (shouldExposeAccount(env, slot, config)) {
+      accounts.push(config);
+    }
+  }
+  return accounts;
+}
+
+export function dataBoxIsdsAccountConfigs(env = {}) {
+  return allAccountConfigs(env).filter((account) => account.configured);
+}
+
+export function dataBoxIsdsStatus(env = {}) {
+  const accounts = allAccountConfigs(env);
+  const configuredAccounts = accounts.filter((account) => account.configured);
+  const baseUrl = baseUrlFromEnv(env);
+  const enabled = enabledFlag(env.DATA_BOX_ISDS_ENABLED);
+
+  return {
+    enabled,
+    configured: configuredAccounts.length > 0,
+    configuredAccounts: configuredAccounts.length,
+    accountCount: accounts.length,
+    maxAccounts: MAX_ISDS_ACCOUNTS,
+    mode: modeFromEnv(env),
+    baseUrl,
+    infoEndpointUrl: `${baseUrl}${ISDS_INFO_PATH}`,
+    hasUsername: accounts.some((account) => account.hasUsername),
+    hasPassword: accounts.some((account) => account.hasPassword),
+    missing: configuredAccounts.length ? [] : (accounts[0]?.missing || [
+      "DATA_BOX_ISDS_ENABLED",
+      "DATA_BOX_ISDS_USERNAME",
+      "DATA_BOX_ISDS_PASSWORD"
+    ]),
+    accounts: accounts.map(publicAccountStatus),
     documentationStatus: "official-isds-wsdl-3.11-2026-06-26"
   };
 }
 
 function isdsConfig(env = {}) {
-  const status = dataBoxIsdsStatus(env);
-  return {
-    ...status,
-    username: cleanString(env.DATA_BOX_ISDS_USERNAME || env.DATA_BOX_ISDS_LOGIN),
-    password: cleanString(env.DATA_BOX_ISDS_PASSWORD),
-    limit: positiveInteger(env.DATA_BOX_ISDS_MESSAGE_LIMIT, DEFAULT_LIMIT, 100),
-    lookbackDays: positiveInteger(env.DATA_BOX_ISDS_LOOKBACK_DAYS, DEFAULT_LOOKBACK_DAYS, 365)
-  };
+  return dataBoxIsdsAccountConfigs(env)[0] || accountConfig(env, 1);
 }
 
 function ensureIsdsConfig(config) {
   if (!config.configured) {
     throw new DataBoxIsdsError(
-      "ISDS read-only synchronizace ceka na Cloudflare secrets DATA_BOX_ISDS_ENABLED, DATA_BOX_ISDS_USERNAME a DATA_BOX_ISDS_PASSWORD.",
+      "ISDS read-only synchronizace ceka na Cloudflare secrets DATA_BOX_ISDS_ENABLED a alespon jednu dvojici DATA_BOX_ISDS_USERNAME/PASSWORD nebo DATA_BOX_ISDS_USERNAME_1..6/PASSWORD_1..6.",
       409,
       "data_box_isds_not_configured"
     );
@@ -185,6 +298,10 @@ function messageListRequestXml(direction, config) {
   `;
 }
 
+function messageDownloadRequestXml(messageId) {
+  return `<v20:dmID>${xmlEscape(messageId)}</v20:dmID>`;
+}
+
 function soapFaultMessage(xml) {
   return tagValue(xml, "faultstring") || tagValue(xml, "faultcode") || tagValue(xml, "dmStatusMessage");
 }
@@ -222,9 +339,9 @@ async function withTimeout(task, timeoutMs = ISDS_TIMEOUT_MS) {
   }
 }
 
-async function soapRequest(config, operation, innerXml) {
+async function soapRequest(config, operation, innerXml, endpointUrl = config.infoEndpointUrl) {
   const body = soapEnvelope(operation, innerXml);
-  const response = await withTimeout((signal) => fetch(config.infoEndpointUrl, {
+  const response = await withTimeout((signal) => fetch(endpointUrl, {
     method: "POST",
     headers: {
       Authorization: authHeader(config),
@@ -279,8 +396,108 @@ async function fetchMessageList(config, direction) {
     .filter((message) => message.isdsMessageId);
 }
 
-export async function fetchDataBoxMessageMetadata(env = {}) {
-  const config = isdsConfig(env);
+function base64ToBytes(value) {
+  const normalized = cleanString(value).replace(/\s+/g, "");
+  if (!normalized) {
+    return new Uint8Array();
+  }
+
+  if (typeof atob === "function") {
+    const binary = atob(normalized);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  return new Uint8Array(Buffer.from(normalized, "base64"));
+}
+
+function parseAttachmentRecord(block, index) {
+  const encodedContent = tagValue(block, "dmEncodedContent");
+  let bytes = new Uint8Array();
+  try {
+    bytes = base64ToBytes(encodedContent);
+  } catch {
+    bytes = new Uint8Array();
+  }
+  const filename = tagValue(block, "dmFileDescr") || `priloha-${index + 1}`;
+  const contentType = tagAttribute(block, "dmFile", "dmMimeType") || "application/octet-stream";
+  const fileMetaType = tagAttribute(block, "dmFile", "dmFileMetaType");
+  const fileGuid = tagAttribute(block, "dmFile", "dmFileGuid")
+    || tagAttribute(block, "dmFile", "dmFileId")
+    || tagValue(block, "dmFileGuid");
+
+  return {
+    index,
+    fileGuid,
+    filename,
+    contentType,
+    fileMetaType,
+    sizeBytes: bytes.byteLength,
+    bytes
+  };
+}
+
+function parseMessageAttachments(xml) {
+  return tagBlocks(xml, "dmFile")
+    .map((block, index) => parseAttachmentRecord(block, index))
+    .filter((attachment) => attachment.filename || attachment.sizeBytes > 0);
+}
+
+export async function fetchDataBoxMessageAttachments(env = {}, account = null, message = {}) {
+  const config = account || isdsConfig(env);
+  ensureIsdsConfig(config);
+
+  const messageId = cleanString(message.isdsMessageId || message.dmID || message.id);
+  if (!messageId) {
+    throw new DataBoxIsdsError("Chybi ISDS ID zpravy pro stazeni priloh.", 400, "data_box_isds_message_id_missing");
+  }
+
+  const operations = cleanString(message.direction).toLowerCase() === "sent"
+    ? ["SignedSentMessageDownload", "MessageDownload", "SignedMessageDownload", "GetMessage"]
+    : ["MessageDownload", "SignedMessageDownload", "GetMessage"];
+  const endpointUrls = [
+    cleanString(config.messageEndpointUrl),
+    cleanString(config.infoEndpointUrl)
+  ].filter(Boolean);
+  let lastError = null;
+  const operationErrors = [];
+
+  for (const endpointUrl of endpointUrls) {
+    for (const operation of operations) {
+      try {
+        const xml = await soapRequest(config, operation, messageDownloadRequestXml(messageId), endpointUrl);
+        const attachments = parseMessageAttachments(xml);
+        return {
+          fetchedAt: new Date().toISOString(),
+          operation,
+          endpointUrl,
+          messageId,
+          attachmentsCount: attachments.length,
+          attachments,
+          config: publicAccountStatus(config)
+        };
+      } catch (error) {
+        lastError = error;
+        operationErrors.push({
+          endpoint: endpointUrl.replace(config.baseUrl, ""),
+          operation,
+          code: cleanString(error?.code || error?.name || "data_box_isds_operation_failed"),
+          message: cleanString(error?.message || "ISDS operace selhala.").slice(0, 240)
+        });
+      }
+    }
+  }
+
+  const finalError = lastError || new DataBoxIsdsError("ISDS detail zpravy se nepodarilo nacist.", 502, "data_box_isds_message_download_failed");
+  finalError.operationErrors = operationErrors;
+  throw finalError;
+}
+
+export async function fetchDataBoxMessageMetadata(env = {}, account = null) {
+  const config = account || isdsConfig(env);
   ensureIsdsConfig(config);
 
   const [received, sent] = await Promise.all([
@@ -293,6 +510,6 @@ export async function fetchDataBoxMessageMetadata(env = {}) {
     messages: [...received, ...sent],
     receivedCount: received.length,
     sentCount: sent.length,
-    config: dataBoxIsdsStatus(env)
+    config: publicAccountStatus(config)
   };
 }
