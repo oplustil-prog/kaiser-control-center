@@ -6433,6 +6433,7 @@ body:has(.ai-assistant-promo-modal) {
 .ai-voice-start-button:focus-visible,
 .ai-voice-assistant-panel__close:focus-visible,
 .ai-voice-assistant-panel__mic:focus-visible,
+.ai-voice-assistant-panel__quick-start-button:focus-visible,
 .ai-voice-assistant-panel__text-fallback:focus-visible,
 .ai-voice-assistant-panel__stop:focus-visible,
 .ai-assistant-mode-switch__button:focus-visible,
@@ -17920,6 +17921,7 @@ body:has(.data-box-page) .data-box-side-card--sync {
 }
 
 .ai-voice-assistant-panel__close,
+.ai-voice-assistant-panel__quick-start-button,
 .ai-voice-assistant-panel__primary,
 .ai-voice-assistant-panel__text-fallback,
 .ai-voice-assistant-panel__stop {
@@ -18320,6 +18322,39 @@ body:has(.data-box-page) .data-box-side-card--sync {
   overflow-wrap: anywhere;
 }
 
+.ai-voice-assistant-panel__quick-start {
+  display: grid;
+  width: min(100%, 430px);
+  justify-self: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(117, 189, 37, 0.22);
+  border-radius: 16px;
+  background: #f7ffe9;
+}
+
+.ai-voice-assistant-panel__quick-start-button {
+  width: 100%;
+  min-height: 74px;
+  padding: 0 22px;
+  border: 1px solid rgba(117, 189, 37, 0.4);
+  background: #b7ec2f;
+  color: #172018;
+  font-size: 1.1rem;
+  font-weight: 850;
+  box-shadow: 0 16px 34px rgba(117, 189, 37, 0.24);
+}
+
+.ai-voice-assistant-panel__quick-start p {
+  margin: 0;
+  color: #56615a;
+  font-size: 0.82rem;
+  font-weight: 620;
+  line-height: 1.25;
+  text-align: center;
+}
+
 .ai-voice-assistant-panel__system-status {
   display: grid;
   width: min(100%, 390px);
@@ -18522,6 +18557,16 @@ body:has(.data-box-page) .data-box-side-card--sync {
   .ai-voice-assistant-panel__body {
     gap: 10px;
     padding: 10px 12px 12px;
+  }
+
+  .ai-voice-assistant-panel__quick-start {
+    width: 100%;
+    padding: 10px;
+  }
+
+  .ai-voice-assistant-panel__quick-start-button {
+    min-height: 78px;
+    font-size: 1.08rem;
   }
 
   .ai-voice-assistant-panel__actions {

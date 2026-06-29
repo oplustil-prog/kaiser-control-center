@@ -865,6 +865,7 @@ const aiAssistantState = {
   voiceTags: ["Připraven", "Bez odeslání", "Čeká na hlas"],
   voiceNotice: "",
   voiceWakeLockStatus: "idle",
+  sarlotaDeepLinkQuickStart: false,
   isListening: false,
   demoPlaying: false,
   demoSpeaker: "",
@@ -2037,6 +2038,7 @@ function openAiAssistant(mode = "text", options = {}) {
 
   if (nextMode !== "voice") {
     elevenLabsAssistant.stopVoiceAudio?.();
+    aiAssistantState.sarlotaDeepLinkQuickStart = false;
     clearSarlotaDeepLinkUrl();
   }
 
@@ -2045,6 +2047,7 @@ function openAiAssistant(mode = "text", options = {}) {
   aiAssistantState.chatOpen = true;
   aiAssistantState.launcherVisible = false;
   aiAssistantState.mode = nextMode;
+  aiAssistantState.sarlotaDeepLinkQuickStart = nextMode === "voice" && Boolean(options.sarlotaDeepLinkQuickStart);
   if (aiAssistantState.mode === "voice") {
     aiAssistantState.selectedAssistantId = DEFAULT_AI_ASSISTANT_ID;
     const assistant = assistantById(DEFAULT_AI_ASSISTANT_ID);
@@ -2086,6 +2089,7 @@ function closeAiAssistant() {
   aiAssistantState.voiceStatus = AI_STATUS_DONE;
   aiAssistantState.voiceUiState = "idle";
   aiAssistantState.voiceWakeLockStatus = "idle";
+  aiAssistantState.sarlotaDeepLinkQuickStart = false;
   clearSarlotaDeepLinkUrl();
   renderAiAssistantLayerOnly();
 }
@@ -2552,6 +2556,7 @@ function renderAiAssistantLayer() {
       assistantStatus: sarlotaPanelStatusState.data,
       assistantStatusLoading: sarlotaPanelStatusState.loading,
       assistantStatusError: sarlotaPanelStatusState.error,
+      quickStart: aiAssistantState.sarlotaDeepLinkQuickStart,
       demoPlaying: aiAssistantState.demoPlaying,
       demoSpeaker: aiAssistantState.demoSpeaker,
       demoSpeakerLabel: aiAssistantState.demoSpeakerLabel,
@@ -21160,9 +21165,10 @@ function prepareSarlotaDeepLinkPanel() {
   }
 
   if (!aiAssistantState.chatOpen || aiAssistantState.mode !== "voice") {
-    openAiAssistant("voice", { renderAfter: false });
+    openAiAssistant("voice", { renderAfter: false, sarlotaDeepLinkQuickStart: true });
   } else {
     aiAssistantState.selectedAssistantId = DEFAULT_AI_ASSISTANT_ID;
+    aiAssistantState.sarlotaDeepLinkQuickStart = true;
   }
 
   ensureSarlotaPanelStatusData({ renderAfter: false });

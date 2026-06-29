@@ -96,6 +96,7 @@ export function AiVoiceAssistantPanel({
   assistantStatus = null,
   assistantStatusLoading = false,
   assistantStatusError = "",
+  quickStart = false,
   demoPlaying = false,
   demoSpeaker = "",
   demoSpeakerLabel = "",
@@ -173,10 +174,11 @@ export function AiVoiceAssistantPanel({
   const tags = Array.isArray(voiceTags) && voiceTags.length
     ? voiceTags
     : ["Připraven", "Bez odeslání", "Čeká na hlas"];
+  const showQuickStart = quickStart && normalizedVoiceUiState === "idle" && !voiceBusy && !demoPlaying;
 
   return `
     <section
-      class="ai-voice-assistant-panel ai-voice-assistant-panel--state-${escapeHtml(normalizedVoiceUiState)} ${listening ? "ai-voice-assistant-panel--listening" : ""} ${demoPlaying ? "ai-voice-assistant-panel--demo-playing" : ""} ${speakerClass}"
+      class="ai-voice-assistant-panel ai-voice-assistant-panel--state-${escapeHtml(normalizedVoiceUiState)} ${showQuickStart ? "ai-voice-assistant-panel--quick-start" : ""} ${listening ? "ai-voice-assistant-panel--listening" : ""} ${demoPlaying ? "ai-voice-assistant-panel--demo-playing" : ""} ${speakerClass}"
       role="dialog"
       aria-modal="false"
       aria-labelledby="ai-voice-assistant-title"
@@ -197,6 +199,15 @@ export function AiVoiceAssistantPanel({
       </header>
 
       <div class="ai-voice-assistant-panel__body">
+        ${showQuickStart ? `
+          <div class="ai-voice-assistant-panel__quick-start" aria-label="Rychlé spuštění Šarloty">
+            <button class="ai-voice-assistant-panel__quick-start-button" type="button" data-ai-start-voice>
+              Spustit hlas
+            </button>
+            <p>Mikrofon se spustí až po klepnutí.</p>
+          </div>
+        ` : ""}
+
         <div class="ai-voice-assistant-panel__mode">
           ${AiAssistantModeSwitch({ mode })}
         </div>
