@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.238"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.240"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,14 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: rychlý zápis dovolené z EL",
+    text: "Potvrzený ElevenLabs tool create_absence_request má v KSO backendu rychlou větev bez zbytečného LLM rozhodování, aby zápis dovolené nekončil timeoutem v hovoru."
+  },
+  {
+    title: "Šarlota: oprava potvrzení zápisu",
+    text: "Hlasový zápis dovolené už nebere confirmed=false jako odmítnutí. Pokud potvrzení chybí, Šarlota se má krátce doptat; technická chyba toolu se vrací jako čitelný stav bez falešného hotovo."
+  },
   {
     title: "Šarlota: rychlé krátké odpovědi",
     text: "Centrální pravidla Šarloty nově výslovně drží rychlé věcné odpovědi, jednu krátkou otázku najednou a zákaz opakování stejné otázky dokola."

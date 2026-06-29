@@ -65,10 +65,10 @@ function toolDetail(tools = null) {
 
 function modelDetail(model = null) {
   if (!model) {
-    return "GPT-5.1 / neověřeno";
+    return "Qwen3.5-397B-A17B / neověřeno";
   }
 
-  const expected = model.expectedModel || "GPT-5.1";
+  const expected = model.expectedModel || "Qwen3.5-397B-A17B";
   if (model.verifiedInElevenLabs && model.status === "ok") {
     return `${expected} ověřeno v ElevenLabs`;
   }
@@ -121,7 +121,7 @@ export function SarlotaStatusPanel({
     statusRow("První zpráva", data.firstMessage?.status || "unverified", firstMessageDetail(data.firstMessage)),
     statusRow("Personalizace", data.personalization?.status || "unverified", data.personalization?.source || "přihlášený uživatel"),
     statusRow("Vocativ uživatele", data.vocative?.status || "unverified", vocativeDetail),
-    statusRow("OpenAI model v EL", data.openAiModelInElevenLabs?.status || "unverified", modelDetail(data.openAiModelInElevenLabs)),
+    statusRow("LLM model v EL", data.openAiModelInElevenLabs?.status || "unverified", modelDetail(data.openAiModelInElevenLabs)),
     statusRow("Tools", data.tools?.status || "unverified", toolDetail(data.tools)),
     statusRow(
       "Signed-url endpoint",

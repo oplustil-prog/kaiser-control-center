@@ -4,8 +4,8 @@ import { normalizeAiSearch, userDynamicVariablesForAi } from "../../../_lib/ai-p
 import { ELEVENLABS_CLIENT_TOOL_SCHEMAS } from "../../../../src/elevenLabsClientTools.js";
 
 const SARLOTA_AGENT_NAME = "Šarlota – Smart odpady";
-const OPENAI_MODEL_EXPECTED_IN_ELEVENLABS = "GPT-5.1";
-const OPENAI_MODEL_EXPECTED_NORMALIZED = "gpt51";
+const LLM_MODEL_EXPECTED_IN_ELEVENLABS = "Qwen3.5-397B-A17B";
+const LLM_MODEL_EXPECTED_NORMALIZED = "qwen35397ba17b";
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
 const SARLOTA_ASSISTANT = {
   id: "sarlota",
@@ -189,7 +189,7 @@ async function readElevenLabsAgentConfig({ apiKey, agentId }) {
 
     const agentConfig = await response.json();
     const observedModel = modelFromAgent(agentConfig);
-    const modelMatches = normalizeStatusText(observedModel) === OPENAI_MODEL_EXPECTED_NORMALIZED;
+    const modelMatches = normalizeStatusText(observedModel) === LLM_MODEL_EXPECTED_NORMALIZED;
     const firstMessage = firstMessageFromAgent(agentConfig);
     const firstMessageMatches = cleanString(firstMessage) === FIRST_MESSAGE_TEMPLATE;
     const configuredToolNames = toolNamesFromAgent(agentConfig);
@@ -323,7 +323,7 @@ export async function sarlotaStatusPayload(env, user) {
     },
     openAiModelInElevenLabs: {
       status: modelStatus,
-      expectedModel: OPENAI_MODEL_EXPECTED_IN_ELEVENLABS,
+      expectedModel: LLM_MODEL_EXPECTED_IN_ELEVENLABS,
       observedModel: liveAgentVerified ? cleanString(elevenLabsAgentConfig.observedModel) : "",
       verifiedInElevenLabs: liveAgentVerified
     },
@@ -429,8 +429,8 @@ export async function sarlotaPanelStatusPayload(env, user) {
         status: openAiStatus,
         detail: panelStatusDetail(openAiStatus, {
           ok: openAiModelStatus === "ok"
-            ? "OK, server-side klíč existuje a model je ověřen v ElevenLabs"
-            : `OK, server-side klíč existuje; model v ElevenLabs ${OPENAI_MODEL_EXPECTED_IN_ELEVENLABS} / NEOVĚŘENO`,
+            ? "OK, server-side klíč existuje a LLM model je ověřen v ElevenLabs"
+            : `OK, server-side klíč existuje; LLM model v ElevenLabs ${LLM_MODEL_EXPECTED_IN_ELEVENLABS} / NEOVĚŘENO`,
           error: "chybí server-side OPENAI_API_KEY",
           unverified: "NEOVĚŘENO"
         })

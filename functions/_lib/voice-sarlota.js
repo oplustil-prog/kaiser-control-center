@@ -434,7 +434,7 @@ function absenceConfirmation(payload, speechText) {
   }
 
   if (explicit === false) {
-    return "rejected";
+    return "";
   }
 
   const normalized = normalizeKey(speechText);
@@ -1165,61 +1165,55 @@ function finalReplyFor(decision, toolResult) {
   return sanitizeSarlotaReply(decision.reply);
 }
 
-export async function handleSarlotaVoiceRequest(env, user, payload = {}, options = {}) {
-  const speechText = speechTextFromPayload(payload);
-  const context = contextFromPayload(payload);
-  const businessHours = businessHoursStatus(env);
-  const humanTouch = await sarlotaHumanTouchContext(env, user, payload);
-  const input = {
-    text: speechText,
+async function recordVoiceActionSafely(env, user, { input, context, businessHours, humanTouch, decision, toolResult, reply }) {
+  try {
+    return await recordAiAction(env, user, {
+      assistantId: ASSISTANT_ID,
+      assistantName: ASSISTANT_NAME,
+      actionType: "voice",
+      toolName: `voice_sarlota_${decision.intent}`,
+      input: {
+        authSource: input.authSource,
+        conversationId: context.conversationId,
+        transcriptExcerpt: truncate(input.text, 500),
+        requestedIntent: context.requestedIntent,
+        smsConsent: context.smsConsent,
+        absenceDateFrom: context.absenceDateFrom,
+        absenceDayPart: context.absenceDayPart,
+        absenceConfirmed: context.absenceConfirmed,
+        humanTouchAvailable: Boolean(humanTouch.enabled),
+        humanTouchTypes: humanTouch.suggestions?.map((item) => item.type) || []
+      },
+      result: {
+        intent: decision.intent,
+        confidence: decision.confidence,
+        status: toolResult.status,
+        verified: Boolean(toolResult.verified),
+        replyExcerpt: truncate(reply, 360),
+        preparedActions: toolResult.preparedActions?.length || 0,
+        businessHours: businessHours.isBusinessHours,
+        absenceRequestId: cleanString(toolResult.absenceRequest?.id),
+        notificationsSent: toolResult.notificationsSent === true,
+        humanTouchUsed: decision.humanTouchUsed === true
+      },
+      status: "ok"
+    });
+  } catch (error) {
+    console.error("voice_sarlota.action_log_failed", { message: error.message });
+    return { logged: false, id: "", reason: "action_log_failed" };
+  }
+}
+
+async function buildVoiceResponse(env, user, payload, { input, context, businessHours, humanTouch, decision, toolResult }) {
+  const reply = finalReplyFor(decision, toolResult);
+  const logResult = await recordVoiceActionSafely(env, user, {
+    input,
     context,
     businessHours,
     humanTouch,
-    user: publicUserContext(user),
-    authSource: cleanString(options.authSource || "unknown")
-  };
-
-  const openAiDecision = await requestOpenAiDecision(env, input);
-  const decision = isAbsenceVacationRequest(payload, speechText, context)
-    ? {
-        ...openAiDecision,
-        intent: "absence_vacation_request",
-        needsHuman: false,
-        confidence: Math.max(openAiDecision.confidence, 0.9)
-      }
-    : openAiDecision;
-  const toolResult = await executeTool(decision, context, businessHours, { env, user, payload, speechText });
-  const reply = finalReplyFor(decision, toolResult);
-  const logResult = await recordAiAction(env, user, {
-    assistantId: ASSISTANT_ID,
-    assistantName: ASSISTANT_NAME,
-    actionType: "voice",
-    toolName: `voice_sarlota_${decision.intent}`,
-    input: {
-      authSource: input.authSource,
-      conversationId: context.conversationId,
-      transcriptExcerpt: truncate(speechText, 500),
-      requestedIntent: context.requestedIntent,
-      smsConsent: context.smsConsent,
-      absenceDateFrom: context.absenceDateFrom,
-      absenceDayPart: context.absenceDayPart,
-      absenceConfirmed: context.absenceConfirmed,
-      humanTouchAvailable: Boolean(humanTouch.enabled),
-      humanTouchTypes: humanTouch.suggestions?.map((item) => item.type) || []
-    },
-    result: {
-      intent: decision.intent,
-      confidence: decision.confidence,
-      status: toolResult.status,
-      verified: Boolean(toolResult.verified),
-      replyExcerpt: truncate(reply, 360),
-      preparedActions: toolResult.preparedActions?.length || 0,
-      businessHours: businessHours.isBusinessHours,
-      absenceRequestId: cleanString(toolResult.absenceRequest?.id),
-      notificationsSent: toolResult.notificationsSent === true,
-      humanTouchUsed: decision.humanTouchUsed === true
-    },
-    status: "ok"
+    decision,
+    toolResult,
+    reply
   });
 
   return {
@@ -1251,6 +1245,57 @@ export async function handleSarlotaVoiceRequest(env, user, payload = {}, options
     model: decision.model,
     apiStatus: toolResult.apiStatus || "ready"
   };
+}
+
+export async function handleSarlotaVoiceRequest(env, user, payload = {}, options = {}) {
+  const speechText = speechTextFromPayload(payload);
+  const context = contextFromPayload(payload);
+  const businessHours = businessHoursStatus(env);
+  const input = {
+    text: speechText,
+    context,
+    businessHours,
+    humanTouch: { enabled: false, suggestions: [] },
+    user: publicUserContext(user),
+    authSource: cleanString(options.authSource || "unknown")
+  };
+
+  if (isAbsenceVacationRequest(payload, speechText, context)) {
+    const decision = {
+      intent: "absence_vacation_request",
+      reply: "",
+      needsHuman: false,
+      humanTouchUsed: false,
+      confidence: 0.98,
+      model: "kso-deterministic"
+    };
+    const toolResult = await absenceVacationTool(env, user, payload, context, speechText);
+
+    return buildVoiceResponse(env, user, payload, {
+      input,
+      context,
+      businessHours,
+      humanTouch: input.humanTouch,
+      decision,
+      toolResult
+    });
+  }
+
+  const humanTouch = await sarlotaHumanTouchContext(env, user, payload);
+  input.humanTouch = humanTouch;
+
+  const openAiDecision = await requestOpenAiDecision(env, input);
+  const decision = openAiDecision;
+  const toolResult = await executeTool(decision, context, businessHours, { env, user, payload, speechText });
+
+  return buildVoiceResponse(env, user, payload, {
+    input,
+    context,
+    businessHours,
+    humanTouch,
+    decision,
+    toolResult
+  });
 }
 
 export function voiceSarlotaErrorResponse(error) {

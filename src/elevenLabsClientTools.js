@@ -422,31 +422,51 @@ export function createElevenLabsClientTools({
       confirmed ? "ano, zapiš to" : ""
     ].filter(Boolean).join(" ");
 
-    const result = await postJson("/api/voice/sarlota", {
-      transcript: text,
-      text,
-      intent: "absence_vacation_request",
-      parameters: {
-        type: "vacation",
-        dateFrom,
-        dateTo: dateTo || dateFrom,
-        dayPart,
-        confirmed,
-        writeConfirmed: confirmed,
-        note
-      },
-      context: {
-        requestedIntent: "absence_vacation_request",
-        absenceType: "vacation",
-        absenceDateFrom: dateFrom,
-        absenceDateTo: dateTo || dateFrom,
-        absenceDayPart: dayPart,
-        absenceConfirmed: confirmed
-      },
-      metadata: {
-        source: "elevenlabs_client_tool"
-      }
-    });
+    let result;
+
+    try {
+      result = await postJson("/api/voice/sarlota", {
+        transcript: text,
+        text,
+        intent: "absence_vacation_request",
+        parameters: {
+          type: "vacation",
+          dateFrom,
+          dateTo: dateTo || dateFrom,
+          dayPart,
+          confirmed,
+          writeConfirmed: confirmed,
+          note
+        },
+        context: {
+          requestedIntent: "absence_vacation_request",
+          absenceType: "vacation",
+          absenceDateFrom: dateFrom,
+          absenceDateTo: dateTo || dateFrom,
+          absenceDayPart: dayPart,
+          absenceConfirmed: confirmed
+        },
+        metadata: {
+          source: "elevenlabs_client_tool"
+        }
+      });
+    } catch (error) {
+      const message = cleanString(error?.payload?.error || error?.message) || "Zápis se nepodařil.";
+      return {
+        ok: false,
+        status: "request_failed",
+        message: `${message} Nic jsem nezapsala.`,
+        answerText: `${message} Nic jsem nezapsala.`,
+        intent: "absence_vacation_request",
+        verified: false,
+        requiresConfirmation: false,
+        preparedActions: [],
+        absenceRequest: null,
+        notificationsSent: false,
+        apiStatus: error?.payload?.apiStatus || "waiting",
+        code: error?.payload?.code || "absence_vacation_request_failed"
+      };
+    }
 
     return {
       ok: result.ok === true,

@@ -463,13 +463,28 @@ async function appendHistory(db, requestId, fromStatus, toStatus, currentUser, n
     .run();
 }
 
-async function historyForRequest(db, requestId) {
-  const result = await db
-    .prepare("SELECT * FROM absence_approval_history WHERE absence_request_id = ? ORDER BY changed_at DESC")
-    .bind(requestId)
-    .all();
+async function appendHistorySafely(db, requestId, fromStatus, toStatus, currentUser, note = "") {
+  try {
+    await appendHistory(db, requestId, fromStatus, toStatus, currentUser, note);
+    return { ok: true };
+  } catch (error) {
+    console.error("absence_requests.history_append_failed", { message: error.message });
+    return { ok: false, code: "absence_history_append_failed" };
+  }
+}
 
-  return (result.results || []).map(historyFromRow);
+async function historyForRequest(db, requestId) {
+  try {
+    const result = await db
+      .prepare("SELECT * FROM absence_approval_history WHERE absence_request_id = ? ORDER BY changed_at DESC")
+      .bind(requestId)
+      .all();
+
+    return (result.results || []).map(historyFromRow);
+  } catch (error) {
+    console.error("absence_requests.history_read_failed", { message: error.message });
+    return [];
+  }
 }
 
 async function requestById(db, requestId, includeHistory = false) {
@@ -650,14 +665,15 @@ export async function createAbsenceRequestRecord(env, users, currentUser, input)
     )
     .run();
 
-  await appendHistory(db, request.id, "draft", request.status, currentUser, request.note);
+  const historyResult = await appendHistorySafely(db, request.id, "draft", request.status, currentUser, request.note);
 
   return {
     ...request,
     typeLabel: TYPE_LABELS[request.type],
     statusLabel: STATUS_LABELS[request.status],
     dateTo: request.dateTo || addDays(request.dateFrom, 0),
-    history: await historyForRequest(db, request.id)
+    history: await historyForRequest(db, request.id),
+    historyStatus: historyResult.ok ? "ok" : "warning"
   };
 }
 
@@ -697,7 +713,7 @@ export async function approveAbsenceRequestRecord(env, users, currentUser, reque
     )
     .run();
 
-  await appendHistory(db, request.id, request.status, "approved", currentUser, cleanString(input?.note) || "Schváleno.");
+  await appendHistorySafely(db, request.id, request.status, "approved", currentUser, cleanString(input?.note) || "Schváleno.");
   return getAbsenceRequestRecord(env, users, currentUser, request.id);
 }
 
@@ -739,7 +755,7 @@ export async function rejectAbsenceRequestRecord(env, users, currentUser, reques
     )
     .run();
 
-  await appendHistory(db, request.id, request.status, "rejected", currentUser, reason || "Zamítnuto.");
+  await appendHistorySafely(db, request.id, request.status, "rejected", currentUser, reason || "Zamítnuto.");
   return getAbsenceRequestRecord(env, users, currentUser, request.id);
 }
 
@@ -765,7 +781,7 @@ export async function cancelAbsenceRequestRecord(env, users, currentUser, reques
     .prepare("UPDATE absence_requests SET status = 'cancelled', updated_at = ? WHERE id = ?")
     .bind(now, request.id)
     .run();
-  await appendHistory(db, request.id, request.status, "cancelled", currentUser, "Zrušeno uživatelem.");
+  await appendHistorySafely(db, request.id, request.status, "cancelled", currentUser, "Zrušeno uživatelem.");
   return getAbsenceRequestRecord(env, users, currentUser, request.id);
 }
 

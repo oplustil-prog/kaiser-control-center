@@ -73,6 +73,7 @@ Bezpečný rychlý profil v ElevenLabs:
 
 - first message: `{{intro_announcement}}`
 - language: Czech
+- LLM model: `Qwen3.5-397B-A17B`
 - LLM temperature: `0.25`
 - reasoning effort: `Low`
 - token limit: `180`
