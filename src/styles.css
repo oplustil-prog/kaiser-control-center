@@ -18799,6 +18799,27 @@ body:has(.data-box-page) .data-box-message-safe-actions .secondary-link[disabled
   opacity: 0.55;
 }
 
+body:has(.data-box-page) .data-box-action-feedback {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+body:has(.data-box-page) .data-box-action-feedback--success {
+  border: 1px solid color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 28%, var(--theme-border, var(--line)));
+  background: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 10%, #ffffff);
+  color: var(--data-box-text, var(--text));
+}
+
+body:has(.data-box-page) .data-box-action-feedback--error {
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  background: rgba(180, 35, 24, 0.06);
+  color: #7a271a;
+}
+
 body:has(.data-box-page) .data-box-reply-draft {
   display: grid;
   gap: 12px;

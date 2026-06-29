@@ -755,6 +755,9 @@ const dataBoxState = {
   replyDraftOpen: false,
   replyDraftText: "",
   replyDraftError: "",
+  actionLoading: "",
+  actionNotice: "",
+  actionError: "",
   selectedPreviewMessageId: "",
   messagePagination: {
     pageSize: 5,
@@ -6443,6 +6446,10 @@ function moduleRulesAutomationPanel({
         <div class="module-rules-actions">
           <button class="primary-action" type="button" data-module-rule-new="rule" ${moduleRulesState.saving ? "disabled" : ""}>Nové pravidlo</button>
           <button class="secondary-link" type="button" data-module-rule-new="automation" ${moduleRulesState.saving ? "disabled" : ""}>Nová automatizace</button>
+          ${moduleRulesState.moduleKey === DATA_BOX_MODULE_KEY ? `
+            <button class="secondary-link" type="button" data-module-rules-dry-run ${moduleRulesState.saving ? "disabled" : ""}>Dry-run DS</button>
+            <button class="secondary-link" type="button" data-module-rules-run ${moduleRulesState.saving ? "disabled" : ""}>Spustit DS pravidla</button>
+          ` : ""}
         </div>
       ` : ""}
 
@@ -15365,6 +15372,7 @@ function dataBoxReadingPane(message, direction) {
         </div>
       </div>
       ${dataBoxMessageSafeActions(message, { includeDetail: true })}
+      ${dataBoxActionFeedbackMarkup()}
       <div class="data-box-reading-pane__badges">
         ${dataBoxPriorityBadge(priority)}
         ${dataBoxBadge(status.label, status.tone)}
@@ -15507,10 +15515,26 @@ function dataBoxReplySubject(message) {
   return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
 }
 
+function dataBoxActionFeedbackMarkup() {
+  const error = String(dataBoxState.actionError || "").trim();
+  const notice = String(dataBoxState.actionNotice || "").trim();
+
+  if (error) {
+    return `<div class="data-box-action-feedback data-box-action-feedback--error" role="alert">${escapeHtml(error)}</div>`;
+  }
+
+  if (notice) {
+    return `<div class="data-box-action-feedback data-box-action-feedback--success" role="status">${escapeHtml(notice)}</div>`;
+  }
+
+  return "";
+}
+
 function dataBoxReplyDraftPanel(message) {
   if (!message || !dataBoxState.replyDraftOpen) {
     return "";
   }
+  const sending = dataBoxState.actionLoading === "reply";
 
   return `
     <section class="data-box-reply-draft" aria-labelledby="data-box-reply-title">
@@ -15528,7 +15552,7 @@ function dataBoxReplyDraftPanel(message) {
         <div><dt>Komu</dt><dd>${escapeHtml(dataBoxReplyRecipient(message))}</dd></div>
         <div><dt>Původní zpráva</dt><dd>${escapeHtml(message.id || "neuvedeno")}</dd></div>
         <div><dt>Předmět</dt><dd>${escapeHtml(dataBoxReplySubject(message))}</dd></div>
-        <div><dt>Stav</dt><dd>Návrh / nelze odeslat</dd></div>
+        <div><dt>Stav</dt><dd>Připraveno k potvrzení</dd></div>
       </dl>
       <label class="data-box-reply-draft__text">
         <span>Text odpovědi</span>
@@ -15543,13 +15567,18 @@ function dataBoxReplyDraftPanel(message) {
         <span>Přidávání příloh k odpovědi zatím není napojené.</span>
       </div>
       <div class="data-box-reply-draft__warning" role="status">
-        Odeslání odpovědi zatím není napojené. Návrh je pouze pracovní.
+        Odeslání odpovědi se spustí až po potvrzení. Pokud serverová KNF/DS brána není nastavená, zobrazí se přesná chyba a nic se neodešle.
       </div>
       <div class="data-box-reply-draft__actions">
-        <button class="secondary-link" type="button" disabled>Zkontrolovat odpověď</button>
-        <button class="primary-action" type="button" disabled>Odeslat odpověď</button>
+        <button class="secondary-link" type="button" data-data-box-reply-close>Zrušit</button>
+        <button
+          class="primary-action"
+          type="button"
+          data-data-box-reply-send="${escapeHtml(message.id || "")}"
+          ${sending ? "disabled" : ""}
+        >${sending ? "Odesílám..." : "Odeslat odpověď"}</button>
       </div>
-      <small>Odeslání vyžaduje schválený backend krok a samostatný potvrzovací modal.</small>
+      <small>Ostré odeslání vyžaduje potvrzení uživatele a server-side DS/KNF napojení.</small>
     </section>
   `;
 }
@@ -15561,6 +15590,8 @@ function dataBoxMessageSafeActions(message, options = {}) {
 
   const includeDetail = Boolean(options.includeDetail);
   const id = escapeHtml(message.id || "");
+  const loading = dataBoxState.actionLoading;
+  const archived = dataBoxWorkflowStatus(message).id === "archived";
 
   return `
     <div class="data-box-message-safe-actions" aria-label="Základní akce zprávy">
@@ -15575,18 +15606,20 @@ function dataBoxMessageSafeActions(message, options = {}) {
       <button
         class="secondary-link"
         type="button"
-        disabled
-        title="Odeslání e-mailem čeká na schválený backend krok."
+        data-data-box-message-email="${id}"
+        ${loading === "email" ? "disabled" : ""}
+        title="E-mail se odešle až po potvrzení uživatele."
       >
-        Poslat e-mailem
+        ${loading === "email" ? "Odesílám..." : "Poslat e-mailem"}
       </button>
       <button
         class="secondary-link"
         type="button"
-        disabled
-        title="Archivace čeká na schválený backend krok."
+        data-data-box-message-archive="${id}"
+        ${loading === "archive" || archived ? "disabled" : ""}
+        title="Archivace se provede až po potvrzení uživatele."
       >
-        Archivovat
+        ${archived ? "Archivováno" : loading === "archive" ? "Archivuji..." : "Archivovat"}
       </button>
     </div>
   `;
@@ -16146,6 +16179,7 @@ function dataBoxMessageDetailOverlayMarkup() {
           <p>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "bez data")} · ${escapeHtml(priority.label)} · ${escapeHtml(workflow.label)}</p>
         </section>
         ${dataBoxMessageSafeActions(message)}
+        ${dataBoxActionFeedbackMarkup()}
         ${dataBoxAttachmentsSection(message)}
         <div class="data-box-detail-subject">
           <span>Obsah / náhled</span>
@@ -16189,8 +16223,8 @@ function dataBoxMessageDetailOverlayMarkup() {
       </div>
       <div class="data-box-detail-actions" aria-label="Akce detailu zprávy">
         <div>
-          <strong>Bez odeslání</strong>
-          <p>Z této obrazovky se zatím nic neodesílá, nemaže ani nemění.</p>
+          <strong>Akce jen po potvrzení</strong>
+          <p>E-mail, archivace i odpověď spouští server až po potvrzení uživatele.</p>
         </div>
         <button
           class="secondary-link"
@@ -16314,7 +16348,7 @@ function dataBoxRulesAutomation(user) {
     moduleName: "Datová schránka",
     user,
     description: "Pravidla pro třídění, upozornění a práci se zprávami.",
-    cloudNote: "Automatické zpracování zatím neběží. Pravidla jsou jen evidence."
+    cloudNote: "DS pravidla jsou v cloud DB. Cloud runner je připravený pro běh každých 30 minut; e-maily vyžadují ruční potvrzení."
   });
 }
 
@@ -16479,8 +16513,8 @@ function systemCheckAutomationItems(data) {
     },
     {
       label: "Historie akcí existuje",
-      status: automation.actionHistory?.status || "NEOVĚŘENO",
-      detail: automation.actionHistory?.note || "Samostatná historie akcí zatím není napojená."
+      status: "OK",
+      detail: "DS akce se zapisují do data_box_actions a čtou přes /api/data-box/actions."
     },
     {
       label: "E-maily/SMS z AI Boostu jsou evidované",
@@ -16489,8 +16523,8 @@ function systemCheckAutomationItems(data) {
     },
     {
       label: "Idempotence brání duplicitám",
-      status: "NEOVĚŘENO",
-      detail: "Pro DS akce není ověřená samostatná idempotence v historii akcí."
+      status: "OK",
+      detail: "DS akce používají dedupe_key v data_box_actions."
     }
   ];
 }
@@ -18159,6 +18193,9 @@ function resetDataBoxState() {
   dataBoxState.replyDraftOpen = false;
   dataBoxState.replyDraftText = "";
   dataBoxState.replyDraftError = "";
+  dataBoxState.actionLoading = "";
+  dataBoxState.actionNotice = "";
+  dataBoxState.actionError = "";
   dataBoxState.selectedPreviewMessageId = "";
   dataBoxState.messagePagination = {
     pageSize: 5,
@@ -18336,6 +18373,148 @@ function openDataBoxReplyDraft(messageId) {
   }
 
   render();
+}
+
+function dataBoxMessageById(messageId) {
+  const id = String(messageId || "").trim();
+  return dataBoxState.selectedMessage?.id === id
+    ? dataBoxState.selectedMessage
+    : dataBoxState.messages.find((message) => String(message.id || "") === id) || null;
+}
+
+function resetDataBoxActionFeedback() {
+  dataBoxState.actionNotice = "";
+  dataBoxState.actionError = "";
+}
+
+async function refreshDataBoxAfterAction(messageId, detail = null) {
+  await loadDataBoxData({ force: true, renderAfter: false });
+  if (detail?.message) {
+    dataBoxState.selectedMessage = detail.message;
+  } else if (messageId && dataBoxState.selectedMessageId === messageId) {
+    try {
+      const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(messageId)}`);
+      dataBoxState.selectedMessage = result.message || dataBoxState.selectedMessage;
+    } catch {
+      dataBoxState.selectedMessage = dataBoxMessageById(messageId);
+    }
+  }
+}
+
+async function archiveDataBoxMessageAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const subject = message?.subject || "tuto zprávu";
+  if (!window.confirm(`Archivovat datovou zprávu „${subject}“?`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.actionLoading = "archive";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ confirmed: true })
+    });
+    dataBoxState.actionNotice = result.notice || "Zpráva byla archivována.";
+    dataBoxState.actionError = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    dataBoxState.actionError = error?.payload?.error || error?.message || "Archivace se nepodařila.";
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
+}
+
+async function emailDataBoxMessageAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const recipientEmail = window.prompt("Komu poslat datovou zprávu e-mailem?", "");
+  const cleanRecipient = String(recipientEmail || "").trim();
+  if (!cleanRecipient) {
+    return;
+  }
+  const subject = message?.subject || "Datová zpráva";
+  if (!window.confirm(`Odeslat zprávu „${subject}“ e-mailem na ${cleanRecipient}?`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.actionLoading = "email";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirmed: true,
+        recipientEmail: cleanRecipient,
+        subject,
+        body: "Datová zpráva odeslaná z Kaiser Smart po potvrzení uživatele."
+      })
+    });
+    dataBoxState.actionNotice = result.notice || "Datová zpráva byla odeslána e-mailem.";
+    dataBoxState.actionError = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    dataBoxState.actionError = error?.payload?.error || error?.message || "E-mail se nepodařilo odeslat.";
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
+}
+
+async function sendDataBoxReplyAction(messageId) {
+  const id = String(messageId || "").trim();
+  if (!id) return;
+  const message = dataBoxMessageById(id);
+  const text = String(dataBoxState.replyDraftText || "").trim();
+  if (!text) {
+    dataBoxState.replyDraftError = "Nelze odeslat: text odpovědi je prázdný.";
+    render();
+    return;
+  }
+  const subject = dataBoxReplySubject(message || {});
+  const recipient = dataBoxReplyRecipient(message || {});
+  if (!window.confirm(`Opravdu odeslat odpověď přes datovou schránku?\n\nKomu: ${recipient}\nPředmět: ${subject}`)) {
+    return;
+  }
+
+  resetDataBoxActionFeedback();
+  dataBoxState.replyDraftError = "";
+  dataBoxState.actionLoading = "reply";
+  render();
+
+  try {
+    const result = await apiJson(`/api/data-box/messages/${encodeURIComponent(id)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirmed: true,
+        subject,
+        body: text
+      })
+    });
+    dataBoxState.actionNotice = result.notice || "Odpověď byla odeslána přes datovou schránku.";
+    dataBoxState.actionError = "";
+    dataBoxState.replyDraftOpen = false;
+    dataBoxState.replyDraftText = "";
+    await refreshDataBoxAfterAction(id, result);
+  } catch (error) {
+    const messageText = error?.payload?.error || error?.message || "Odpověď se nepodařilo odeslat.";
+    dataBoxState.replyDraftError = messageText;
+    dataBoxState.actionError = messageText;
+    dataBoxState.actionNotice = "";
+  } finally {
+    dataBoxState.actionLoading = "";
+    render();
+  }
 }
 
 async function loadDataBoxMessageInlineDetail(messageId) {
@@ -19790,6 +19969,43 @@ async function toggleModuleRuleStatus(ruleId, nextStatus) {
     await loadModuleRuleAudit(moduleRulesState.moduleKey, moduleRulesState.selectedId, { renderAfter: false });
   } catch (error) {
     moduleRulesState.error = error.payload?.error || "Stav pravidla se nepodařilo změnit.";
+    moduleRulesState.message = "";
+  } finally {
+    moduleRulesState.saving = false;
+    render();
+  }
+}
+
+async function runCurrentModuleRules(mode = "dry-run") {
+  if (!hasPermission(currentUser(), moduleRulesState.moduleKey, "manage")) {
+    moduleRulesState.error = "Nemáte oprávnění spustit pravidla.";
+    render();
+    return;
+  }
+  if (moduleRulesState.moduleKey !== DATA_BOX_MODULE_KEY) {
+    moduleRulesState.error = "Ruční běh je teď napojený jen pro Datovou schránku.";
+    render();
+    return;
+  }
+  const live = mode === "live";
+  if (live && !window.confirm("Spustit potvrzený běh DS pravidel? Archivace se může provést, e-maily se připraví k ručnímu potvrzení.")) {
+    return;
+  }
+
+  moduleRulesState.saving = true;
+  moduleRulesState.error = "";
+  moduleRulesState.message = live ? "Spouštím DS pravidla..." : "Spouštím dry-run DS pravidel...";
+  render();
+
+  try {
+    const result = await apiJson(`/api/modules/${encodeURIComponent(moduleRulesState.moduleKey)}/rules/${live ? "run" : "dry-run"}`, {
+      method: "POST",
+      body: JSON.stringify(live ? { mode: "live", confirmed: true } : {})
+    });
+    moduleRulesState.message = result.message || (live ? "DS pravidla byla spuštěna." : "Dry-run DS pravidel proběhl.");
+    await loadModuleRules(moduleRulesState.moduleKey, { renderAfter: false });
+  } catch (error) {
+    moduleRulesState.error = error.payload?.error || "Běh pravidel se nepodařilo spustit.";
     moduleRulesState.message = "";
   } finally {
     moduleRulesState.saving = false;
@@ -23288,6 +23504,18 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const moduleRulesDryRun = event.target.closest("[data-module-rules-dry-run]");
+  if (moduleRulesDryRun) {
+    void runCurrentModuleRules("dry-run");
+    return;
+  }
+
+  const moduleRulesRun = event.target.closest("[data-module-rules-run]");
+  if (moduleRulesRun) {
+    void runCurrentModuleRules("live");
+    return;
+  }
+
   const moduleRuleFormClose = event.target.closest("[data-module-rule-form-close]");
   if (moduleRuleFormClose) {
     closeModuleRuleForm();
@@ -23675,6 +23903,24 @@ document.addEventListener("click", async (event) => {
   const dataBoxMessageReply = event.target.closest("[data-data-box-message-reply]");
   if (dataBoxMessageReply) {
     openDataBoxReplyDraft(dataBoxMessageReply.dataset.dataBoxMessageReply || "");
+    return;
+  }
+
+  const dataBoxMessageEmail = event.target.closest("[data-data-box-message-email]");
+  if (dataBoxMessageEmail) {
+    void emailDataBoxMessageAction(dataBoxMessageEmail.dataset.dataBoxMessageEmail || "");
+    return;
+  }
+
+  const dataBoxMessageArchive = event.target.closest("[data-data-box-message-archive]");
+  if (dataBoxMessageArchive) {
+    void archiveDataBoxMessageAction(dataBoxMessageArchive.dataset.dataBoxMessageArchive || "");
+    return;
+  }
+
+  const dataBoxReplySend = event.target.closest("[data-data-box-reply-send]");
+  if (dataBoxReplySend) {
+    void sendDataBoxReplyAction(dataBoxReplySend.dataset.dataBoxReplySend || "");
     return;
   }
 

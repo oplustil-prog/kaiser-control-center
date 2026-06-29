@@ -2576,6 +2576,62 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if ((url.pathname === "/api/modules/data-box/rules/run" || url.pathname === "/api/modules/data-box/rules/dry-run") && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni spustit pravidla Datove schranky." });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      mode: url.pathname.endsWith("dry-run") ? "dry-run" : "live",
+      confirmed: false,
+      runner: "data-box-cloud-runner",
+      status: "dry_run",
+      message: "Lokální mock DS runneru nespouští ostré akce.",
+      rulesTotal: 0,
+      dryRunCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      results: []
+    });
+    return true;
+  }
+
+  if ((url.pathname === "/api/ds/rules" || url.pathname === "/api/ds/rules/run" || url.pathname === "/api/ds/rules/dry-run")) {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canViewMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni." });
+      return true;
+    }
+    if (url.pathname === "/api/ds/rules" && request.method === "GET") {
+      sendJson(response, 200, { rules: [], apiStatus: "ready" });
+      return true;
+    }
+    if (request.method === "POST") {
+      sendJson(response, 200, {
+        apiStatus: "ready",
+        mode: url.pathname.endsWith("dry-run") ? "dry-run" : "live",
+        confirmed: false,
+        runner: "data-box-cloud-runner",
+        status: "dry_run",
+        message: "Lokální mock DS pravidel nespouští ostré akce.",
+        rulesTotal: 0,
+        results: []
+      });
+      return true;
+    }
+  }
+
   if (url.pathname === "/api/vehicles" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
@@ -2692,6 +2748,21 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/data-box/actions" && request.method === "GET") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canViewMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni." });
+      return true;
+    }
+
+    sendJson(response, 200, { actions: [], apiStatus: "ready" });
+    return true;
+  }
+
   const dataBoxMessageMatch = /^\/api\/data-box\/messages\/([^/]+)$/.exec(url.pathname);
   if (dataBoxMessageMatch && request.method === "GET") {
     const user = currentDevUser(request);
@@ -2705,6 +2776,45 @@ async function handleApi(request, response) {
     }
 
     sendJson(response, 404, { error: "Zprava nebyla nalezena.", apiStatus: "ready" });
+    return true;
+  }
+
+  const dataBoxActionMatch = /^\/api\/data-box\/messages\/([^/]+)\/(archive|email|reply)$/.exec(url.pathname);
+  if (dataBoxActionMatch && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Neprihlaseno." });
+      return true;
+    }
+    if (!canManageMockDataBox(user)) {
+      sendJson(response, 403, { error: "Nemate opravneni provest akci Datove schranky." });
+      return true;
+    }
+
+    const action = dataBoxActionMatch[2];
+    if (action === "reply") {
+      sendJson(response, 503, {
+        error: "Lokální mock nemá napojenou serverovou KNF/DS bránu pro odeslání odpovědi.",
+        code: "data_box_reply_sender_missing",
+        apiStatus: "ready"
+      });
+      return true;
+    }
+    if (action === "email") {
+      sendJson(response, 503, {
+        error: "Lokální mock neposílá e-maily. Produkce vyžaduje SendGrid nastavení.",
+        code: "data_box_email_send_failed",
+        apiStatus: "ready"
+      });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      apiStatus: "ready",
+      status: "archived",
+      notice: "Lokální mock: zpráva by byla archivována po potvrzení.",
+      action: { id: `mock-data-box-action-${randomUUID()}`, actionType: "archive", status: "archived" }
+    });
     return true;
   }
 

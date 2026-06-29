@@ -1,0 +1,15 @@
+name = "kaiser-data-box-automation-runner"
+main = "workers/data-box-automation-runner.js"
+compatibility_date = "2026-06-29"
+workers_dev = false
+
+[vars]
+DATA_BOX_AUTOMATION_MODE = "live"
+
+[[d1_databases]]
+binding = "SMART_ODPADY_DB"
+database_name = "smart-odpady"
+database_id = "6d9ab099-fa10-4245-b06b-e146b63450a9"
+
+[triggers]
+crons = ["*/30 * * * *"]
