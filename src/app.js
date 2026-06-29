@@ -15711,7 +15711,7 @@ function dataBoxMessageInbox(title, direction) {
   const rows = dataBoxFilteredMessages(direction);
   const pagination = dataBoxPaginationForRows(rows);
   const visibleRows = pagination.visibleRows;
-  const selectedPreview = dataBoxSelectedPreviewMessage(visibleRows);
+  const activeMessageId = String(dataBoxState.selectedPreviewMessageId || dataBoxState.selectedMessageId || "");
   const notice = dataBoxInboxNotice(direction, allRows, rows);
   const emptyState = dataBoxInboxIsEmptyState(notice, allRows);
 
@@ -15743,12 +15743,10 @@ function dataBoxMessageInbox(title, direction) {
         ${dataBoxInboxSearch()}
         ${dataBoxQuickFilters()}
         <div class="data-box-message-list" aria-label="${escapeHtml(sectionTitle)}">
-          ${notice ? dataBoxInboxNoticeMarkup(notice) : visibleRows.map((message) => dataBoxMessageCard(message, selectedPreview?.id === message.id)).join("")}
+          ${notice ? dataBoxInboxNoticeMarkup(notice) : visibleRows.map((message) => dataBoxMessageCard(message, String(message.id) === activeMessageId)).join("")}
         </div>
         ${dataBoxInboxPaginationMarkup(allRows, rows, pagination)}
       </section>
-      ${notice ? "" : dataBoxReadingPane(selectedPreview, direction)}
-      ${notice ? "" : dataBoxSupportPane(selectedPreview, direction)}
     </div>
   `;
 }
