@@ -35,11 +35,24 @@ OPENAI_MODEL=
 VOICE_ASSISTANT_OPENAI_MODEL=gpt-4o-mini
 VOICE_ASSISTANT_WEBHOOK_TOKEN=
 SARLOTA_BUSINESS_HOURS_JSON=
+SARLOTA_WEATHER_DISABLED=false
+SARLOTA_WEATHER_LOCATION_NAME=Brno
+SARLOTA_WEATHER_LATITUDE=49.1951
+SARLOTA_WEATHER_LONGITUDE=16.6068
+SARLOTA_WEATHER_TIMEOUT_MS=900
+SARLOTA_NAMEDAYS_JSON=
+SARLOTA_HUMAN_TOUCH_JSON=
 ```
 
 `ELEVENLABS_API_KEY`, `OPENAI_API_KEY` ani `VOICE_ASSISTANT_WEBHOOK_TOKEN`
 nesmí být ve frontendu. Nastavují se jako Cloudflare Pages secrets nebo
 server-side env hodnoty.
+
+Počasí pro Šarlotu se načítá server-side přes Open-Meteo bez API klíče.
+Výchozí poloha je Brno. Pokud počasí není dostupné do krátkého timeoutu,
+Šarlota ho v hovoru nepoužije a nesmí si ho domýšlet. `SARLOTA_NAMEDAYS_JSON`
+může přepsat lokální český kalendář svátků; `SARLOTA_HUMAN_TOUCH_JSON` může
+dodat jen výslovně povolené veřejné narozeniny nebo statický ověřený kontext.
 
 ## ElevenLabs agent Šarlota
 

@@ -1,5 +1,8 @@
 import { listAbsenceRequests } from "./absence-requests-store.js";
 import { getUsers } from "./auth.js";
+import { DEFAULT_CZECH_NAMEDAYS } from "./czech-namedays.js";
+import { getEmployeeCard } from "./employees-store.js";
+import { currentSarlotaWeather } from "./sarlota-weather.js";
 import { hasPermission } from "../../src/permissions.js";
 
 const MAX_SUGGESTIONS = 3;
@@ -158,7 +161,10 @@ function configuredNamedays(env = {}) {
   const config = configuredHumanTouch(env);
   const namedays = config.namedays || parseJson(env.SARLOTA_NAMEDAYS_JSON, {});
 
-  return namedays && typeof namedays === "object" ? namedays : {};
+  return {
+    ...DEFAULT_CZECH_NAMEDAYS,
+    ...(namedays && typeof namedays === "object" ? namedays : {})
+  };
 }
 
 function configuredCelebrations(env = {}) {
@@ -171,24 +177,36 @@ function configuredCelebrations(env = {}) {
   return celebrations;
 }
 
-function verifiedWeather(payload = {}, env = {}) {
-  const config = configuredHumanTouch(env);
-  const weather = nestedValue(payload, ["verifiedWeather", "weather", "pocasi", "počasí"]) || config.weather || {};
-
+function normalizedWeather(weather) {
   if (!weather || typeof weather !== "object") {
     return null;
   }
 
-  const verified = boolValue(weather.verified || weather.isVerified || weather.sourceVerified);
+  const verified = boolValue(weather.verified || weather.isVerified || weather.sourceVerified || weather.ok);
   if (!verified) {
     return null;
   }
 
   return {
     temperatureC: numberValue(weather.temperatureC ?? weather.temperature_c ?? weather.tempC, 0),
+    apparentTemperatureC: numberValue(weather.apparentTemperatureC ?? weather.apparent_temperature_c, 0),
     summary: truncate(weather.summary || weather.description || weather.text, 120),
-    condition: truncate(weather.condition, 80)
+    condition: truncate(weather.condition, 80),
+    location: weather.location || null,
+    source: cleanString(weather.source || "verified_weather")
   };
+}
+
+async function verifiedWeather(payload = {}, env = {}) {
+  const config = configuredHumanTouch(env);
+  const weather = nestedValue(payload, ["verifiedWeather", "weather", "pocasi", "počasí"]) || config.weather || {};
+  const providedWeather = normalizedWeather(weather);
+
+  if (providedWeather) {
+    return providedWeather;
+  }
+
+  return normalizedWeather(await currentSarlotaWeather(env));
 }
 
 function isHorko(weather) {
@@ -262,10 +280,52 @@ function celebrationSuggestions(env, payload, todayIso, suggestions) {
   }
 }
 
-function weatherSuggestions(env, user, payload, suggestions) {
-  const weather = verifiedWeather(payload, env);
+function verifiedBirthdayFromPayload(payload = {}) {
+  const value = nestedValue(payload, ["verifiedBirthday", "verifiedUserBirthday", "verified_user_birthday"]);
+
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "object") {
+    return boolValue(value.verified || value.isVerified || value.sourceVerified)
+      ? cleanString(value.date || value.dateOfBirth || value.birthDate)
+      : "";
+  }
+
+  return cleanString(value);
+}
+
+async function ownBirthdaySuggestions(env, user, payload, todayIso, suggestions) {
+  let birthDate = verifiedBirthdayFromPayload(payload);
+
+  if (!birthDate && cleanString(user?.id)) {
+    try {
+      const users = await getUsers(env);
+      const employee = await getEmployeeCard(env, users, user, user.id);
+      birthDate = cleanString(employee?.hrProfile?.dateOfBirth || employee?.dateOfBirth);
+    } catch {
+      birthDate = "";
+    }
+  }
+
+  if (!birthDate || dateKey(birthDate) !== dateKey(todayIso)) {
+    return "unavailable";
+  }
+
+  addSuggestion(suggestions, {
+    id: "birthday-current-user",
+    type: "birthday",
+    text: `${userVocative(user, payload)}, dneska máš narozeniny, tak ať se ti den povede.`,
+    source: "verified_own_profile"
+  });
+  return "verified";
+}
+
+async function weatherSuggestions(env, user, payload, suggestions) {
+  const weather = await verifiedWeather(payload, env);
   if (!isHorko(weather)) {
-    return;
+    return weather ? "verified_not_hot" : "unavailable";
   }
 
   addSuggestion(suggestions, {
@@ -279,6 +339,7 @@ function weatherSuggestions(env, user, payload, suggestions) {
       condition: weather.condition
     })
   });
+  return "verified_hot";
 }
 
 function overlapsRange(request, range) {
@@ -345,9 +406,10 @@ async function vacationSuggestions(env, user, payload, todayIso, suggestions) {
 export async function sarlotaHumanTouchContext(env, user, payload = {}, options = {}) {
   const todayIso = cleanString(options.todayIso) || pragueIsoDate();
   const suggestions = [];
+  const weatherStatus = await weatherSuggestions(env, user, payload, suggestions);
 
-  weatherSuggestions(env, user, payload, suggestions);
   namedaySuggestions(env, user, payload, todayIso, suggestions);
+  const ownBirthdayStatus = await ownBirthdaySuggestions(env, user, payload, todayIso, suggestions);
   celebrationSuggestions(env, payload, todayIso, suggestions);
   await vacationSuggestions(env, user, payload, todayIso, suggestions);
 
@@ -365,9 +427,10 @@ export async function sarlotaHumanTouchContext(env, user, payload = {}, options 
     ],
     blockedTopics: ["sick", "doctor", "care", "medical", "absence_reason", "age", "private_data"],
     sourceStatus: compactObject({
-      weather: suggestions.some((item) => item.type === "weather") ? "verified" : "unavailable",
+      weather: weatherStatus,
       namedays: Object.keys(configuredNamedays(env)).length ? "configured" : "unconfigured",
       celebrations: configuredCelebrations(env).length ? "configured_public_only" : "unconfigured",
+      ownBirthday: ownBirthdayStatus,
       vacations: hasPermission(user, "absence", "view") ? "visible_approved_only" : "forbidden"
     })
   };

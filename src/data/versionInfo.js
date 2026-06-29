@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.240"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.241"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: počasí a svátky",
+    text: "Firemní lidskost Šarloty umí backendově načíst aktuální počasí pro Brno, české svátky, bezpečné narozeninové přání a schválené dovolené jako krátké ověřené odlehčení."
+  },
   {
     title: "Šarlota: rychlý zápis dovolené z EL",
     text: "Potvrzený ElevenLabs tool create_absence_request má v KSO backendu rychlou větev bez zbytečného LLM rozhodování, aby zápis dovolené nekončil timeoutem v hovoru."
