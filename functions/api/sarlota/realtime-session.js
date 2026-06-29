@@ -8,7 +8,7 @@ import {
 
 const OPENAI_REALTIME_CLIENT_SECRET_ENDPOINT = "https://api.openai.com/v1/realtime/client_secrets";
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
-const DEFAULT_REALTIME_VOICE = "marin";
+const DEFAULT_REALTIME_VOICE = "cedar";
 
 function cleanString(value) {
   return String(value ?? "").trim();

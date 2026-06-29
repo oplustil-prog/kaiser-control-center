@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.234"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.235"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: test hlasu Cedar",
+    text: "Výchozí OpenAI Realtime hlas Šarloty je pro test změněný z Marin na Cedar. Pokud je v produkčním prostředí nastavená proměnná SARLOTA_OPENAI_REALTIME_VOICE, má stále přednost před defaultem v kódu."
+  },
   {
     title: "Šarlota: návrat na první OpenAI hlas",
     text: "Hlasový režim Šarloty je vrácený na první OpenAI Realtime pokus, který měl v testu dobrou latenci a mluvil. Pozdější stabilizační zásahy pro iPhone a deterministický zápis dovolené jsou dočasně vypnuté."
