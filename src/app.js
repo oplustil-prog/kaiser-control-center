@@ -767,6 +767,7 @@ const dataBoxState = {
   },
   error: ""
 };
+let dataBoxSearchRenderTimer = null;
 const quickAbsenceState = {
   step: "type",
   type: "",
@@ -14042,6 +14043,50 @@ function resetDataBoxPagination() {
   };
 }
 
+function clearDataBoxSearchRenderTimer() {
+  if (!dataBoxSearchRenderTimer) {
+    return;
+  }
+
+  window.clearTimeout(dataBoxSearchRenderTimer);
+  dataBoxSearchRenderTimer = null;
+}
+
+function restoreDataBoxSearchFocus(selectionStart, selectionEnd) {
+  window.requestAnimationFrame(() => {
+    const input = document.querySelector("[data-data-box-filter][name='query']");
+    if (!input) {
+      return;
+    }
+
+    input.focus({ preventScroll: true });
+    if (typeof input.setSelectionRange === "function") {
+      const start = Number.isFinite(selectionStart) ? selectionStart : input.value.length;
+      const end = Number.isFinite(selectionEnd) ? selectionEnd : start;
+      input.setSelectionRange(start, end);
+    }
+  });
+}
+
+function updateDataBoxSearchFilter(field) {
+  const value = field?.value || "";
+  const selectionStart = Number.isFinite(field?.selectionStart) ? field.selectionStart : value.length;
+  const selectionEnd = Number.isFinite(field?.selectionEnd) ? field.selectionEnd : selectionStart;
+
+  dataBoxState.messageFilters = {
+    ...dataBoxState.messageFilters,
+    query: value
+  };
+  resetDataBoxPagination();
+  dataBoxState.selectedPreviewMessageId = "";
+  clearDataBoxSearchRenderTimer();
+  dataBoxSearchRenderTimer = window.setTimeout(() => {
+    dataBoxSearchRenderTimer = null;
+    render();
+    restoreDataBoxSearchFocus(selectionStart, selectionEnd);
+  }, 140);
+}
+
 function dataBoxPaginationForRows(rows) {
   const pageSize = DATA_BOX_PAGE_SIZES.includes(Number(dataBoxState.messagePagination.pageSize))
     ? Number(dataBoxState.messagePagination.pageSize)
@@ -15114,8 +15159,10 @@ function dataBoxInboxSearch() {
       <span>Hledat</span>
       <input
         name="query"
+        type="search"
         value="${escapeHtml(filters.query)}"
         placeholder="Odesílatel, předmět, ID, příloha..."
+        autocomplete="off"
         data-data-box-filter
       />
     </label>
@@ -18031,6 +18078,7 @@ function updateDataBoxMessageFilter(field) {
     return;
   }
 
+  clearDataBoxSearchRenderTimer();
   dataBoxState.messageFilters = {
     ...dataBoxState.messageFilters,
     [name]: field.value || ""
@@ -22337,7 +22385,7 @@ document.addEventListener("input", (event) => {
 
   const dataBoxFilter = event.target.closest("[data-data-box-filter]");
   if (dataBoxFilter && dataBoxFilter.name === "query") {
-    updateDataBoxMessageFilter(dataBoxFilter);
+    updateDataBoxSearchFilter(dataBoxFilter);
     return;
   }
 
