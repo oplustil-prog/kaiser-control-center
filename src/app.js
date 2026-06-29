@@ -15617,6 +15617,95 @@ function dataBoxAttachmentExtension(filename = "") {
   return name.includes(".") ? name.split(".").pop() : "";
 }
 
+function dataBoxAttachmentContentTypeFromFilename(filename = "") {
+  const extension = dataBoxAttachmentExtension(filename);
+  return {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    txt: "text/plain",
+    xml: "application/xml"
+  }[extension] || "";
+}
+
+function dataBoxAttachmentIsGenericContentType(contentType = "") {
+  const type = String(contentType || "").split(";")[0].trim().toLowerCase();
+  return !type || type === "application/octet-stream" || type === "binary/octet-stream";
+}
+
+function dataBoxAttachmentAsciiPrefix(bytes) {
+  return Array.from(bytes)
+    .map((byte) => (byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13 ? String.fromCharCode(byte) : "")
+    .join("");
+}
+
+function dataBoxAttachmentLooksTextual(bytes) {
+  if (!bytes.length) {
+    return false;
+  }
+
+  let textual = 0;
+  for (const byte of bytes) {
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13 || byte >= 128) {
+      textual += 1;
+    }
+  }
+
+  return textual / bytes.length > 0.88;
+}
+
+async function dataBoxAttachmentContentTypeFromBlob(blob) {
+  if (!blob?.size) {
+    return "";
+  }
+
+  const bytes = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
+  const prefix = dataBoxAttachmentAsciiPrefix(bytes.slice(0, 16));
+  const textPrefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes).trimStart().toLowerCase();
+
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return "application/pdf";
+  }
+
+  if (
+    bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  if (prefix.startsWith("GIF8")) {
+    return "image/gif";
+  }
+
+  if (prefix.startsWith("RIFF") && dataBoxAttachmentAsciiPrefix(bytes.slice(8, 12)) === "WEBP") {
+    return "image/webp";
+  }
+
+  if (prefix.startsWith("PK")) {
+    return "application/zip";
+  }
+
+  if (textPrefix.startsWith("<?xml") || textPrefix.startsWith("<datova") || textPrefix.startsWith("<dm")) {
+    return "application/xml";
+  }
+
+  if (dataBoxAttachmentLooksTextual(bytes)) {
+    return "text/plain";
+  }
+
+  return "";
+}
+
 function dataBoxAttachmentCanPreview(filename = "", contentType = "") {
   const extension = dataBoxAttachmentExtension(filename);
   const type = String(contentType || "").toLowerCase();
@@ -15871,11 +15960,35 @@ async function fetchDataBoxAttachmentBlob(url) {
 }
 
 function dataBoxAttachmentBlobWithType(blob, contentType) {
-  if (!blob || blob.type || !contentType) {
+  if (!blob || !contentType) {
+    return blob;
+  }
+
+  if (blob.type && !dataBoxAttachmentIsGenericContentType(blob.type)) {
     return blob;
   }
 
   return blob.slice(0, blob.size, contentType);
+}
+
+async function dataBoxAttachmentPreviewType(filename, responseContentType, contentTypeHint, blob) {
+  const responseType = String(responseContentType || "").trim();
+  const hintType = String(contentTypeHint || "").trim();
+  const filenameType = dataBoxAttachmentContentTypeFromFilename(filename);
+
+  if (responseType && !dataBoxAttachmentIsGenericContentType(responseType)) {
+    return responseType;
+  }
+
+  if (hintType && !dataBoxAttachmentIsGenericContentType(hintType)) {
+    return hintType;
+  }
+
+  if (filenameType) {
+    return filenameType;
+  }
+
+  return await dataBoxAttachmentContentTypeFromBlob(blob);
 }
 
 async function openDataBoxAttachment(target) {
@@ -15890,8 +16003,7 @@ async function openDataBoxAttachment(target) {
     return;
   }
 
-  const canPreviewHint = dataBoxAttachmentCanPreview(filename, contentTypeHint);
-  const previewWindow = canPreviewHint ? window.open("about:blank", "_blank") : null;
+  const previewWindow = window.open("about:blank", "_blank");
   if (previewWindow) {
     previewWindow.opener = null;
     dataBoxAttachmentWriteWindowMessage(previewWindow, "Připravuji přílohu...");
@@ -15919,7 +16031,7 @@ async function openDataBoxAttachment(target) {
 
   try {
     const { blob, contentType } = await fetchDataBoxAttachmentBlob(url);
-    const previewType = contentType || contentTypeHint;
+    const previewType = await dataBoxAttachmentPreviewType(filename, contentType, contentTypeHint, blob);
     const canPreview = dataBoxAttachmentCanPreview(filename, previewType);
     const typedBlob = dataBoxAttachmentBlobWithType(blob, previewType);
 
