@@ -206,11 +206,20 @@ function firstMessageFromAgent(agentConfig) {
 }
 
 function summarizeTool(tool) {
+  if (!tool || typeof tool !== "object") {
+    return {
+      idPresent: false,
+      name: "",
+      type: typeof tool,
+      keys: []
+    };
+  }
+
   return {
     idPresent: Boolean(toolId(tool)),
     name: toolName(tool),
     type: toolType(tool),
-    keys: Object.keys(tool || {}).sort()
+    keys: Object.keys(tool).sort()
   };
 }
 
@@ -321,11 +330,6 @@ function buildSyncPlan(agentConfig, workspaceTools) {
 
     if (toolConfigChanged(existing, tool)) {
       changedWorkspaceTools.push(tool.name);
-      workspaceOperations.push({
-        action: "update",
-        tool,
-        id: toolId(existing)
-      });
     }
   }
 
@@ -346,6 +350,7 @@ function buildSyncPlan(agentConfig, workspaceTools) {
     missingWorkspaceTools,
     changedWorkspaceTools,
     workspaceOperations,
+    existingWorkspaceToolUpdatesSkipped: changedWorkspaceTools.length,
     agentToolPath: agentToolArray?.pathText || "",
     agentToolPathKind: agentToolArray?.kind || "",
     agentToolPathWritable: Boolean(agentToolArray),
@@ -512,7 +517,8 @@ async function planPayload(env) {
       upstreamStatus: context.workspaceToolsUpstreamStatus,
       missing: plan.missingWorkspaceTools,
       changed: plan.changedWorkspaceTools,
-      operationsCount: plan.workspaceOperations.length
+      operationsCount: plan.workspaceOperations.length,
+      existingUpdatesSkipped: plan.existingWorkspaceToolUpdatesSkipped
     },
     agentTools: {
       path: plan.agentToolPath,
@@ -601,17 +607,48 @@ async function applyPayload(env) {
     }, 409);
   }
 
-  await elevenLabsRequest({
-    apiKey: context.apiKey,
-    path: `/agents/${encodeURIComponent(context.agentId)}`,
-    method: "PATCH",
-    body: agentPatch.requestBody
-  });
+  try {
+    await elevenLabsRequest({
+      apiKey: context.apiKey,
+      path: `/agents/${encodeURIComponent(context.agentId)}`,
+      method: "PATCH",
+      body: agentPatch.requestBody
+    });
+  } catch (error) {
+    return json({
+      error: `ElevenLabs agent patch se nepodařilo bezpečně uložit. ${error.status ? `HTTP ${error.status}. ` : ""}${upstreamErrorSummary(error)}`,
+      code: "elevenlabs_agent_patch_failed",
+      agentPatch: {
+        applied: false,
+        path: agentPatch.path,
+        promptChanged: false,
+        firstMessageChanged: false,
+        modelChanged: false
+      },
+      apiStatus: "waiting"
+    }, 409);
+  }
 
-  const verifiedAgentConfig = await elevenLabsRequest({
-    apiKey: context.apiKey,
-    path: `/agents/${encodeURIComponent(context.agentId)}`
-  });
+  let verifiedAgentConfig = null;
+  try {
+    verifiedAgentConfig = await elevenLabsRequest({
+      apiKey: context.apiKey,
+      path: `/agents/${encodeURIComponent(context.agentId)}`
+    });
+  } catch (error) {
+    return json({
+      error: `ElevenLabs agent byl upraven, ale následné ověření selhalo. ${error.status ? `HTTP ${error.status}. ` : ""}${upstreamErrorSummary(error)}`,
+      code: "elevenlabs_agent_verify_failed",
+      agentPatch: {
+        applied: true,
+        path: agentPatch.path,
+        promptChanged: false,
+        firstMessageChanged: false,
+        modelChanged: false
+      },
+      apiStatus: "waiting"
+    }, 409);
+  }
   const verifiedNames = toolNamesFromAgent(verifiedAgentConfig);
   const missingAfter = plan.expectedNames.filter((name) => !new Set(verifiedNames).has(name));
 
