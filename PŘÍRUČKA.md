@@ -1257,6 +1257,12 @@ First message:
 - ElevenLabs = hlasová / konverzační vrstva.
 - API key, signed URL tokeny ani secrets se nikdy nesmí vypisovat do logu, UI ani debug odpovědi.
 - Do ElevenLabs neposílat zbytečná osobní data.
+- U hlasových akcí, které ukládají data, mění stav, posílají e-mail/SMS/notifikaci, spouští automatizaci nebo mají jiný provozní dopad, nesmí být finální potvrzení pouze hlasové.
+- Šarlota musí před provedením takové akce otevřít v aplikaci potvrzovací vyskakovací okno / modal.
+- Potvrzovací okno musí jasně ukázat, co se provede, pro koho, s jakými údaji, komu se případně odešle zpráva a jaký bude výsledek.
+- Hlasové `ano` smí připravit návrh a otevřít potvrzovací okno, ale akce se provede až po kliknutí nebo tapnutí na potvrzovací tlačítko v UI.
+- Pokud potvrzovací okno nejde zobrazit, Šarlota nesmí akci provést; musí ji ponechat jako návrh nebo říct, že čeká na ruční potvrzení.
+- Potvrzovací okno musí být použitelné na mobilu a nesmí skrýt důležité údaje ani hlavní riziko akce.
 
 ### 16.8 Testovací checklist pro Šarlotu
 
@@ -1269,6 +1275,8 @@ Při každé změně Šarloty ověřit:
 - `intro_announcement` zazní jen jednou,
 - Šarlota tyká,
 - denní pozdrav odpovídá `Europe/Prague`,
+- hlasová akce se zápisem, změnou stavu, notifikací nebo externím dopadem vyžaduje potvrzovací popup v UI,
+- samotné hlasové `ano` bez potvrzení v popupu nic neodešle ani neuloží jako hotovou akci,
 - konzole bez neodchycených chyb,
 - build projde,
 - `node --check` projde,
