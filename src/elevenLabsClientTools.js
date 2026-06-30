@@ -585,7 +585,7 @@ export function createElevenLabsClientTools({
     const confirmationMessage = [
       "Šarlota chce vytvořit hlášení náhradního dílu a předat ho k objednání.",
       defectDescription ? `Závada: ${defectDescription}` : "",
-      licensePlate ? `SPZ: ${licensePlate}` : "SPZ se doplní z přiřazeného vozidla, pokud ho backend najde.",
+      licensePlate ? `SPZ: ${licensePlate}` : "Vozidlo se doplní z přiřazení řidiče, pokud je jednoznačné.",
       vehicleName ? `Vozidlo: ${vehicleName}` : "",
       vin ? `VIN: ${vin}` : "",
       "Bez potvrzení se nic neuloží ani neodešle."

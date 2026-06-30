@@ -1235,6 +1235,12 @@ Pro provozní kontext má Šarlota dohledat:
 
 Pokud vazba `user -> employee -> vehicle` není jednoznačná, Šarlota se musí doptat nebo předat akci k ručnímu potvrzení.
 
+Pokud má jeden řidič přiřazených více vozidel, Šarlota nesmí automaticky vybrat první vozidlo ze seznamu.
+
+V takovém případě má vozidla vyjmenovat lidsky podle typu, značky, interního názvu nebo popisu vozidla.
+
+SPZ je pouze technický fallback. Šarlota se na SPZ ptá až tehdy, když řidič neumí vozidlo jednoznačně vybrat podle typu, značky nebo interního názvu.
+
 ### 16.6 Externí systémy
 
 Vistos `Ridic_FK`, T-Cars řidič, telefon, SPZ nebo jméno lze používat jen jako pomocné mapovací údaje.

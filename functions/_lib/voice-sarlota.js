@@ -1,7 +1,7 @@
 import { recordAiAction } from "./ai-action-log-store.js";
 import { createAbsenceRequestRecord } from "./absence-requests-store.js";
 import { createDriverPartRequest, handoffDriverPartRequest } from "./driver-part-requests-store.js";
-import { resolveFleetVehicleForDriver } from "./fleet-vehicles-store.js";
+import { resolveFleetVehiclesForDriver } from "./fleet-vehicles-store.js";
 import { getUsers } from "./auth.js";
 import {
   driverPartRequestMissingQuestion,
@@ -971,13 +971,29 @@ async function enrichDriverPartDraftWithAssignedVehicle(env, user, draft, payloa
   }
 
   try {
-    const vehicle = await resolveFleetVehicleForDriver(env, user, {
+    const match = await resolveFleetVehiclesForDriver(env, user, {
       driverUserId: draft.driverUserId || payload.driverUserId || user?.id,
       driverName: draft.driverName || payload.driverName || user?.name,
-      driverPhone: draft.driverPhone || payload.driverPhone || user?.phone
+      driverPhone: draft.driverPhone || payload.driverPhone || user?.phone,
+      vehicleId: draft.vehicleId || payload.vehicleId,
+      vehicleName: draft.vehicleName || payload.vehicleName,
+      vehicleType: draft.vehicleType || payload.vehicleType,
+      vehicleBrand: draft.vehicleBrand || payload.vehicleBrand,
+      licensePlate: draft.licensePlate || payload.licensePlate || payload.spz,
+      defectDescription: draft.defectDescription,
+      speechText: payload.speechText || payload.text || payload.transcript
     });
+    const vehicle = match.vehicle;
 
     if (!vehicle) {
+      if (match.status === "multiple") {
+        return compactObject({
+          ...draft,
+          assignedVehicleCandidates: match.labels,
+          vehicleChoiceQuestion: match.question,
+          vehicleChoiceStatus: "multiple"
+        });
+      }
       return draft;
     }
 
@@ -1019,9 +1035,10 @@ function isDriverPartRequest(payload, speechText, context) {
 
 function driverPartSummaryMessage(draft) {
   const part = draft.probablePart || "náhradní díl";
-  const vehicle = draft.licensePlate ? `na vozidle se SPZ ${draft.licensePlate}` : "bez SPZ";
+  const vehicleName = draft.vehicleName ? `na vozidle ${draft.vehicleName}` : "";
+  const vehicle = vehicleName || (draft.licensePlate ? `na vozidle se SPZ ${draft.licensePlate}` : "bez jasně vybraného vozidla");
   const intro = draft.vehicleResolvedFromAssignedDriver ? "Auto mám načtené podle tebe. " : "";
-  return `${intro}Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že SPZ je správně, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
+  return `${intro}Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že vozidlo sedí, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
 }
 
 function driverPartPreparedAction(draft) {
@@ -1070,6 +1087,16 @@ async function driverPartRequestTool(env, user, payload, context, speechText) {
       verified: true,
       message: "Dobře, nezapsala jsem nic.",
       preparedActions: []
+    };
+  }
+
+  if (draft.vehicleChoiceQuestion) {
+    return {
+      status: "needs_input",
+      verified: true,
+      message: draft.vehicleChoiceQuestion,
+      preparedActions: [],
+      vehicleCandidates: draft.assignedVehicleCandidates || []
     };
   }
 
@@ -1445,7 +1472,7 @@ function systemPrompt() {
     sarlotaSystemPrompt(),
     "Tento endpoint vrací strojové rozhodnutí pro KSO backend. Odpověď pro uživatele dej do pole reply.",
     "Pro zápis dovolené, nemoci, OČR, lékaře, náhradního volna, neplaceného volna nebo jiné nepřítomnosti použij intent absence_request. Nezapisuj bez jasného potvrzení uživatele; když něco chybí, polož jen jednu otázku.",
-    "Pro hlášení náhradního dílu z modulu Hlášení řidičů použij intent driver_part_request. Bez potvrzení nic nezapisuj ani neposílej; při chybějící SPZ nebo nejasné straně zrcátka polož jednu krátkou otázku. Mercedes díl podle VIN označ jako ověřený jen při oficiálním výsledku nebo ručním potvrzení.",
+    "Pro hlášení náhradního dílu z modulu Hlášení řidičů použij intent driver_part_request. Bez potvrzení nic nezapisuj ani neposílej; při chybějícím nebo nejednoznačném vozidle se ptej nejdřív na typ, značku nebo interní název vozidla a SPZ chtěj až jako poslední možnost. Při nejasné straně zrcátka polož jednu krátkou otázku. Mercedes díl podle VIN označ jako ověřený jen při oficiálním výsledku nebo ručním potvrzení.",
     "Blok Firemní lidskost: pokud request.humanTouch.enabled obsahuje návrhy, můžeš nenásilně použít maximálně jednu krátkou poznámku. Použij jen dodaný ověřený návrh, nikdy si nevymýšlej počasí, svátky, narozeniny ani dovolené.",
     "Firemní lidskost nepoužívej při reklamaci, stížnosti, spěchu, stresu, chybě, nemoci, OČR, lékaři ani u citlivé absence. Nikdy nezmiňuj důvod absence, věk ani soukromé údaje. Nepoužívej texty známých písní.",
     "Vrať výhradně JSON."

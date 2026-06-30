@@ -620,60 +620,270 @@ function vehicleTypeForHumanTouch(vehicle = {}) {
   return "vozidlo";
 }
 
+function uniqueCleanStrings(values = []) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    const cleaned = cleanString(value).replace(/\s+/g, " ");
+    const key = normalizeKey(cleaned);
+    if (!cleaned || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(cleaned);
+  }
+
+  return result;
+}
+
+export function fleetVehicleVoiceLabel(vehicle = {}, options = {}) {
+  const humanType = vehicleTypeForHumanTouch(vehicle);
+  const parts = uniqueCleanStrings([
+    vehicle.brand,
+    vehicle.model,
+    vehicle.internalNumber,
+    vehicle.vehicleType,
+    vehicle.bodyType,
+    vehicle.vistosVehicleCategory,
+    humanType !== "vozidlo" ? humanType : ""
+  ]).filter((part) => normalizeKey(part) !== "vozidlo");
+
+  const base = parts.slice(0, 3).join(" ") || cleanString(vehicle.licensePlate || vehicle.tcarsLicensePlate) || "vozidlo";
+  if (options.includePlate) {
+    const plate = cleanString(vehicle.licensePlate || vehicle.tcarsLicensePlate);
+    return plate ? `${base} (${plate})` : base;
+  }
+  return base;
+}
+
+function fleetVehicleOptionLabels(vehicles = []) {
+  const labels = vehicles.map((vehicle) => fleetVehicleVoiceLabel(vehicle));
+  const duplicated = labels.some((label, index) => (
+    labels.findIndex((other) => normalizeKey(other) === normalizeKey(label)) !== index
+  ));
+  return vehicles.map((vehicle) => fleetVehicleVoiceLabel(vehicle, { includePlate: duplicated }));
+}
+
+export function fleetVehicleSelectionQuestion(vehicles = []) {
+  const labels = fleetVehicleOptionLabels(vehicles).slice(0, 5);
+  if (!labels.length) {
+    return "Na kterém vozidle to je? Řekni mi prosím typ, značku nebo SPZ.";
+  }
+
+  const intro = vehicles.length === 1
+    ? "Máš přiřazené vozidlo"
+    : `Máš přiřazená ${vehicles.length} vozidla`;
+  const suffix = vehicles.length > labels.length ? " a další" : "";
+  return `${intro}: ${labels.join(", ")}${suffix}. O které jde? Můžeš říct typ, značku nebo interní název.`;
+}
+
+function withDriverVehicleMeta(vehicle, confidence, extra = {}) {
+  return {
+    ...vehicle,
+    ...extra,
+    driverVehicleMatchConfidence: confidence,
+    driverVehicleSource: "fleet_vehicle_assignments"
+  };
+}
+
+function driverVehicleCandidateMatches(vehicles = [], payload = {}, user = {}) {
+  const driverUserId = cleanString(payload.driverUserId || payload.userId || user?.id);
+  const driverPhone = normalizeIdentifier(payload.driverPhone || payload.phone || user?.phone);
+  const driverName = normalizedDriverName(payload.driverName || payload.name || user?.name);
+
+  if (driverUserId) {
+    const matches = vehicles.filter((vehicle) => cleanString(vehicle.assignedDriverId) === driverUserId);
+    if (matches.length) {
+      return { matches, confidence: "assigned_driver_id" };
+    }
+  }
+
+  if (driverPhone) {
+    const matches = vehicles.filter((vehicle) => normalizeIdentifier(vehicle.assignedDriverPhone) === driverPhone);
+    if (matches.length) {
+      return { matches, confidence: "assigned_driver_phone" };
+    }
+  }
+
+  if (driverName) {
+    const matches = vehicles.filter((vehicle) => normalizedDriverName(vehicle.assignedDriverName) === driverName);
+    if (matches.length) {
+      return { matches, confidence: "assigned_driver_name" };
+    }
+  }
+
+  return { matches: [], confidence: "" };
+}
+
+function vehicleSelectionHint(payload = {}) {
+  return normalizeKey([
+    payload.vehicleSelection,
+    payload.vehicleDescription,
+    payload.vehicleName,
+    payload.vehicleType,
+    payload.vehicleBrand,
+    payload.brand,
+    payload.car,
+    payload.licensePlate,
+    payload.spz,
+    payload.description,
+    payload.defectDescription,
+    payload.speechText
+  ].join(" "));
+}
+
+function vehicleOrdinalIndex(hint) {
+  const normalized = normalizeKey(hint);
+  const ordinals = [
+    /\b(prvni|jedna|jednicka|1)\b/,
+    /\b(druhe|druhy|dvojka|2)\b/,
+    /\b(treti|trojka|3)\b/,
+    /\b(ctvrte|ctvrty|ctyrka|4)\b/,
+    /\b(pate|paty|petka|5)\b/
+  ];
+  const index = ordinals.findIndex((pattern) => pattern.test(normalized));
+  return index >= 0 ? index : null;
+}
+
+function vehicleSearchTerms(vehicle = {}) {
+  const values = uniqueCleanStrings([
+    vehicle.brand,
+    vehicle.model,
+    vehicle.internalNumber,
+    vehicle.vehicleType,
+    vehicle.bodyType,
+    vehicle.vistosVehicleCategory,
+    vehicle.licensePlate,
+    vehicle.tcarsLicensePlate,
+    vehicleTypeForHumanTouch(vehicle),
+    fleetVehicleVoiceLabel(vehicle)
+  ]);
+  const stopWords = new Set(["auto", "auta", "vozidlo", "vozidle", "spz"]);
+  const terms = new Set();
+
+  for (const value of values) {
+    const normalized = normalizeKey(value);
+    if (normalized.length >= 3 && !stopWords.has(normalized)) {
+      terms.add(normalized);
+    }
+    normalized
+      .split(/[^a-z0-9]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 3 && !stopWords.has(part))
+      .forEach((part) => terms.add(part));
+  }
+
+  return [...terms];
+}
+
+function selectDriverVehicleFromCandidates(candidates = [], payload = {}) {
+  const hint = vehicleSelectionHint(payload);
+  if (!hint || !candidates.length) {
+    return null;
+  }
+
+  const wantedId = cleanString(payload.vehicleId || payload.vehicle_id);
+  if (wantedId) {
+    const byId = candidates.find((vehicle) => vehicleMatchesId(vehicle, wantedId));
+    if (byId) {
+      return byId;
+    }
+  }
+
+  const wantedPlate = normalizedPlate(payload.licensePlate || payload.spz || payload.plate);
+  if (wantedPlate) {
+    const byPlate = candidates.find((vehicle) => (
+      normalizedPlate(vehicle.licensePlate || vehicle.tcarsLicensePlate) === wantedPlate
+    ));
+    if (byPlate) {
+      return byPlate;
+    }
+  }
+
+  const ordinalIndex = vehicleOrdinalIndex(hint);
+  if (ordinalIndex !== null && candidates[ordinalIndex]) {
+    return candidates[ordinalIndex];
+  }
+
+  const scored = candidates.map((vehicle) => {
+    const score = vehicleSearchTerms(vehicle).reduce((total, term) => {
+      return hint.includes(term) ? total + Math.min(24, 6 + term.length) : total;
+    }, 0);
+    return { vehicle, score };
+  }).sort((left, right) => right.score - left.score);
+
+  if (!scored.length || scored[0].score <= 0) {
+    return null;
+  }
+
+  if (scored[1] && scored[1].score === scored[0].score) {
+    return null;
+  }
+
+  return scored[0].vehicle;
+}
+
 function canUseFleetForVoice(user) {
   return isUserActive(user)
     && hasPermission(user, "fleet", "view");
 }
 
-export async function resolveFleetVehicleForDriver(env, user, payload = {}) {
+export async function resolveFleetVehiclesForDriver(env, user, payload = {}) {
   if (!canUseFleetForVoice(user)) {
-    return null;
+    return { status: "unavailable", vehicle: null, candidates: [], question: "" };
   }
-
-  const driverUserId = cleanString(payload.driverUserId || payload.userId || user?.id);
-  const driverPhone = normalizeIdentifier(payload.driverPhone || payload.phone || user?.phone);
-  const driverName = normalizedDriverName(payload.driverName || payload.name || user?.name);
 
   try {
     const fleet = await loadFleetVehiclesWithAssignments(env);
     const vehicles = Array.isArray(fleet.vehicles) ? fleet.vehicles : [];
+    const { matches, confidence } = driverVehicleCandidateMatches(vehicles, payload, user);
+    const candidates = matches.map((vehicle) => withDriverVehicleMeta(vehicle, confidence));
 
-    if (driverUserId) {
-      const byUserId = vehicles.find((vehicle) => cleanString(vehicle.assignedDriverId) === driverUserId);
-      if (byUserId) {
-        return {
-          ...byUserId,
-          driverVehicleMatchConfidence: "assigned_driver_id",
-          driverVehicleSource: "fleet_vehicle_assignments"
-        };
-      }
+    if (candidates.length === 1) {
+      return {
+        status: "single",
+        vehicle: candidates[0],
+        candidates,
+        question: "",
+        labels: fleetVehicleOptionLabels(candidates)
+      };
     }
 
-    if (driverPhone) {
-      const phoneMatches = vehicles.filter((vehicle) => normalizeIdentifier(vehicle.assignedDriverPhone) === driverPhone);
-      if (phoneMatches.length === 1) {
+    if (candidates.length > 1) {
+      const selected = selectDriverVehicleFromCandidates(candidates, payload);
+      if (selected) {
         return {
-          ...phoneMatches[0],
-          driverVehicleMatchConfidence: "assigned_driver_phone",
-          driverVehicleSource: "fleet_vehicle_assignments"
+          status: "selected",
+          vehicle: withDriverVehicleMeta(selected, `${confidence}_selection`, {
+            driverVehicleCandidateCount: candidates.length
+          }),
+          candidates,
+          question: "",
+          labels: fleetVehicleOptionLabels(candidates)
         };
       }
-    }
 
-    if (driverName) {
-      const nameMatches = vehicles.filter((vehicle) => normalizedDriverName(vehicle.assignedDriverName) === driverName);
-      if (nameMatches.length === 1) {
-        return {
-          ...nameMatches[0],
-          driverVehicleMatchConfidence: "assigned_driver_name",
-          driverVehicleSource: "fleet_vehicle_assignments"
-        };
-      }
+      return {
+        status: "multiple",
+        vehicle: null,
+        candidates,
+        question: fleetVehicleSelectionQuestion(candidates),
+        labels: fleetVehicleOptionLabels(candidates)
+      };
     }
   } catch (error) {
     console.info("fleet_vehicles.driver_vehicle_lookup_skipped", { message: safeErrorMessage(error) });
   }
 
+  return { status: "none", vehicle: null, candidates: [], question: "" };
+}
+
+export async function resolveFleetVehicleForDriver(env, user, payload = {}) {
+  const result = await resolveFleetVehiclesForDriver(env, user, payload);
+  if (result.vehicle) {
+    return result.vehicle;
+  }
   return null;
 }
 
@@ -683,12 +893,32 @@ function truncateDynamicVariable(value, max = 260) {
 }
 
 export async function driverReportVehicleDynamicVariables(env, user) {
-  const vehicle = await resolveFleetVehicleForDriver(env, user);
+  const match = await resolveFleetVehiclesForDriver(env, user);
+  const vehicle = match.vehicle;
   const vehicleName = cleanString(vehicle?.internalNumber || vehicle?.model || vehicle?.vehicleName || vehicle?.licensePlate);
   const licensePlate = cleanString(vehicle?.licensePlate || vehicle?.tcarsLicensePlate);
   const vin = cleanString(vehicle?.vin);
   const vehicleType = vehicleTypeForHumanTouch(vehicle);
   const firstName = cleanString(user?.name).split(/\s+/).filter(Boolean)[0] || "řidiči";
+
+  if (match.status === "multiple") {
+    const options = (match.labels || fleetVehicleOptionLabels(match.candidates)).join(", ");
+    return {
+      driver_report_vehicle_status: "vice_moznosti",
+      driver_report_vehicle_id: "",
+      driver_report_vehicle_name: "",
+      driver_report_vehicle_license_plate: "",
+      driver_report_vehicle_vin: "",
+      driver_report_vehicle_type: "",
+      driver_report_vehicle_options_count: String(match.candidates.length),
+      driver_report_vehicle_options: truncateDynamicVariable(options, 360),
+      driver_report_vehicle_selection_question: truncateDynamicVariable(match.question, 420),
+      driver_report_vehicle_context: truncateDynamicVariable(
+        `${firstName}: v Hlášení řidičů má řidič přiřazeno více vozidel: ${options}. Nevybírej automaticky. Vyjmenuj možnosti a požádej o typ, značku nebo interní název; SPZ chtěj až jako poslední možnost.`,
+        520
+      )
+    };
+  }
 
   if (!vehicle || !licensePlate) {
     return {
@@ -698,7 +928,10 @@ export async function driverReportVehicleDynamicVariables(env, user) {
       driver_report_vehicle_license_plate: "",
       driver_report_vehicle_vin: "",
       driver_report_vehicle_type: "",
-      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě identifikované. Neodlehčuj a zeptej se: Řekni mi prosím SPZ vozidla."
+      driver_report_vehicle_options_count: "0",
+      driver_report_vehicle_options: "",
+      driver_report_vehicle_selection_question: "Na kterém vozidle to je? Řekni mi prosím typ, značku nebo SPZ.",
+      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě identifikované. Neodlehčuj a zeptej se nejdřív na typ nebo značku vozidla; SPZ chtěj až jako poslední možnost."
     };
   }
 
@@ -709,6 +942,9 @@ export async function driverReportVehicleDynamicVariables(env, user) {
     driver_report_vehicle_license_plate: truncateDynamicVariable(licensePlate, 80),
     driver_report_vehicle_vin: truncateDynamicVariable(vin, 120),
     driver_report_vehicle_type: truncateDynamicVariable(vehicleType, 80),
+    driver_report_vehicle_options_count: "1",
+    driver_report_vehicle_options: truncateDynamicVariable(fleetVehicleVoiceLabel(vehicle), 180),
+    driver_report_vehicle_selection_question: "",
     driver_report_vehicle_context: truncateDynamicVariable(
       `${firstName}: při hovoru v Hlášení řidičů máš ověřené přiřazené ${vehicleType}, SPZ ${licensePlate}${vin ? `, VIN ${vin}` : ""}. Můžeš říct krátce, že auto máš načtené. Firemní odlehčení použij jen u klidného neurgentního hlášení a maximálně jednou.`,
       420

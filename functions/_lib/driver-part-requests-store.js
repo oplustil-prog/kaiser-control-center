@@ -1,7 +1,8 @@
 import { getUsers } from "./auth.js";
 import {
   loadFleetVehiclesWithAssignments,
-  resolveFleetVehicleForDriver
+  resolveFleetVehicleForDriver,
+  resolveFleetVehiclesForDriver
 } from "./fleet-vehicles-store.js";
 import {
   extractLicensePlate,
@@ -478,7 +479,22 @@ export async function createDriverPartRequest(env, user, payload = {}) {
   }
 
   const db = database(env, true);
-  const assignedDriverVehicle = await resolveFleetVehicleForDriver(env, user, payload);
+  const rawDescription = cleanString(payload.defectDescription || payload.description || payload.speechText);
+  const payloadLicensePlate = normalizeLicensePlate(
+    payload.licensePlate ||
+    payload.spz ||
+    extractLicensePlate(rawDescription)
+  );
+  const assignedDriverMatch = await resolveFleetVehiclesForDriver(env, user, payload);
+  if (!payloadLicensePlate && assignedDriverMatch.status === "multiple") {
+    throw new DriverPartRequestsStoreError(
+      assignedDriverMatch.question || "Máš přiřazených více vozidel. Nejdřív vyber typ nebo značku vozidla.",
+      400,
+      "driver_vehicle_ambiguous"
+    );
+  }
+
+  const assignedDriverVehicle = assignedDriverMatch.vehicle || await resolveFleetVehicleForDriver(env, user, payload);
   const licensePlate = normalizeLicensePlate(
     payload.licensePlate ||
     payload.spz ||

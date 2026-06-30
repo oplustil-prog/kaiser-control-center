@@ -120,7 +120,10 @@ function fallbackDriverReportVehicleVariables() {
     driver_report_vehicle_license_plate: "",
     driver_report_vehicle_vin: "",
     driver_report_vehicle_type: "",
-    driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě identifikované. Zeptej se na SPZ vozidla."
+    driver_report_vehicle_options_count: "0",
+    driver_report_vehicle_options: "",
+    driver_report_vehicle_selection_question: "Na kterém vozidle to je? Řekni mi prosím typ, značku nebo SPZ.",
+    driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě identifikované. Zeptej se nejdřív na typ nebo značku vozidla; SPZ chtěj až jako poslední možnost."
   };
 }
 
