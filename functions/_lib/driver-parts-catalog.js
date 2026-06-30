@@ -1,4 +1,14 @@
 const VEHICLE_BRANDS = new Set(["mercedes", "daf", "man", "jiné"]);
+const PART_VERIFICATION_STATUSES = new Set([
+  "waiting_identification",
+  "probable_part",
+  "waiting_manual_verification",
+  "verified_daimler",
+  "verified_manual",
+  "not_found",
+  "verification_error",
+  "not_applicable"
+]);
 
 export const PART_CATALOG_SOURCES = [
   {
@@ -84,7 +94,7 @@ export function normalizeVehicleBrand(value) {
 
 export function vehicleBrandLabel(value) {
   const brand = normalizeVehicleBrand(value);
-  if (brand === "mercedes") return "Mercedes";
+  if (brand === "mercedes") return "Mercedes-Benz Trucks";
   if (brand === "daf") return "DAF";
   if (brand === "man") return "MAN";
   return "jiné";
@@ -122,28 +132,89 @@ export function partSideLabel(side) {
   return "neznámá strana";
 }
 
+function partMatchFromSide(description, config) {
+  const side = config.sideAware ? mirrorSideFromText(description) : {
+    side: "unknown",
+    label: "neznámá strana",
+    source: ""
+  };
+  const probablePart = side.side === "unknown" || !config.sideAware
+    ? config.basePart
+    : `${side.label} ${config.basePart}`;
+
+  return {
+    defectType: config.defectType,
+    probablePart,
+    probablePartBase: config.basePart,
+    probablePartSide: side.side,
+    probablePartSideLabel: side.label,
+    sideSource: side.source,
+    confidence: side.side === "unknown" && config.sideAware ? "medium" : "high",
+    partIdentificationStatus: side.side === "unknown" && config.sideAware
+      ? "probable_waiting_verification"
+      : "probable_part",
+    needsPartSideClarification: Boolean(config.sideAware && side.side === "unknown"),
+    needsManualVerification: true,
+    verifiedPart: "",
+    partOrderNumber: "",
+    note: "Objednací číslo dílu musí ověřit nákup nebo servis podle VIN/katalogu."
+  };
+}
+
 export function identifyProbablePartFromDescription(description) {
   const text = cleanString(description);
   const normalized = normalizeText(text);
 
   if (normalized.includes("zrcatko") || normalized.includes("zpetne zrcat")) {
-    const side = mirrorSideFromText(text);
-    const basePart = "vnější zpětné zrcátko";
-    return {
+    return partMatchFromSide(text, {
       defectType: "poškozené zrcátko",
-      probablePart: side.side === "unknown" ? basePart : `${side.label} ${basePart}`,
-      probablePartBase: basePart,
-      probablePartSide: side.side,
-      probablePartSideLabel: side.label,
-      sideSource: side.source,
-      confidence: side.side === "unknown" ? "medium" : "high",
-      partIdentificationStatus: "probable_waiting_verification",
-      needsPartSideClarification: side.side === "unknown",
-      needsManualVerification: true,
-      verifiedPart: "",
-      partOrderNumber: "",
-      note: "Objednací číslo dílu musí ověřit nákup nebo servis podle VIN/katalogu."
-    };
+      basePart: "vnější zpětné zrcátko",
+      sideAware: true
+    });
+  }
+
+  if (/\b(svetlo|svetlomet|světlo|světlomet|blinkr|smerovka|směrovka)\b/.test(normalized)) {
+    return partMatchFromSide(text, {
+      defectType: "poškozené světlo",
+      basePart: normalized.includes("zadni") || normalized.includes("zadní")
+        ? "zadní světlo"
+        : normalized.includes("blinkr") || normalized.includes("smerovka")
+          ? "směrovka"
+          : "světlomet",
+      sideAware: true
+    });
+  }
+
+  if (/\b(pneumatika|guma|kolo)\b/.test(normalized)) {
+    return partMatchFromSide(text, {
+      defectType: "poškozená pneumatika",
+      basePart: "pneumatika",
+      sideAware: false
+    });
+  }
+
+  if (/\b(sterac|stěrač|rameno sterace|rameno stěrače)\b/.test(normalized)) {
+    return partMatchFromSide(text, {
+      defectType: "poškozený stěrač",
+      basePart: normalized.includes("rameno") ? "rameno stěrače" : "stěrač",
+      sideAware: false
+    });
+  }
+
+  if (/\b(blatnik|blatník|kryt kola)\b/.test(normalized)) {
+    return partMatchFromSide(text, {
+      defectType: "poškozený blatník",
+      basePart: normalized.includes("kryt") ? "kryt kola" : "blatník",
+      sideAware: true
+    });
+  }
+
+  if (/\b(naraznik|nárazník)\b/.test(normalized)) {
+    return partMatchFromSide(text, {
+      defectType: "poškozený nárazník",
+      basePart: "nárazník / díl nárazníku",
+      sideAware: false
+    });
   }
 
   return {
@@ -161,6 +232,20 @@ export function identifyProbablePartFromDescription(description) {
     partOrderNumber: "",
     note: "Díl zatím nebyl bezpečně rozpoznán. Čeká na ruční ověření."
   };
+}
+
+export function normalizePartVerificationStatus(value, fallback = "waiting_manual_verification") {
+  const normalized = cleanString(value);
+  return PART_VERIFICATION_STATUSES.has(normalized) ? normalized : fallback;
+}
+
+export function partLookupQueryFromRequest(request = {}) {
+  return [
+    request.probablePart,
+    request.defectType,
+    request.defectDescription,
+    partSideLabel(request.probablePartSide)
+  ].map(cleanString).filter(Boolean).join(" ");
 }
 
 export function driverPartRequestInitialStatus(partMatch) {

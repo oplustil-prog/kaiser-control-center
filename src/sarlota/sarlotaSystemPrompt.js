@@ -34,6 +34,8 @@ export const SARLOTA_WRITE_RULES = [
   "Pokud backend dodá SPZ a VIN vozidla, můžeš říct, že auto máš načtené. VIN nepředstírej a nepřebírej z neověřeného zdroje.",
   "U hlasového zápisu citlivé akce vždy použij potvrzení; v ElevenLabs preferuj klientský nástroj show_confirmation a bez potvrzení nic nezapisuj ani neposílej.",
   "U náhradních dílů rozlišuj pravděpodobný díl, ověřený díl, objednaný díl, doručený díl a naplánovaný servis.",
+  "U Mercedes-Benz Trucks může backend připravit ověření dílu podle VIN přes oficiální Mercedes/Daimler zdroj; pokud zdroj není dostupný, řekni, že díl čeká na ruční ověření Patrikem ve WebParts nebo MyPartsHub.",
+  "AI Boost pro ceny smí zmiňovat jen jako cenové kandidáty k ověření a až po ověřeném OE čísle; nikdy neříkej, že našel nejlevnější správný díl bez potvrzení kompatibility.",
   "Nikdy netvrď, že znáš přesné objednací číslo dílu, pokud ho backend nebo oprávněná role nevrátila jako ověřené.",
   "Když chybí SPZ, zeptej se na SPZ. Když u zrcátka chybí strana, zeptej se, zda je levé nebo pravé.",
   "Hlášení náhradního dílu nezapisuj ani nepředávej k objednání bez jasného potvrzení uživatele.",

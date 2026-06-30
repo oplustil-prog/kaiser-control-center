@@ -9,10 +9,12 @@ import {
   driverPartRequestInitialStatus,
   licensePlateKey,
   normalizeLicensePlate,
+  normalizePartVerificationStatus,
   normalizeVehicleBrand,
   partSideLabel,
   vehicleBrandLabel
 } from "./driver-parts-catalog.js";
+import { verifyMercedesPartForRequest } from "./mercedes-parts-provider.js";
 import {
   sendDriverPartOrderNotification,
   sendDriverPartReadySms,
@@ -124,12 +126,28 @@ function dbError(error) {
     );
   }
 
+  if (/no such column|oe_part_number|part_verification_status|parts_provider|price_boost/i.test(message)) {
+    return new DriverPartRequestsStoreError(
+      "Pole pro Mercedes ověření dílu nejsou v D1 připravená. Spusťte migraci 0025_add_mercedes_parts_lookup_fields.sql.",
+      503,
+      "driver_part_mercedes_migration_missing"
+    );
+  }
+
   console.error("driver_part_requests.store_failed", { message });
   return new DriverPartRequestsStoreError(
     "Hlášení řidičů se teď nepodařilo načíst nebo uložit.",
     500,
     "driver_part_requests_store_failed"
   );
+}
+
+function normalizePartVerificationSource(value, fallback = "") {
+  const source = cleanString(value).toLowerCase();
+  if (["daimler", "manual", "internal", "tecdoc"].includes(source)) {
+    return source;
+  }
+  return fallback;
 }
 
 export function canManageDriverPartRequests(user) {
@@ -200,6 +218,22 @@ function rowToRequest(row, events = []) {
     partIdentificationStatus: cleanString(row?.part_identification_status),
     verifiedPart: cleanString(row?.verified_part),
     partOrderNumber: cleanString(row?.part_order_number),
+    oePartNumber: cleanString(row?.oe_part_number),
+    partName: cleanString(row?.part_name),
+    partVerificationStatus: normalizePartVerificationStatus(row?.part_verification_status || row?.part_identification_status),
+    partVerificationSource: cleanString(row?.part_verification_source),
+    partsProviderId: cleanString(row?.parts_provider_id),
+    partsProviderStatus: cleanString(row?.parts_provider_status),
+    partsProviderMessage: cleanString(row?.parts_provider_message),
+    partsProviderError: cleanString(row?.parts_provider_error),
+    partLookupQuery: cleanString(row?.part_lookup_query),
+    partLookupResultJson: cleanString(row?.part_lookup_result_json),
+    mercedesManualPortalUrl: cleanString(row?.mercedes_manual_portal_url),
+    mercedesMyPartsHubUrl: cleanString(row?.mercedes_mypartshub_url),
+    priceBoostStatus: cleanString(row?.price_boost_status || "not_requested"),
+    priceBoostNote: cleanString(row?.price_boost_note),
+    priceBoostCheckedAt: cleanString(row?.price_boost_checked_at),
+    priceBoostResultJson: cleanString(row?.price_boost_result_json),
     status,
     statusLabel: DRIVER_PART_REQUEST_STATUS_LABELS[status] || "Neznámý stav",
     assignedToName: cleanString(row?.assigned_to_name),
@@ -769,13 +803,31 @@ export async function markDriverPartOrdered(env, user, id, payload = {}) {
   const { db, item } = await requestForUser(env, id, user);
   const now = new Date().toISOString();
   const verifiedPart = cleanString(payload.verifiedPart || item.verifiedPart);
-  const partOrderNumber = cleanString(payload.partOrderNumber || item.partOrderNumber);
+  const oePartNumber = cleanString(payload.oePartNumber || payload.oeNumber || item.oePartNumber);
+  const partName = cleanString(payload.partName || item.partName);
+  const partOrderNumber = cleanString(payload.partOrderNumber || item.partOrderNumber || oePartNumber);
+  const partVerificationSource = normalizePartVerificationSource(
+    payload.partVerificationSource || item.partVerificationSource,
+    verifiedPart || partOrderNumber || oePartNumber || partName ? "manual" : ""
+  );
+  const partVerificationStatus = normalizePartVerificationStatus(
+    payload.partVerificationStatus || item.partVerificationStatus,
+    partVerificationSource === "daimler"
+      ? "verified_daimler"
+      : verifiedPart || partOrderNumber || oePartNumber || partName
+        ? "verified_manual"
+        : "waiting_manual_verification"
+  );
   const after = {
     ...item,
     status: "ordered",
     verifiedPart,
     partOrderNumber,
-    partIdentificationStatus: verifiedPart || partOrderNumber ? "verified" : item.partIdentificationStatus,
+    oePartNumber,
+    partName,
+    partVerificationStatus,
+    partVerificationSource,
+    partIdentificationStatus: verifiedPart || partOrderNumber || oePartNumber || partName ? partVerificationStatus : item.partIdentificationStatus,
     orderedAt: now,
     orderedByUserId: cleanString(user?.id),
     note: cleanString(payload.note || item.note),
@@ -791,6 +843,10 @@ export async function markDriverPartOrdered(env, user, id, payload = {}) {
             status = 'ordered',
             verified_part = ?,
             part_order_number = ?,
+            oe_part_number = ?,
+            part_name = ?,
+            part_verification_status = ?,
+            part_verification_source = ?,
             part_identification_status = ?,
             ordered_at = ?,
             ordered_by_user_id = ?,
@@ -802,6 +858,10 @@ export async function markDriverPartOrdered(env, user, id, payload = {}) {
         .bind(
           nullableString(verifiedPart),
           nullableString(partOrderNumber),
+          nullableString(oePartNumber),
+          nullableString(partName),
+          partVerificationStatus,
+          nullableString(partVerificationSource),
           after.partIdentificationStatus,
           now,
           nullableString(user?.id),
@@ -817,6 +877,213 @@ export async function markDriverPartOrdered(env, user, id, payload = {}) {
         before: item,
         after,
         note: "Díl označen jako objednaný."
+      })
+    ]);
+
+    return getDriverPartRequest(env, user, item.id);
+  } catch (error) {
+    throw dbError(error);
+  }
+}
+
+export async function verifyMercedesDriverPartRequest(env, user, id) {
+  if (!canManageDriverPartRequests(user)) {
+    throw new DriverPartRequestsStoreError("Nemáte oprávnění ověřit Mercedes díl.", 403, "driver_part_verify_forbidden");
+  }
+
+  const { db, item } = await requestForUser(env, id, user);
+  const now = new Date().toISOString();
+  const isMercedes = normalizeVehicleBrand(item.vehicleBrand) === "mercedes";
+  const providerResult = isMercedes
+    ? await verifyMercedesPartForRequest(env, item)
+    : {
+      status: "not_applicable",
+      partVerificationStatus: "not_applicable",
+      partVerificationSource: "",
+      partsProviderId: "",
+      partsProviderStatus: "skipped_non_mercedes",
+      partsProviderMessage: "Vozidlo není Mercedes-Benz Trucks. Díl se předává Patrikovi k ručnímu ověření podle běžného procesu.",
+      partsProviderError: "",
+      mercedesManualPortalUrl: "",
+      mercedesMyPartsHubUrl: "",
+      partLookupQuery: item.probablePart || item.defectDescription,
+      resultJson: ""
+    };
+
+  const partVerificationStatus = normalizePartVerificationStatus(providerResult.partVerificationStatus);
+  const verifiedPart = cleanString(providerResult.verifiedPart || item.verifiedPart);
+  const oePartNumber = cleanString(providerResult.oePartNumber || item.oePartNumber);
+  const partName = cleanString(providerResult.partName || item.partName);
+  const partOrderNumber = cleanString(providerResult.partOrderNumber || item.partOrderNumber || oePartNumber);
+  const partIdentificationStatus = partVerificationStatus === "verified_daimler"
+    ? "verified_daimler"
+    : partVerificationStatus === "not_applicable"
+      ? item.partIdentificationStatus
+      : "waiting_manual_verification";
+  const after = {
+    ...item,
+    verifiedPart,
+    partOrderNumber,
+    oePartNumber,
+    partName,
+    partVerificationStatus,
+    partVerificationSource: providerResult.partVerificationSource,
+    partIdentificationStatus,
+    partsProviderId: providerResult.partsProviderId,
+    partsProviderStatus: providerResult.partsProviderStatus,
+    partsProviderMessage: providerResult.partsProviderMessage,
+    partsProviderError: providerResult.partsProviderError,
+    partLookupQuery: providerResult.partLookupQuery,
+    partLookupResultJson: providerResult.resultJson,
+    mercedesManualPortalUrl: providerResult.mercedesManualPortalUrl,
+    mercedesMyPartsHubUrl: providerResult.mercedesMyPartsHubUrl,
+    priceBoostStatus: oePartNumber || partOrderNumber ? "waiting_verified_part" : "not_requested",
+    priceBoostNote: oePartNumber || partOrderNumber
+      ? "AI Boost cenový průzkum smí běžet až po potvrzení kompatibility člověkem."
+      : "AI Boost cenový průzkum čeká na ověřené OE číslo.",
+    updatedAt: now
+  };
+
+  try {
+    await db.batch([
+      db
+        .prepare(`
+          UPDATE driver_part_requests
+          SET
+            verified_part = ?,
+            part_order_number = ?,
+            oe_part_number = ?,
+            part_name = ?,
+            part_identification_status = ?,
+            part_verification_status = ?,
+            part_verification_source = ?,
+            parts_provider_id = ?,
+            parts_provider_status = ?,
+            parts_provider_message = ?,
+            parts_provider_error = ?,
+            part_lookup_query = ?,
+            part_lookup_result_json = ?,
+            mercedes_manual_portal_url = ?,
+            mercedes_mypartshub_url = ?,
+            price_boost_status = ?,
+            price_boost_note = ?,
+            updated_by_user_id = ?,
+            updated_at = ?
+          WHERE id = ?
+        `)
+        .bind(
+          nullableString(verifiedPart),
+          nullableString(partOrderNumber),
+          nullableString(oePartNumber),
+          nullableString(partName),
+          partIdentificationStatus,
+          partVerificationStatus,
+          nullableString(providerResult.partVerificationSource),
+          nullableString(providerResult.partsProviderId),
+          nullableString(providerResult.partsProviderStatus),
+          nullableString(providerResult.partsProviderMessage),
+          nullableString(providerResult.partsProviderError),
+          nullableString(providerResult.partLookupQuery),
+          nullableString(providerResult.resultJson),
+          nullableString(providerResult.mercedesManualPortalUrl),
+          nullableString(providerResult.mercedesMyPartsHubUrl),
+          after.priceBoostStatus,
+          nullableString(after.priceBoostNote),
+          nullableString(user?.id),
+          now,
+          item.id
+        ),
+      eventStatement(db, {
+        requestId: item.id,
+        action: isMercedes ? "verify_mercedes_part" : "skip_mercedes_part_verification",
+        user,
+        before: item,
+        after,
+        note: providerResult.partsProviderMessage || "Ověření dílu bylo zapsáno do historie."
+      })
+    ]);
+
+    return getDriverPartRequest(env, user, item.id);
+  } catch (error) {
+    throw dbError(error);
+  }
+}
+
+export async function updateDriverPartManualVerification(env, user, id, payload = {}) {
+  if (!canManageDriverPartRequests(user)) {
+    throw new DriverPartRequestsStoreError("Nemáte oprávnění ručně ověřit díl.", 403, "driver_part_manual_verify_forbidden");
+  }
+
+  const { db, item } = await requestForUser(env, id, user);
+  const now = new Date().toISOString();
+  const verifiedPart = cleanString(payload.verifiedPart || item.verifiedPart);
+  const oePartNumber = cleanString(payload.oePartNumber || payload.oeNumber || item.oePartNumber);
+  const partName = cleanString(payload.partName || item.partName);
+  const partOrderNumber = cleanString(payload.partOrderNumber || item.partOrderNumber || oePartNumber);
+  const hasManualData = Boolean(verifiedPart || oePartNumber || partName || partOrderNumber);
+  const partVerificationStatus = hasManualData ? "verified_manual" : "waiting_manual_verification";
+  const note = cleanString(payload.note || item.note);
+  const after = {
+    ...item,
+    verifiedPart,
+    partOrderNumber,
+    oePartNumber,
+    partName,
+    partVerificationStatus,
+    partVerificationSource: hasManualData ? "manual" : item.partVerificationSource,
+    partIdentificationStatus: hasManualData ? "verified_manual" : "waiting_manual_verification",
+    note,
+    priceBoostStatus: hasManualData ? "waiting_verified_part" : item.priceBoostStatus,
+    priceBoostNote: hasManualData
+      ? "AI Boost cenový průzkum smí běžet až po potvrzení kompatibility člověkem."
+      : item.priceBoostNote,
+    updatedAt: now
+  };
+
+  try {
+    await db.batch([
+      db
+        .prepare(`
+          UPDATE driver_part_requests
+          SET
+            verified_part = ?,
+            part_order_number = ?,
+            oe_part_number = ?,
+            part_name = ?,
+            part_identification_status = ?,
+            part_verification_status = ?,
+            part_verification_source = ?,
+            note = ?,
+            price_boost_status = ?,
+            price_boost_note = ?,
+            updated_by_user_id = ?,
+            updated_at = ?
+          WHERE id = ?
+        `)
+        .bind(
+          nullableString(verifiedPart),
+          nullableString(partOrderNumber),
+          nullableString(oePartNumber),
+          nullableString(partName),
+          after.partIdentificationStatus,
+          partVerificationStatus,
+          hasManualData ? "manual" : nullableString(item.partVerificationSource),
+          nullableString(note),
+          after.priceBoostStatus,
+          nullableString(after.priceBoostNote),
+          nullableString(user?.id),
+          now,
+          item.id
+        ),
+      eventStatement(db, {
+        requestId: item.id,
+        action: "manual_part_verification",
+        user,
+        before: item,
+        after,
+        note: hasManualData
+          ? "Díl byl ručně ověřen nebo doplněn oprávněnou osobou."
+          : "Díl zůstává k ručnímu ověření."
       })
     ]);
 

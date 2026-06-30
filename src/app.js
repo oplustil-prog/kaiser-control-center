@@ -346,6 +346,32 @@ const DRIVER_REPORT_PHOTO_STATUS_LABELS = {
   attached: "Přiložena",
   not_needed: "Nevyžadována"
 };
+const DRIVER_REPORT_PART_VERIFICATION_LABELS = {
+  waiting_identification: "Čeká na identifikaci",
+  probable_part: "Pravděpodobný díl",
+  probable_waiting_verification: "Pravděpodobný díl",
+  waiting_manual_verification: "Čeká na ruční ověření",
+  verified_daimler: "Ověřeno v Daimler",
+  verified_manual: "Ověřeno ručně",
+  verified: "Ověřeno ručně",
+  not_found: "Nenalezeno",
+  verification_error: "Chyba ověření",
+  not_applicable: "Netýká se Mercedes"
+};
+const DRIVER_REPORT_PART_SOURCE_LABELS = {
+  daimler: "Daimler / Mercedes-Benz Trucks",
+  manual: "Ručně",
+  internal: "Interní databáze Kaiser",
+  tecdoc: "TecDoc / TecAlliance"
+};
+const DRIVER_REPORT_PRICE_BOOST_LABELS = {
+  not_requested: "Čeká na ověřený díl",
+  waiting_verified_part: "Připraveno po potvrzení kompatibility",
+  running: "Vyhledává cenové kandidáty",
+  candidates_found: "Kandidáti k ověření",
+  failed: "Chyba průzkumu",
+  skipped: "Neprovádí se"
+};
 const AI_INITIAL_MESSAGE =
   `${assistantById(DEFAULT_AI_ASSISTANT_ID).intro} Zeptej se mě na nepřítomnost, pneumatiky, připomínky, uživatele nebo nastavení.`;
 const AI_STATUS_READY = "Připraven";
@@ -17992,6 +18018,18 @@ function driverReportPhotoStatusLabel(status) {
   return DRIVER_REPORT_PHOTO_STATUS_LABELS[status] || status || "Vyžádána od řidiče";
 }
 
+function driverReportPartVerificationLabel(status) {
+  return DRIVER_REPORT_PART_VERIFICATION_LABELS[status] || status || "Čeká na ruční ověření";
+}
+
+function driverReportPartSourceLabel(source) {
+  return DRIVER_REPORT_PART_SOURCE_LABELS[source] || source || "neuvedeno";
+}
+
+function driverReportPriceBoostLabel(status) {
+  return DRIVER_REPORT_PRICE_BOOST_LABELS[status] || status || "Čeká na ověřený díl";
+}
+
 function driverReportNotificationLabel(status) {
   const normalized = String(status || "not_sent").trim();
   if (normalized === "sent") return "Odesláno";
@@ -18104,6 +18142,15 @@ function driverReportField(label, value) {
   `;
 }
 
+function driverReportCopyField(label, value) {
+  return `
+    <label class="driver-report-copy-field">
+      <span>${escapeHtml(label)}</span>
+      <input value="${escapeHtml(value || "")}" readonly aria-label="${escapeHtml(label)}">
+    </label>
+  `;
+}
+
 function driverReportNotificationPill(label, status, error) {
   const tone = status === "sent" ? "sent" : status === "failed" ? "failed" : "pending";
   const title = error ? ` title="${escapeHtml(error)}"` : "";
@@ -18111,6 +18158,57 @@ function driverReportNotificationPill(label, status, error) {
     <span class="driver-report-notification driver-report-notification--${escapeHtml(tone)}"${title}>
       ${escapeHtml(label)}: ${escapeHtml(driverReportNotificationLabel(status))}
     </span>
+  `;
+}
+
+function driverReportMercedesLinks(item) {
+  const webPartsUrl = item.mercedesManualPortalUrl || "https://webpartstruck-cloud.mercedes-benz-trucks.com/webparts/";
+  const myPartsHubUrl = item.mercedesMyPartsHubUrl || "https://mypartshub.daimlertruck.com";
+  return `
+    <div class="driver-report-part-links">
+      <a class="secondary-link" href="${escapeHtml(webPartsUrl)}" target="_blank" rel="noopener noreferrer">Otevřít WebParts</a>
+      <a class="secondary-link" href="${escapeHtml(myPartsHubUrl)}" target="_blank" rel="noopener noreferrer">Otevřít MyPartsHub</a>
+    </div>
+  `;
+}
+
+function driverReportMercedesPartSection(item) {
+  const isMercedes = item.vehicleBrand === "mercedes";
+  if (!isMercedes) {
+    return "";
+  }
+
+  const canManage = driverReportCanManage();
+  const loading = driverReportsState.actionLoading;
+
+  return `
+    <section class="driver-report-part driver-report-mercedes-part" aria-label="Náhradní díl Mercedes">
+      <div class="driver-report-part__title">
+        <div>
+          <h3>Náhradní díl Mercedes</h3>
+          <span>${escapeHtml(driverReportPartVerificationLabel(item.partVerificationStatus || item.partIdentificationStatus))}</span>
+        </div>
+        ${canManage ? `<button class="secondary-link" type="button" data-driver-report-action="verify-mercedes" data-request-id="${escapeHtml(item.id)}" ${loading ? "disabled" : ""}>Ověřit díl Mercedes</button>` : ""}
+      </div>
+      <div class="driver-report-detail-grid">
+        ${driverReportField("OE číslo", item.oePartNumber || item.partOrderNumber)}
+        ${driverReportField("Název dílu", item.partName || item.verifiedPart)}
+        ${driverReportField("Zdroj ověření", driverReportPartSourceLabel(item.partVerificationSource))}
+        ${driverReportField("Stav provideru", item.partsProviderStatus)}
+        ${driverReportField("AI Boost cena", driverReportPriceBoostLabel(item.priceBoostStatus))}
+        ${driverReportField("Dotaz pro katalog", item.partLookupQuery)}
+      </div>
+      ${item.partsProviderMessage ? `<p class="driver-report-note">${escapeHtml(item.partsProviderMessage)}</p>` : ""}
+      ${item.priceBoostNote ? `<p class="driver-report-note">${escapeHtml(item.priceBoostNote)}</p>` : ""}
+      <div class="driver-report-copy-grid" aria-label="Údaje pro ruční ověření">
+        ${driverReportCopyField("VIN", item.vin)}
+        ${driverReportCopyField("SPZ", item.licensePlate)}
+        ${driverReportCopyField("Závada", item.defectDescription)}
+        ${driverReportCopyField("Pravděpodobný díl", item.probablePart)}
+        ${driverReportCopyField("OE číslo", item.oePartNumber || item.partOrderNumber)}
+      </div>
+      ${driverReportMercedesLinks(item)}
+    </section>
   `;
 }
 
@@ -18228,10 +18326,46 @@ function driverReportOrderForm(item) {
         <input name="verifiedPart" value="${escapeHtml(item.verifiedPart)}" placeholder="doplní nákup / servis">
       </label>
       <label>
+        <span>OE číslo</span>
+        <input name="oePartNumber" value="${escapeHtml(item.oePartNumber)}" placeholder="pokud je ověřené">
+      </label>
+      <label>
+        <span>Název dílu</span>
+        <input name="partName" value="${escapeHtml(item.partName)}" placeholder="název z katalogu">
+      </label>
+      <label>
         <span>Objednací číslo</span>
         <input name="partOrderNumber" value="${escapeHtml(item.partOrderNumber)}" placeholder="pokud je známé">
       </label>
       <button class="secondary-link" type="submit" ${driverReportsState.actionLoading ? "disabled" : ""}>Objednáno</button>
+    </form>
+  `;
+}
+
+function driverReportManualPartForm(item) {
+  if (!driverReportCanManage() || ["ordered", "part_arrived", "service_scheduled", "completed", "canceled"].includes(item.status)) {
+    return "";
+  }
+
+  return `
+    <form class="driver-report-inline-form" data-driver-report-manual-part-form data-request-id="${escapeHtml(item.id)}">
+      <label>
+        <span>OE číslo</span>
+        <input name="oePartNumber" value="${escapeHtml(item.oePartNumber)}" placeholder="ručně ověřené OE číslo">
+      </label>
+      <label>
+        <span>Název dílu</span>
+        <input name="partName" value="${escapeHtml(item.partName)}" placeholder="název dílu z WebParts/MyPartsHub">
+      </label>
+      <label>
+        <span>Ověřený díl</span>
+        <input name="verifiedPart" value="${escapeHtml(item.verifiedPart)}" placeholder="např. pravé vnější zpětné zrcátko">
+      </label>
+      <label>
+        <span>Poznámka</span>
+        <input name="note" value="${escapeHtml(item.note)}" placeholder="poznámka k ověření">
+      </label>
+      <button class="secondary-link" type="submit" ${driverReportsState.actionLoading ? "disabled" : ""}>Uložit ověření</button>
     </form>
   `;
 }
@@ -18342,13 +18476,17 @@ function driverReportDetail(item) {
       <section class="driver-report-part" aria-label="Náhradní díl">
         <div class="driver-report-part__title">
           <h3>Náhradní díl</h3>
-          <span>${escapeHtml(item.partIdentificationStatus || "čeká na ověření")}</span>
+          <span>${escapeHtml(driverReportPartVerificationLabel(item.partVerificationStatus || item.partIdentificationStatus))}</span>
         </div>
         <div class="driver-report-detail-grid">
           ${driverReportField("Pravděpodobný díl", item.probablePart)}
           ${driverReportField("Strana", item.probablePartSideLabel || driverReportSideLabel(item.probablePartSide))}
           ${driverReportField("Ověřený díl", item.verifiedPart)}
           ${driverReportField("Objednací číslo", item.partOrderNumber)}
+          ${driverReportField("OE číslo", item.oePartNumber)}
+          ${driverReportField("Název dílu", item.partName)}
+          ${driverReportField("Zdroj ověření", driverReportPartSourceLabel(item.partVerificationSource))}
+          ${driverReportField("Stav ověření", driverReportPartVerificationLabel(item.partVerificationStatus || item.partIdentificationStatus))}
           ${driverReportField("Komu předáno", item.assignedToName)}
           ${driverReportField("Datum předání Patrikovi", item.handedOffToPatrikAt ? formatDateTime(item.handedOffToPatrikAt) : "")}
           ${driverReportField("Datum SMS Kamilovi", item.kamilSmsSentAt ? formatDateTime(item.kamilSmsSentAt) : "")}
@@ -18360,6 +18498,8 @@ function driverReportDetail(item) {
         ${item.note ? `<p class="driver-report-note">${escapeHtml(item.note)}</p>` : ""}
       </section>
 
+      ${driverReportMercedesPartSection(item)}
+
       <div class="driver-report-notifications" aria-label="Stavy notifikací">
         ${driverReportNotificationPill("E-mail Patrikovi", item.patrikEmailStatus, item.patrikEmailError)}
         ${driverReportNotificationPill("SMS Kamilovi", item.kamilSmsStatus, item.kamilSmsError)}
@@ -18367,6 +18507,7 @@ function driverReportDetail(item) {
       </div>
 
       ${driverReportActionButtons(item)}
+      ${driverReportManualPartForm(item)}
       ${driverReportOrderForm(item)}
       ${driverReportServiceForm(item)}
 
@@ -18509,7 +18650,21 @@ async function submitDriverReportOrderForm(form) {
   const data = new FormData(form);
   await runDriverReportAction(requestId, "ordered", {
     verifiedPart: data.get("verifiedPart"),
-    partOrderNumber: data.get("partOrderNumber")
+    oePartNumber: data.get("oePartNumber"),
+    partName: data.get("partName"),
+    partOrderNumber: data.get("partOrderNumber"),
+    partVerificationSource: "manual"
+  });
+}
+
+async function submitDriverReportManualPartForm(form) {
+  const requestId = form.dataset.requestId;
+  const data = new FormData(form);
+  await runDriverReportAction(requestId, "manual-part", {
+    verifiedPart: data.get("verifiedPart"),
+    oePartNumber: data.get("oePartNumber"),
+    partName: data.get("partName"),
+    note: data.get("note")
   });
 }
 
@@ -18534,6 +18689,7 @@ async function selectDriverReport(id) {
 
 function driverReportActionEndpoint(action) {
   if (action === "handoff") return "handoff-patrik";
+  if (action === "verify-mercedes") return "verify-mercedes-part";
   if (action === "arrived") return "part-arrived";
   if (action === "complete") return "complete";
   if (action === "cancel") return "cancel";
@@ -25467,6 +25623,13 @@ document.addEventListener("submit", async (event) => {
   if (driverReportOrderForm) {
     event.preventDefault();
     await submitDriverReportOrderForm(driverReportOrderForm);
+    return;
+  }
+
+  const driverReportManualPartForm = event.target.closest("[data-driver-report-manual-part-form]");
+  if (driverReportManualPartForm) {
+    event.preventDefault();
+    await submitDriverReportManualPartForm(driverReportManualPartForm);
     return;
   }
 

@@ -21900,6 +21900,12 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
   line-height: 1.25;
 }
 
+.driver-report-part__title > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
 .driver-report-panel__head span,
 .driver-report-part__title span {
   flex: 0 0 auto;
@@ -22066,7 +22072,8 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
 .driver-report-form select,
 .driver-report-form textarea,
 .driver-report-search input,
-.driver-report-inline-form input {
+.driver-report-inline-form input,
+.driver-report-copy-field input {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--driver-report-line);
@@ -22307,6 +22314,42 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
   border-bottom: 1px solid var(--driver-report-line);
 }
 
+.driver-report-mercedes-part {
+  background: color-mix(in srgb, var(--theme-card, #ffffff) 86%, #dcebed);
+}
+
+.driver-report-copy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+
+.driver-report-copy-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.driver-report-copy-field span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.driver-report-copy-field input {
+  min-height: 40px;
+  background: #ffffff;
+  font-size: 0.86rem;
+}
+
+.driver-report-part-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
 .driver-report-description,
 .driver-report-note,
 .driver-report-empty {
@@ -22419,6 +22462,7 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
   .driver-report-quick-fields,
   .driver-report-form__grid,
   .driver-report-detail-grid,
+  .driver-report-copy-grid,
   .driver-report-inline-form,
   .driver-report-inline-form--service,
   .driver-report-search {
@@ -22535,6 +22579,7 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
   }
 
   .driver-report-actions .secondary-link,
+  .driver-report-part-links .secondary-link,
   .driver-report-actions .text-action,
   .driver-report-form .primary-action,
   .driver-report-inline-form .primary-action,

@@ -82,6 +82,10 @@ function driverPartRequestUrl(env, requestId) {
   return `${appBaseUrl(env).replace(/\/+$/, "")}/hlaseni-ridicu?request=${encodeURIComponent(cleanString(requestId))}`;
 }
 
+function patrikProfileUrl(env) {
+  return `${appBaseUrl(env).replace(/\/+$/, "")}/dovolena-nemoc/zamestnanci/patrik-istvanek`;
+}
+
 function typeLabel(request) {
   return request?.typeLabel || TYPE_LABELS[request?.type] || cleanString(request?.type) || "Žádost";
 }
@@ -420,11 +424,17 @@ function renderMedicalExamReminderEmail({ exam, ctaUrl }) {
 </html>`;
 }
 
-function renderDriverPartOrderEmail({ request, ctaUrl }) {
+function renderDriverPartOrderEmail({ request, ctaUrl, patrikUrl }) {
   const vin = cleanString(request.vin) || "není dostupné";
   const side = cleanString(request.probablePartSideLabel) || cleanString(request.probablePartSide) || "neznámá strana";
   const probablePart = cleanString(request.probablePart || request.verifiedPart) || "čeká na identifikaci";
   const brand = cleanString(request.vehicleBrandLabel || request.vehicleBrand) || "jiné";
+  const oePartNumber = cleanString(request.oePartNumber || request.partOrderNumber) || "čeká na ověření";
+  const partName = cleanString(request.partName || request.verifiedPart) || "čeká na ověření";
+  const verificationSource = cleanString(request.partVerificationSource) || "čeká na ověření";
+  const verificationStatus = cleanString(request.partVerificationStatus || request.partIdentificationStatus) || "čeká na ověření";
+  const providerMessage = cleanString(request.partsProviderMessage)
+    || "Pokud OE číslo není ověřené, je nutné ho ověřit ve WebParts / MyPartsHub před objednáním.";
   const damagePhoto = cleanString(request.damagePhotoStatus) === "attached"
     ? "přiložena"
     : cleanString(request.damagePhotoStatus) === "not_needed"
@@ -459,10 +469,16 @@ function renderDriverPartOrderEmail({ request, ctaUrl }) {
                   <p style="margin:0 0 10px 0;"><strong>Závada:</strong> ${htmlEscape(request.defectDescription)}</p>
                   <p style="margin:0 0 10px 0;"><strong>Fotka poškození:</strong> ${htmlEscape(damagePhoto)}</p>
                   <p style="margin:0 0 10px 0;"><strong>Pravděpodobný díl:</strong> ${htmlEscape(probablePart)}</p>
-                  <p style="margin:0;"><strong>Strana dílu:</strong> ${htmlEscape(side)}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Strana dílu:</strong> ${htmlEscape(side)}</p>
+                  <p style="margin:0 0 10px 0;"><strong>OE číslo:</strong> ${htmlEscape(oePartNumber)}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Název dílu:</strong> ${htmlEscape(partName)}</p>
+                  <p style="margin:0 0 10px 0;"><strong>Zdroj ověření:</strong> ${htmlEscape(verificationSource)}</p>
+                  <p style="margin:0;"><strong>Stav ověření:</strong> ${htmlEscape(verificationStatus)}</p>
                 </td></tr>
               </table>
               <a href="${htmlEscape(ctaUrl)}" style="display:block;text-align:center;background:#75bd25;border-radius:14px;padding:18px 24px;color:#ffffff;font-size:18px;line-height:24px;font-weight:800;text-decoration:none;">Otevřít detail hlášení</a>
+              <p style="margin:18px 0 0 0;font-size:15px;line-height:23px;color:#647064;">${htmlEscape(providerMessage)}</p>
+              <p style="margin:12px 0 0 0;font-size:14px;line-height:21px;color:#647064;">Profil Patrika: <a href="${htmlEscape(patrikUrl)}" style="color:#4f8f18;text-decoration:underline;">${htmlEscape(patrikUrl)}</a></p>
               <p style="margin:28px 0 0 0;font-size:13px;line-height:20px;color:#8a9388;">Automatická zpráva ze systému Smart odpady.<br>Kaiser servis, spol. s r.o.</p>
             </td>
           </tr>
@@ -840,7 +856,8 @@ export async function sendMedicalExamReminderNotification(env, exam, options = {
 
 export async function sendDriverPartOrderNotification(env, request, options = {}) {
   const probablePart = cleanString(request.probablePart || request.verifiedPart) || "náhradní díl";
-  const subject = `Objednat náhradní díl – ${cleanString(request.licensePlate) || "SPZ"} – ${probablePart}`;
+  const isMercedes = cleanString(request.vehicleBrand).toLowerCase() === "mercedes";
+  const subject = `${isMercedes ? "Objednat Mercedes díl" : "Objednat náhradní díl"} – ${cleanString(request.licensePlate) || "SPZ"} – ${probablePart}`;
 
   return sendEmail(env, {
     type: "driver_part_order_email",
@@ -848,7 +865,8 @@ export async function sendDriverPartOrderNotification(env, request, options = {}
     subject,
     html: renderDriverPartOrderEmail({
       request,
-      ctaUrl: driverPartRequestUrl(env, request.id)
+      ctaUrl: driverPartRequestUrl(env, request.id),
+      patrikUrl: patrikProfileUrl(env)
     }),
     relatedEntityId: request.id,
     recipientName: cleanString(options.recipientName || "Patrik Ištvánek"),

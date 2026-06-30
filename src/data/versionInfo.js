@@ -21,6 +21,14 @@ export const versionInfo = {
 
 export const versionNews = [
   {
+    title: "Hlášení řidičů: Mercedes díly přes API/fallback",
+    text: "Servisní hlášení má připravenou backendovou vrstvu pro Mercedes-Benz Trucks díly podle VIN. Bez oficiálně nakonfigurovaného Daimler API systém nastaví ruční ověření ve WebParts/MyPartsHub, dovolí doplnit OE číslo a název dílu a nepředstírá přesný nález."
+  },
+  {
+    title: "Vozový park: Vistos jako master seznam",
+    text: "Seznam vozidel ve Vozovém parku používá Vistos Vehicle jako read-only master zdroj. T-Cars zůstává jen doplňkový/GPS zdroj a při nedostupném Vistosu slouží jako fallback."
+  },
+  {
     title: "Mobil: Vozový park ve dvou sloupcích",
     text: "Mobilní hlavička modulů je sjednocená do jedné lišty. Vozový park má záložky a T-Cars KPI karty ve dvou sloupcích i na 360px mobilu a Připomínky k modulu se na mobilu centrálně nezobrazují."
   },

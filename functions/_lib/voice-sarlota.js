@@ -1004,7 +1004,7 @@ function isDriverPartRequestText(speechText) {
     return false;
   }
 
-  const hasPart = /\b(zrcatko|zpetne\s+zrcatko|nahradni\s+dil|dil|soucastka)\b/.test(normalized);
+  const hasPart = /\b(zrcatko|zpetne\s+zrcatko|nahradni\s+dil|dil|soucastka|svetlo|svetlomet|blinkr|smerovka|pneumatika|guma|sterac|rameno\s+sterace|blatnik|kryt\s+kola|naraznik)\b/.test(normalized);
   const hasReportVerb = /\b(potrebuju|potrebuji|chci|nahlas|nahla?sit|vymenit|rozbite|poskozene|praskle|ulomene)\b/.test(normalized);
   return hasPart && hasReportVerb;
 }
@@ -1445,7 +1445,7 @@ function systemPrompt() {
     sarlotaSystemPrompt(),
     "Tento endpoint vrací strojové rozhodnutí pro KSO backend. Odpověď pro uživatele dej do pole reply.",
     "Pro zápis dovolené, nemoci, OČR, lékaře, náhradního volna, neplaceného volna nebo jiné nepřítomnosti použij intent absence_request. Nezapisuj bez jasného potvrzení uživatele; když něco chybí, polož jen jednu otázku.",
-    "Pro hlášení náhradního dílu z modulu Hlášení řidičů použij intent driver_part_request. Bez potvrzení nic nezapisuj ani neposílej; při chybějící SPZ nebo nejasné straně zrcátka polož jednu krátkou otázku.",
+    "Pro hlášení náhradního dílu z modulu Hlášení řidičů použij intent driver_part_request. Bez potvrzení nic nezapisuj ani neposílej; při chybějící SPZ nebo nejasné straně zrcátka polož jednu krátkou otázku. Mercedes díl podle VIN označ jako ověřený jen při oficiálním výsledku nebo ručním potvrzení.",
     "Blok Firemní lidskost: pokud request.humanTouch.enabled obsahuje návrhy, můžeš nenásilně použít maximálně jednu krátkou poznámku. Použij jen dodaný ověřený návrh, nikdy si nevymýšlej počasí, svátky, narozeniny ani dovolené.",
     "Firemní lidskost nepoužívej při reklamaci, stížnosti, spěchu, stresu, chybě, nemoci, OČR, lékaři ani u citlivé absence. Nikdy nezmiňuj důvod absence, věk ani soukromé údaje. Nepoužívej texty známých písní.",
     "Vrať výhradně JSON."

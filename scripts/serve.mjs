@@ -61,6 +61,7 @@ import {
   partSideLabel,
   vehicleBrandLabel
 } from "../functions/_lib/driver-parts-catalog.js";
+import { verifyMercedesPartForRequest } from "../functions/_lib/mercedes-parts-provider.js";
 import { DEFAULT_THEME_SETTINGS, normalizeThemeSettings } from "../src/data/themeSettings.js";
 import { modules } from "../src/data/modules.js";
 import {
@@ -987,6 +988,9 @@ function mockDriverDetail(item) {
     ...item,
     vehicleBrandLabel: vehicleBrandLabel(item?.vehicleBrand),
     probablePartSideLabel: partSideLabel(item?.probablePartSide),
+    partVerificationStatus: mockDriverClean(item?.partVerificationStatus || item?.partIdentificationStatus || "waiting_manual_verification"),
+    partVerificationSource: mockDriverClean(item?.partVerificationSource),
+    priceBoostStatus: mockDriverClean(item?.priceBoostStatus || "not_requested"),
     statusLabel: MOCK_DRIVER_PART_STATUS_LABELS[status] || "Neznámý stav",
     events: Array.isArray(item?.events) ? item.events : []
   };
@@ -1101,6 +1105,22 @@ function createMockDriverPartRequest(user, payload = {}) {
     partIdentificationStatus: mockDriverClean(payload.partIdentificationStatus || partMatch.partIdentificationStatus),
     verifiedPart: mockDriverClean(payload.verifiedPart),
     partOrderNumber: mockDriverClean(payload.partOrderNumber),
+    oePartNumber: mockDriverClean(payload.oePartNumber),
+    partName: mockDriverClean(payload.partName),
+    partVerificationStatus: mockDriverClean(payload.partVerificationStatus || "waiting_manual_verification"),
+    partVerificationSource: mockDriverClean(payload.partVerificationSource),
+    partsProviderId: "",
+    partsProviderStatus: "",
+    partsProviderMessage: "",
+    partsProviderError: "",
+    partLookupQuery: "",
+    partLookupResultJson: "",
+    mercedesManualPortalUrl: process.env.MERCEDES_PARTS_MANUAL_PORTAL_URL || "https://webpartstruck-cloud.mercedes-benz-trucks.com/webparts/",
+    mercedesMyPartsHubUrl: process.env.MERCEDES_MYPARTSHUB_URL || "https://mypartshub.daimlertruck.com",
+    priceBoostStatus: "not_requested",
+    priceBoostNote: "",
+    priceBoostCheckedAt: "",
+    priceBoostResultJson: "",
     status: mockDriverClean(payload.status || driverPartRequestInitialStatus(partMatch)),
     assignedToName: "",
     assignedToEmail: "",
@@ -1223,8 +1243,12 @@ function markMockDriverPartOrdered(user, id, payload = {}) {
     ...item,
     status: "ordered",
     verifiedPart: mockDriverClean(payload.verifiedPart || item.verifiedPart),
-    partOrderNumber: mockDriverClean(payload.partOrderNumber || item.partOrderNumber),
-    partIdentificationStatus: payload.verifiedPart || payload.partOrderNumber ? "verified" : item.partIdentificationStatus,
+    oePartNumber: mockDriverClean(payload.oePartNumber || item.oePartNumber),
+    partName: mockDriverClean(payload.partName || item.partName),
+    partOrderNumber: mockDriverClean(payload.partOrderNumber || payload.oePartNumber || item.partOrderNumber || item.oePartNumber),
+    partVerificationStatus: payload.partVerificationStatus || item.partVerificationStatus || "verified_manual",
+    partVerificationSource: payload.partVerificationSource || item.partVerificationSource || "manual",
+    partIdentificationStatus: payload.verifiedPart || payload.partOrderNumber || payload.oePartNumber || payload.partName ? "verified_manual" : item.partIdentificationStatus,
     orderedAt: now,
     orderedByUserId: user?.id || "",
     note: mockDriverClean(payload.note || item.note),
@@ -1232,6 +1256,100 @@ function markMockDriverPartOrdered(user, id, payload = {}) {
     updatedAt: now,
     events: [mockDriverEvent(item.id, "mark_ordered", user, "Díl označen jako objednaný v lokálním preview."), ...(item.events || [])]
   }));
+}
+
+async function verifyMockMercedesDriverPartRequest(user, id) {
+  if (!mockDriverCanManage(user)) {
+    const error = new Error("Nemáte oprávnění ověřit Mercedes díl.");
+    error.status = 403;
+    throw error;
+  }
+  const item = findMockDriverRequest(id);
+  if (!item) {
+    const error = new Error("Požadavek na náhradní díl nebyl nalezen.");
+    error.status = 404;
+    throw error;
+  }
+  const now = new Date().toISOString();
+  const isMercedes = normalizeVehicleBrand(item.vehicleBrand) === "mercedes";
+  const result = isMercedes
+    ? await verifyMercedesPartForRequest(process.env, item)
+    : {
+      partVerificationStatus: "not_applicable",
+      partVerificationSource: "",
+      partsProviderId: "",
+      partsProviderStatus: "skipped_non_mercedes",
+      partsProviderMessage: "Lokální preview: vozidlo není Mercedes-Benz Trucks, díl jde Patrikovi k ručnímu ověření.",
+      partsProviderError: "",
+      partLookupQuery: item.probablePart || item.defectDescription,
+      resultJson: "",
+      mercedesManualPortalUrl: "",
+      mercedesMyPartsHubUrl: ""
+    };
+
+  return updateMockDriverRequest(id, (current) => ({
+    ...current,
+    verifiedPart: mockDriverClean(result.verifiedPart || current.verifiedPart),
+    oePartNumber: mockDriverClean(result.oePartNumber || current.oePartNumber),
+    partName: mockDriverClean(result.partName || current.partName),
+    partOrderNumber: mockDriverClean(result.partOrderNumber || current.partOrderNumber || result.oePartNumber),
+    partIdentificationStatus: result.partVerificationStatus === "verified_daimler"
+      ? "verified_daimler"
+      : result.partVerificationStatus === "not_applicable"
+        ? current.partIdentificationStatus
+        : "waiting_manual_verification",
+    partVerificationStatus: mockDriverClean(result.partVerificationStatus || "waiting_manual_verification"),
+    partVerificationSource: mockDriverClean(result.partVerificationSource),
+    partsProviderId: mockDriverClean(result.partsProviderId),
+    partsProviderStatus: mockDriverClean(result.partsProviderStatus),
+    partsProviderMessage: mockDriverClean(result.partsProviderMessage),
+    partsProviderError: mockDriverClean(result.partsProviderError),
+    partLookupQuery: mockDriverClean(result.partLookupQuery),
+    partLookupResultJson: mockDriverClean(result.resultJson),
+    mercedesManualPortalUrl: mockDriverClean(result.mercedesManualPortalUrl || current.mercedesManualPortalUrl),
+    mercedesMyPartsHubUrl: mockDriverClean(result.mercedesMyPartsHubUrl || current.mercedesMyPartsHubUrl),
+    priceBoostStatus: result.oePartNumber || result.partOrderNumber ? "waiting_verified_part" : "not_requested",
+    priceBoostNote: result.oePartNumber || result.partOrderNumber
+      ? "AI Boost cenový průzkum smí běžet až po potvrzení kompatibility člověkem."
+      : "AI Boost cenový průzkum čeká na ověřené OE číslo.",
+    updatedByUserId: user?.id || "",
+    updatedAt: now,
+    events: [mockDriverEvent(current.id, isMercedes ? "verify_mercedes_part" : "skip_mercedes_part_verification", user, result.partsProviderMessage || "Lokální preview: ověření dílu zapsáno."), ...(current.events || [])]
+  }));
+}
+
+function updateMockDriverPartManualVerification(user, id, payload = {}) {
+  if (!mockDriverCanManage(user)) {
+    const error = new Error("Nemáte oprávnění ručně ověřit díl.");
+    error.status = 403;
+    throw error;
+  }
+  const now = new Date().toISOString();
+  return updateMockDriverRequest(id, (item) => {
+    const verifiedPart = mockDriverClean(payload.verifiedPart || item.verifiedPart);
+    const oePartNumber = mockDriverClean(payload.oePartNumber || item.oePartNumber);
+    const partName = mockDriverClean(payload.partName || item.partName);
+    const partOrderNumber = mockDriverClean(payload.partOrderNumber || item.partOrderNumber || oePartNumber);
+    const hasManualData = Boolean(verifiedPart || oePartNumber || partName || partOrderNumber);
+    return {
+      ...item,
+      verifiedPart,
+      oePartNumber,
+      partName,
+      partOrderNumber,
+      partIdentificationStatus: hasManualData ? "verified_manual" : "waiting_manual_verification",
+      partVerificationStatus: hasManualData ? "verified_manual" : "waiting_manual_verification",
+      partVerificationSource: hasManualData ? "manual" : item.partVerificationSource,
+      note: mockDriverClean(payload.note || item.note),
+      priceBoostStatus: hasManualData ? "waiting_verified_part" : item.priceBoostStatus,
+      priceBoostNote: hasManualData
+        ? "AI Boost cenový průzkum smí běžet až po potvrzení kompatibility člověkem."
+        : item.priceBoostNote,
+      updatedByUserId: user?.id || "",
+      updatedAt: now,
+      events: [mockDriverEvent(item.id, "manual_part_verification", user, hasManualData ? "Díl byl ručně ověřen v lokálním preview." : "Díl zůstává k ručnímu ověření v lokálním preview."), ...(item.events || [])]
+    };
+  });
 }
 
 function markMockDriverPartArrived(user, id, payload = {}) {
@@ -2699,7 +2817,7 @@ async function handleApi(request, response) {
     return true;
   }
 
-  const driverReportActionMatch = /^\/api\/driver-reports\/([^/]+)\/(handoff-patrik|ordered|part-arrived|schedule-service|complete|cancel)$/.exec(url.pathname);
+  const driverReportActionMatch = /^\/api\/driver-reports\/([^/]+)\/(handoff-patrik|ordered|part-arrived|schedule-service|complete|cancel|verify-mercedes-part|manual-part)$/.exec(url.pathname);
   if (driverReportActionMatch && request.method === "POST") {
     const user = currentDevUser(request);
     if (!user) {
@@ -2719,9 +2837,13 @@ async function handleApi(request, response) {
             ? markMockDriverPartArrived(user, id, payload)
             : action === "schedule-service"
               ? scheduleMockDriverPartService(user, id, payload)
-              : action === "complete"
-                ? closeMockDriverPartRequest(user, id, payload)
-                : closeMockDriverPartRequest(user, id, { ...payload, cancel: true });
+              : action === "verify-mercedes-part"
+                ? await verifyMockMercedesDriverPartRequest(user, id)
+                : action === "manual-part"
+                  ? updateMockDriverPartManualVerification(user, id, payload)
+                  : action === "complete"
+                    ? closeMockDriverPartRequest(user, id, payload)
+                    : closeMockDriverPartRequest(user, id, { ...payload, cancel: true });
       sendJson(response, 200, {
         request: mockDriverDetail(item),
         permissions: mockDriverPermissionSummary(user),
