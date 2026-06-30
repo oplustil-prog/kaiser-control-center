@@ -391,6 +391,7 @@ const AI_VOICE_PROCESSING_LABEL = "Zpracovávám…";
 const AI_VOICE_SPEAKING_LABEL = "Šarlota odpovídá…";
 const AI_VOICE_MUTED_LABEL = "Mikrofon je vypnutý";
 const AI_VOICE_MICROPHONE_DENIED_LABEL = "Mikrofon není povolený";
+const AI_VOICE_MICROPHONE_DENIED_NOTICE = "Povol mikrofon pro tento web v prohlížeči a potom klepni znovu na mikrofon.";
 const AI_VOICE_DISCONNECTED_LABEL = "Spojení se přerušilo. Klepni pro obnovení.";
 const AI_VOICE_ERROR_LABEL = "Nepodařilo se připojit mikrofon.";
 const AI_VOICE_WEAK_INPUT_NOTICE = "Mluv blíž k telefonu nebo zvyš hlasitost zařízení.";
@@ -2562,7 +2563,7 @@ async function startAiVoiceRecognition() {
       aiAssistantState.elevenLabsStatus = AI_VOICE_MICROPHONE_DENIED_LABEL;
       aiAssistantState.voiceStatus = AI_VOICE_MICROPHONE_DENIED_LABEL;
       aiAssistantState.voiceUiState = "microphoneDenied";
-      aiAssistantState.voiceNotice = "Povol mikrofon pro tento web a zkus to znovu.";
+      aiAssistantState.voiceNotice = AI_VOICE_MICROPHONE_DENIED_NOTICE;
       aiAssistantState.voiceTags = ["Mikrofon blokován", "Zkusit znovu", "Bez odeslání"];
       triggerAiVoiceSessionHaptic("problem");
       void releaseAiVoiceWakeLock({ renderAfter: false });
@@ -2743,7 +2744,7 @@ async function startElevenLabsVoiceRecognition() {
       aiAssistantState.elevenLabsStatus = AI_VOICE_MICROPHONE_DENIED_LABEL;
       aiAssistantState.voiceStatus = AI_VOICE_MICROPHONE_DENIED_LABEL;
       aiAssistantState.voiceUiState = "microphoneDenied";
-      aiAssistantState.voiceNotice = "Povol mikrofon pro tento web a zkus to znovu.";
+      aiAssistantState.voiceNotice = AI_VOICE_MICROPHONE_DENIED_NOTICE;
       aiAssistantState.voiceTags = ["Mikrofon blokován", "Zkusit znovu", "Bez odeslání"];
       triggerAiVoiceSessionHaptic("problem");
       void releaseAiVoiceWakeLock({ renderAfter: false });

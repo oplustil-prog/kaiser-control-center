@@ -31,6 +31,8 @@ const STOPPABLE_VOICE_STATES = [
 ];
 
 function compactVoiceStatus(state, { listening = false, demoStatus = "", voiceStatus = "" } = {}) {
+  const normalizedStatus = String(voiceStatus || "").trim();
+
   if (demoStatus) {
     return "Naslouchám…";
   }
@@ -55,13 +57,26 @@ function compactVoiceStatus(state, { listening = false, demoStatus = "", voiceSt
     return "Odpovídám…";
   }
 
-  if (state === "microphoneDenied" || state === "disconnected" || state === "error") {
-    return "Nepodařilo se spustit mikrofon.";
+  if (state === "microphoneDenied") {
+    return normalizedStatus && normalizedStatus !== "Připraven"
+      ? normalizedStatus
+      : "Mikrofon není povolený.";
   }
 
-  const normalized = String(voiceStatus || "").trim();
-  if (normalized && normalized !== "Připraven") {
-    return normalized.length > 32 ? "Zpracovávám…" : normalized;
+  if (state === "disconnected") {
+    return normalizedStatus && normalizedStatus !== "Připraven"
+      ? normalizedStatus
+      : "Spojení se přerušilo.";
+  }
+
+  if (state === "error") {
+    return normalizedStatus && normalizedStatus !== "Připraven" && !/^\d{3}$/.test(normalizedStatus)
+      ? normalizedStatus
+      : "Hlas Šarloty se nepodařilo spustit.";
+  }
+
+  if (normalizedStatus && normalizedStatus !== "Připraven") {
+    return normalizedStatus.length > 32 ? "Zpracovávám…" : normalizedStatus;
   }
 
   return "";
@@ -121,6 +136,7 @@ export function AiVoiceAssistantPanel({
   });
   const showStatus = Boolean(statusText);
   const hasError = ["microphoneDenied", "disconnected", "error"].includes(normalizedVoiceUiState);
+  const normalizedVoiceNotice = String(voiceNotice || "").trim();
 
   return `
     <section
@@ -159,6 +175,11 @@ export function AiVoiceAssistantPanel({
             <p class="ai-voice-assistant-panel__status ${hasError ? "ai-voice-assistant-panel__status--error" : ""}" aria-live="polite">
               ${escapeHtml(statusText)}
             </p>
+          ` : ""}
+          ${normalizedVoiceNotice ? `
+            <div class="ai-voice-assistant-panel__notice" role="status">
+              <p>${escapeHtml(normalizedVoiceNotice)}</p>
+            </div>
           ` : ""}
         </div>
       </div>

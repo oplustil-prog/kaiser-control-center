@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.256"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.257"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: jasná chyba mikrofonu",
+    text: "Hlasový panel Šarloty na mobilu rozlišuje blokovaný mikrofon od obecné chyby. Když prohlížeč mikrofon nepovolí, zobrazí konkrétní stav a krátký návod k povolení mikrofonu pro web."
+  },
   {
     title: "Hlášení řidičů: Mercedes díly přes API/fallback",
     text: "Servisní hlášení má připravenou backendovou vrstvu pro Mercedes-Benz Trucks díly podle VIN. Bez oficiálně nakonfigurovaného Daimler API systém nastaví ruční ověření ve WebParts/MyPartsHub, dovolí doplnit OE číslo a název dílu a nepředstírá přesný nález."
