@@ -13988,10 +13988,14 @@ body:has(.data-box-page) {
   .fleet-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .fleet-tab {
     padding: 0 9px;
+    min-height: 44px;
+    overflow-wrap: anywhere;
+    line-height: 1.12;
     text-align: center;
   }
 
@@ -14017,6 +14021,26 @@ body:has(.data-box-page) {
   .fleet-kpi-grid,
   .fleet-term-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .fleet-kpi {
+    min-height: 94px;
+    padding: 10px;
+  }
+
+  .fleet-kpi span {
+    font-size: 0.62rem;
+    line-height: 1.12;
+  }
+
+  .fleet-kpi strong {
+    font-size: 1.35rem;
+  }
+
+  .fleet-kpi small {
+    font-size: 0.72rem;
+    line-height: 1.2;
   }
 
   .fleet-table__header {
@@ -14270,8 +14294,6 @@ body:has(.data-box-page) {
 }
 
 @media (max-width: 430px) {
-  .fleet-tabs,
-  .fleet-kpi-grid,
   .fleet-term-grid,
   .tracking-tabs {
     grid-template-columns: 1fr;
@@ -16602,9 +16624,67 @@ body:has(.absence-page--employee-card) {
     padding: calc(10px + env(safe-area-inset-top)) 0 calc(30px + env(safe-area-inset-bottom));
   }
 
+  .module-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    column-gap: 6px;
+  }
+
+  .module-page > :not(.user-bar):not(.topbar) {
+    grid-column: 1 / -1;
+  }
+
   body:has(.home-hero) .app-shell {
     width: min(1180px, calc(100% - 18px));
     padding: calc(10px + env(safe-area-inset-top)) 0 calc(26px + env(safe-area-inset-bottom));
+  }
+
+  .module-page > .user-bar,
+  .module-page > .topbar {
+    display: contents;
+  }
+
+  .module-page > .user-bar .user-bar__identity {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    min-width: 0;
+  }
+
+  .module-page > .topbar .kaiser-logo {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .module-page > .topbar .back-button {
+    grid-column: 3;
+    grid-row: 1;
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .module-page > .topbar .back-button::before {
+    content: "HP";
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+
+  .module-page > .user-bar .logout-button {
+    grid-column: 4;
+    grid-row: 1;
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .module-page > .user-bar .logout-button::before {
+    content: "Odhl.";
+    font-size: 0.66rem;
+    line-height: 1;
   }
 
   .user-bar {
@@ -16804,6 +16884,10 @@ body:has(.absence-page--employee-card) {
     padding-bottom: 10px;
   }
 
+  .module-page > .topbar {
+    padding-bottom: 0;
+  }
+
   .back-button {
     min-height: 34px;
     padding-inline: 12px;
@@ -16814,6 +16898,7 @@ body:has(.absence-page--employee-card) {
     grid-template-columns: 46px minmax(0, 1fr);
     gap: 10px;
     align-items: start;
+    margin-top: 10px;
     padding: 12px;
   }
 
@@ -16880,6 +16965,10 @@ body:has(.absence-page--employee-card) {
     flex: 1 1 130px;
     padding-inline: 10px;
     font-size: 0.78rem;
+  }
+
+  .module-page > .module-feedback {
+    display: none;
   }
 
   .users-panel {

@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.253"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.254"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Mobil: Vozový park ve dvou sloupcích",
+    text: "Mobilní hlavička modulů je sjednocená do jedné lišty. Vozový park má záložky a T-Cars KPI karty ve dvou sloupcích i na 360px mobilu a Připomínky k modulu se na mobilu centrálně nezobrazují."
+  },
   {
     title: "Mobil: kompaktní hlavičky modulů",
     text: "Společná mobilní hlavička modulů je nižší a čitelnější. Přihlášený uživatel, odhlášení, logo, návrat na HP a úvodní karta modulu už na telefonu nezaberou zbytečně velkou část první obrazovky."
