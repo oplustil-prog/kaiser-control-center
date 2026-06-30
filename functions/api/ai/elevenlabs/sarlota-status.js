@@ -1,5 +1,6 @@
 import { json, requireUserPermission } from "../../../_lib/auth.js";
 import { sarlotaIntroAnnouncementForAi } from "../../../_lib/ai-session-announcements.js";
+import { driverReportVehicleDynamicVariables } from "../../../_lib/fleet-vehicles-store.js";
 import { normalizeAiSearch, userDynamicVariablesForAi } from "../../../_lib/ai-people-summary.js";
 import { sarlotaHumanTouchContext } from "../../../_lib/sarlota-human-touch.js";
 import { ELEVENLABS_CLIENT_TOOL_SCHEMAS } from "../../../../src/elevenLabsClientTools.js";
@@ -33,7 +34,14 @@ const REQUIRED_DYNAMIC_VARIABLES = [
 const OPTIONAL_DYNAMIC_VARIABLES = [
   "human_touch_suggestion",
   "human_touch_type",
-  "human_touch_source"
+  "human_touch_source",
+  "driver_report_vehicle_status",
+  "driver_report_vehicle_id",
+  "driver_report_vehicle_name",
+  "driver_report_vehicle_license_plate",
+  "driver_report_vehicle_vin",
+  "driver_report_vehicle_type",
+  "driver_report_vehicle_context"
 ];
 const EXPECTED_DYNAMIC_VARIABLES = [
   ...REQUIRED_DYNAMIC_VARIABLES,
@@ -299,10 +307,12 @@ export async function sarlotaStatusPayload(env, user) {
   const humanTouch = await sarlotaHumanTouchContext(env, user, {
     dynamic_variables: userVariables
   });
+  const driverReportVehicleVariables = await driverReportVehicleDynamicVariables(env, user);
   const dynamicVariables = {
     ...userVariables,
     ...introAnnouncement.variables,
-    ...humanTouchDynamicVariables(humanTouch)
+    ...humanTouchDynamicVariables(humanTouch),
+    ...driverReportVehicleVariables
   };
   const missingVariables = missingRequiredVariables(dynamicVariables);
   const clientToolNames = ELEVENLABS_CLIENT_TOOL_SCHEMAS

@@ -1075,7 +1075,8 @@ const fleetVehiclesState = {
 
 const fleetUiState = {
   message: "",
-  error: ""
+  error: "",
+  savingAssignmentVehicleId: ""
 };
 
 const vehicleTrackingDemoState = {
@@ -8599,7 +8600,12 @@ function fleetTabFromHash(hash = window.location.hash) {
 }
 
 function fleetActiveTab(vehicleId = "") {
-  return fleetTabFromHash() || (vehicleId ? "detail" : "dashboard");
+  const hashTab = fleetTabFromHash();
+  if (vehicleId && (!hashTab || hashTab === "vehicles")) {
+    return "detail";
+  }
+
+  return hashTab || (vehicleId ? "detail" : "dashboard");
 }
 
 function fleetTabHref(tabId) {
@@ -8764,6 +8770,141 @@ function fleetVehicleCountValue(value) {
   return Number.isFinite(Number(value)) ? String(value) : "—";
 }
 
+function fleetVehicleKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function fleetVehicleMatchesId(vehicle, vehicleId) {
+  const target = String(vehicleId || "").trim();
+  const compactTarget = fleetVehicleKey(target);
+  const candidates = [
+    vehicle?.id,
+    vehicle?.vehicleId,
+    vehicle?.tcarsVehicleId,
+    vehicle?.tcarsVehicleId ? `tcars-${vehicle.tcarsVehicleId}` : "",
+    vehicle?.externalVehicleId,
+    vehicle?.licensePlate,
+    vehicle?.tcarsLicensePlate
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+
+  return candidates.some((candidate) => (
+    candidate === target ||
+    fleetVehicleKey(candidate) === compactTarget
+  ));
+}
+
+function fleetVehicleById(vehicleId) {
+  return fleetVehiclesState.vehicles.find((vehicle) => fleetVehicleMatchesId(vehicle, vehicleId)) || null;
+}
+
+function fleetDriverUsers() {
+  return allAccessUsers()
+    .filter((user) => isUserActive(user))
+    .filter((user) => ["ridic", "garazmistr", "dispecer"].includes(normalizeRole(user.role)) || /řidi|ridic/i.test(`${user.position || ""} ${user.department || ""}`))
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "cs"));
+}
+
+function fleetDriverOptions(selectedDriverId = "") {
+  const selected = String(selectedDriverId || "").trim();
+  const users = fleetDriverUsers();
+
+  if (!users.length) {
+    return `<option value="">Řidiče lze zadat ručně</option>`;
+  }
+
+  return [
+    `<option value="">Bez vazby na uživatele / ručně</option>`,
+    ...users.map((user) => `
+      <option value="${escapeHtml(user.id)}" ${String(user.id || "") === selected ? "selected" : ""}>
+        ${escapeHtml(user.name || user.id)}
+      </option>
+    `)
+  ].join("");
+}
+
+function fleetDriverAssignmentSection(vehicle) {
+  const userCanEdit = hasPermission(currentUser(), "fleet", "edit");
+  const vehicleId = String(vehicle?.id || "").trim();
+  const saving = fleetUiState.savingAssignmentVehicleId === vehicleId;
+  const message = fleetUiState.message ? `<p class="fleet-assignment-message" role="status">${escapeHtml(fleetUiState.message)}</p>` : "";
+  const error = fleetUiState.error ? `<p class="fleet-assignment-error" role="alert">${escapeHtml(fleetUiState.error)}</p>` : "";
+
+  return `
+    <article class="fleet-driver-assignment">
+      <div class="fleet-driver-assignment__head">
+        <div>
+          <h3>Řidič</h3>
+          <p>Vazba pro vozový park a hlasovou Šarlotu v Hlášení řidičů.</p>
+        </div>
+        <span>${escapeHtml(vehicle?.assignedDriverName ? "Přiřazeno" : "Čeká na doplnění")}</span>
+      </div>
+      <form class="fleet-driver-form" data-fleet-driver-assignment-form data-vehicle-id="${escapeHtml(vehicleId)}">
+        <label>
+          <span>Uživatel řidiče</span>
+          <select name="assignedDriverId" ${userCanEdit ? "" : "disabled"}>
+            ${fleetDriverOptions(vehicle?.assignedDriverId)}
+          </select>
+        </label>
+        <label>
+          <span>Řidič</span>
+          <input name="assignedDriverName" value="${escapeHtml(vehicle?.assignedDriverName || "")}" placeholder="Jméno řidiče" ${userCanEdit ? "" : "disabled"}>
+        </label>
+        <label>
+          <span>Telefon</span>
+          <input name="assignedDriverPhone" value="${escapeHtml(vehicle?.assignedDriverPhone || "")}" inputmode="tel" autocomplete="tel" placeholder="+420…" ${userCanEdit ? "" : "disabled"}>
+        </label>
+        <label>
+          <span>E-mail</span>
+          <input name="assignedDriverEmail" value="${escapeHtml(vehicle?.assignedDriverEmail || "")}" inputmode="email" autocomplete="email" placeholder="ridic@…" ${userCanEdit ? "" : "disabled"}>
+        </label>
+        <label class="fleet-driver-form__wide">
+          <span>Poznámka</span>
+          <input name="note" value="${escapeHtml(vehicle?.driverAssignmentNote || "")}" placeholder="Např. střídá vozidlo v týdnu" ${userCanEdit ? "" : "disabled"}>
+        </label>
+        ${userCanEdit ? `
+          <button class="primary-action fleet-driver-form__submit" type="submit" ${saving ? "disabled" : ""}>
+            ${saving ? "Ukládám…" : "Uložit řidiče"}
+          </button>
+        ` : `<p class="fleet-assignment-readonly">Řidiče může upravit garáž, kancelář nebo admin.</p>`}
+      </form>
+      ${message}
+      ${error}
+      ${vehicle?.driverAssignmentUpdatedAt ? `<p class="fleet-assignment-meta">Naposledy upraveno: ${escapeHtml(formatDateTime(vehicle.driverAssignmentUpdatedAt))}${vehicle.driverAssignmentUpdatedByName ? ` · ${escapeHtml(vehicle.driverAssignmentUpdatedByName)}` : ""}</p>` : ""}
+    </article>
+  `;
+}
+
+function fleetVehicleFacts(vehicle) {
+  const facts = [
+    ["ID", vehicle.id || vehicle.vehicleId || vehicle.tcarsVehicleId],
+    ["Interní číslo", vehicle.internalNumber],
+    ["SPZ", vehicle.licensePlate || vehicle.tcarsLicensePlate],
+    ["VIN", vehicle.vin],
+    ["Model", fleetVehicleModel(vehicle)],
+    ["Zdroj", vehicle.source || "T-Cars"],
+    ["T-Cars ID", vehicle.tcarsVehicleId],
+    ["Jednotka", vehicle.tcarsUnitId || vehicle.externalUnitId],
+    ["Poslední změna", vehicle.lastChangedAt],
+    ["Stav", fleetStatusLabel(vehicle.status)]
+  ];
+
+  return `
+    <div class="fleet-vehicle-facts">
+      ${facts.map(([label, value]) => `
+        <div>
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(fleetVehicleDisplayValue(value))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function fleetVehiclesStatusText() {
   if (fleetVehiclesState.loading) {
     return "Načítám vozidla z T-Cars.";
@@ -8847,7 +8988,7 @@ function fleetVehiclesSection(activeId) {
       ${fleetFiltersSection()}
       <p class="fleet-api-note">
         ${escapeHtml(fleetVehiclesStatusText())}
-        <span>Read-only zdroj: GET /api/vehicles z T-Cars. Do D1 se nic neukládá.</span>
+        <span>Read-only zdroj vozidel: T-Cars. Přiřazení řidiče ukládá KSO do D1.</span>
       </p>
       <div class="fleet-table" role="table" aria-label="Seznam vozidel">
         <div class="fleet-table__header" role="row">
@@ -8867,35 +9008,42 @@ function fleetVehiclesSection(activeId) {
 
 function fleetDetailSection(vehicleId = "", activeId = "detail") {
   const safeVehicleId = vehicleId || "";
-  const detailTitle = safeVehicleId ? `Detail vozidla ${safeVehicleId}` : "Detail vozidla";
+  const vehicle = safeVehicleId ? fleetVehicleById(safeVehicleId) : null;
+  const vehicleLabel = vehicle
+    ? (vehicle.licensePlate || vehicle.tcarsLicensePlate || vehicle.internalNumber || vehicle.id)
+    : safeVehicleId;
+  const detailTitle = vehicleLabel ? `Detail vozidla ${vehicleLabel}` : "Detail vozidla";
+  const detailDescription = vehicle
+    ? "T-Cars údaje jsou read-only, přiřazení řidiče ukládá KSO do D1 pro Šarlotu a provozní párování."
+    : safeVehicleId
+      ? "Vozidlo zatím není v načteném seznamu. Zkuste obnovit seznam vozidel nebo zkontrolovat T-Cars."
+      : "Karta vozidla se otevře po výběru konkrétního záznamu z API.";
 
   return `
     <section class="fleet-section fleet-section--wide" id="fleet-detail" aria-labelledby="fleet-detail-title" ${fleetPanelAttributes("detail", activeId)}>
       ${fleetSectionHeader(
         "fleet-detail-title",
         detailTitle,
-        safeVehicleId
-          ? "Detail route je připravená, provozní údaje se načtou až z API."
-          : "Karta vozidla se otevře po výběru konkrétního záznamu z API.",
+        detailDescription,
         { badge: true }
       )}
       <div class="fleet-detail-shell">
         <header class="fleet-detail-header">
           <div>
             <span>SPZ / interní číslo</span>
-            <strong>—</strong>
+            <strong>${escapeHtml(fleetVehicleDisplayValue(vehicle ? (vehicle.licensePlate || vehicle.tcarsLicensePlate || vehicle.internalNumber) : ""))}</strong>
           </div>
           <div>
             <span>Značka / model</span>
-            <strong>—</strong>
+            <strong>${escapeHtml(fleetVehicleDisplayValue(vehicle ? fleetVehicleModel(vehicle) : ""))}</strong>
           </div>
           <div>
             <span>Stav</span>
-            <strong>${escapeHtml(fleetStatusLabel(""))}</strong>
+            <strong>${escapeHtml(fleetStatusLabel(vehicle?.status))}</strong>
           </div>
           <div>
             <span>Řidič</span>
-            <strong>—</strong>
+            <strong>${escapeHtml(fleetVehicleDisplayValue(vehicle?.assignedDriverName, "Doplnit řidiče"))}</strong>
           </div>
         </header>
         <div class="fleet-detail-actions">
@@ -8904,10 +9052,14 @@ function fleetDetailSection(vehicleId = "", activeId = "detail") {
           ${fleetActionButton("Přidat servis", "service", { vehicleId: safeVehicleId })}
           ${fleetActionButton("Dokumenty", "documents", { vehicleId: safeVehicleId, target: "fleet-documents" })}
         </div>
+        ${vehicle ? fleetDriverAssignmentSection(vehicle) : ""}
+        ${vehicle ? fleetVehicleFacts(vehicle) : ""}
         <div class="fleet-detail-grid">
           <article>
             <h3>Základní údaje</h3>
-            ${fleetFieldChips(FLEET_VEHICLE_FIELDS.slice(0, 14))}
+            ${vehicle
+              ? fleetFieldChips(["id", "internalNumber", "licensePlate", "vin", "brand", "model", "assignedDriverId", "assignedDriverName"])
+              : fleetFieldChips(FLEET_VEHICLE_FIELDS.slice(0, 14))}
           </article>
           <article>
             <h3>Technický stav</h3>
@@ -8919,7 +9071,9 @@ function fleetDetailSection(vehicleId = "", activeId = "detail") {
           </article>
         </div>
       </div>
-      ${fleetApiNotice(safeVehicleId ? "GET /api/vehicles/:id" : "GET /api/vehicles", FLEET_TAB_WAITING_MESSAGES.detail)}
+      ${vehicle
+        ? `<p class="fleet-api-note">T-Cars údaje zůstávají read-only. Pole řidič je KSO vrstva pro přiřazení řidiče, Šarlotu a servisní párování.<span>GET/PATCH /api/vehicles/:id</span></p>`
+        : fleetApiNotice(safeVehicleId ? "GET/PATCH /api/vehicles/:id" : "GET /api/vehicles", FLEET_TAB_WAITING_MESSAGES.detail)}
     </section>
   `;
 }
@@ -9049,7 +9203,7 @@ function fleetModulePage(moduleItem, user, options = {}) {
   const activeTab = fleetActiveTab(vehicleId);
   const title = vehicleId ? "Detail vozidla" : isDashboard ? "Vozový park dashboard" : "Vozový park";
   const description = vehicleId
-    ? "Detailová karta vozidla je připravená pro cloud API bez lokálního ukládání."
+    ? "Detailová karta používá read-only vozidlo z T-Cars a KSO přiřazení řidiče pro Šarlotu a servisní párování."
     : "Evidence vozidel, technického stavu, STK, revizí, pojištění, závad a servisní historie.";
 
   return `
@@ -20840,6 +20994,62 @@ async function loadFleetVehicles(options = {}) {
   }
 }
 
+function updateFleetVehicleInState(vehicle) {
+  if (!vehicle?.id) {
+    return;
+  }
+
+  const index = fleetVehiclesState.vehicles.findIndex((item) => fleetVehicleMatchesId(item, vehicle.id));
+  if (index === -1) {
+    fleetVehiclesState.vehicles = [vehicle, ...fleetVehiclesState.vehicles];
+    return;
+  }
+
+  fleetVehiclesState.vehicles = fleetVehiclesState.vehicles.map((item, itemIndex) => (
+    itemIndex === index ? { ...item, ...vehicle } : item
+  ));
+}
+
+async function submitFleetDriverAssignment(form) {
+  const vehicleId = String(form?.dataset?.vehicleId || "").trim();
+
+  if (!vehicleId) {
+    fleetUiState.error = "Chybí ID vozidla.";
+    render();
+    return;
+  }
+
+  const formData = new FormData(form);
+  const payload = {
+    assignedDriverId: String(formData.get("assignedDriverId") || "").trim(),
+    assignedDriverName: String(formData.get("assignedDriverName") || "").trim(),
+    assignedDriverPhone: String(formData.get("assignedDriverPhone") || "").trim(),
+    assignedDriverEmail: String(formData.get("assignedDriverEmail") || "").trim(),
+    note: String(formData.get("note") || "").trim()
+  };
+
+  fleetUiState.savingAssignmentVehicleId = vehicleId;
+  fleetUiState.message = "";
+  fleetUiState.error = "";
+  render();
+
+  try {
+    const result = await apiJson(`/api/vehicles/${encodeURIComponent(vehicleId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    updateFleetVehicleInState(result.vehicle);
+    fleetUiState.message = result.vehicle?.assignedDriverName
+      ? `Řidič ${result.vehicle.assignedDriverName} je uložený k vozidlu.`
+      : "Přiřazení řidiče bylo vymazáno.";
+  } catch (error) {
+    fleetUiState.error = error?.payload?.error || error?.message || "Řidiče se teď nepodařilo uložit.";
+  } finally {
+    fleetUiState.savingAssignmentVehicleId = "";
+    render();
+  }
+}
+
 function handleVehicleTrackingSourceMode(mode) {
   if (!["demo", "tcars"].includes(mode)) {
     return;
@@ -25132,6 +25342,13 @@ document.addEventListener("submit", async (event) => {
   if (employeeDocumentUploadForm) {
     event.preventDefault();
     saveEmployeeDocumentUpload(employeeDocumentUploadForm);
+    return;
+  }
+
+  const fleetDriverAssignmentForm = event.target.closest("[data-fleet-driver-assignment-form]");
+  if (fleetDriverAssignmentForm) {
+    event.preventDefault();
+    await submitFleetDriverAssignment(fleetDriverAssignmentForm);
     return;
   }
 

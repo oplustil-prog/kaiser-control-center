@@ -5,6 +5,7 @@ import {
   sarlotaIntroAnnouncementForAi
 } from "../../../_lib/ai-session-announcements.js";
 import { userDynamicVariablesForAi } from "../../../_lib/ai-people-summary.js";
+import { driverReportVehicleDynamicVariables } from "../../../_lib/fleet-vehicles-store.js";
 import { sarlotaHumanTouchContext } from "../../../_lib/sarlota-human-touch.js";
 
 const ASSISTANTS = {
@@ -130,10 +131,14 @@ export async function onRequestGet({ request, env }) {
   const userDynamicVariables = userDynamicVariablesForAi(user);
   const introAnnouncement = await sarlotaIntroAnnouncementForAi(env, user, assistant);
   const humanTouchVariables = await sarlotaHumanTouchDynamicVariables(env, user, userDynamicVariables, assistant);
+  const driverReportVehicleVariables = assistant.id === "sarlota"
+    ? await driverReportVehicleDynamicVariables(env, user)
+    : {};
   const dynamicVariables = {
     ...userDynamicVariables,
     ...introAnnouncement.variables,
-    ...humanTouchVariables
+    ...humanTouchVariables,
+    ...driverReportVehicleVariables
   };
 
   if (!apiKey || !agentId) {

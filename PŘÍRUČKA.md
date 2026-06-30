@@ -1282,6 +1282,14 @@ Při každé změně Šarloty ověřit:
 - `node --check` projde,
 - `git diff --check` projde.
 
+### 16.9 Úpravy promptu v ElevenLabs / externím AI nástroji
+
+- Před úpravou system promptu, first message, tool promptu nebo Knowledge Base v ElevenLabs / externím AI nástroji se musí nejdřív načíst aktuální nastavení z produkčního zdroje.
+- Prompt se nesmí přepsat naslepo lokální verzí ani novým textem bez merge s aktuálním obsahem.
+- Změna musí být minimální doplnění nebo cílená úprava, aby nezmizela existující pravidla, nástroje, dynamic variables ani bezpečnostní pokyny.
+- Po uložení se musí ověřit, že agent stále používá správné dynamic variables, first message, nástroje a model.
+- Pokud není dostupný bezpečný read/write přístup k ElevenLabs, změnu neprovádět naslepo; připravit repo-side prompt/dynamic variables a jasně napsat, že upstream prompt v ElevenLabs nebyl uložen.
+
 ## 17. Datová schránka a UI pravidla
 
 ### 17.1 Bezpečné předávání hesel / Cloudflare secrets

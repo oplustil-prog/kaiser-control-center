@@ -201,6 +201,7 @@ export const ELEVENLABS_CLIENT_TOOL_SCHEMAS = [
     parameters: [
       { name: "defectDescription", type: "string", required: true },
       { name: "licensePlate", type: "string", required: false },
+      { name: "vehicleId", type: "string", required: false },
       { name: "vehicleName", type: "string", required: false },
       { name: "vin", type: "string", required: false },
       { name: "vehicleBrand", type: "string", required: false },
@@ -576,15 +577,43 @@ export function createElevenLabsClientTools({
       parameters.summary
     );
     const licensePlate = cleanString(parameters.licensePlate || parameters.spz || parameters.plate);
+    const vehicleId = cleanString(parameters.vehicleId || parameters.vehicle_id);
     const vehicleName = cleanString(parameters.vehicleName || parameters.vehicle || parameters.car);
     const vin = cleanString(parameters.vin || parameters.VIN);
     const vehicleBrand = cleanString(parameters.vehicleBrand || parameters.brand);
-    const confirmed = booleanToolValue(
-      parameters.confirmed ??
-      parameters.writeConfirmed ??
-      parameters.write_confirmed
-    );
     const spokenSummary = cleanString(parameters.spokenSummary || parameters.summary || parameters.message);
+    const confirmationMessage = [
+      "Šarlota chce vytvořit hlášení náhradního dílu a předat ho k objednání.",
+      defectDescription ? `Závada: ${defectDescription}` : "",
+      licensePlate ? `SPZ: ${licensePlate}` : "SPZ se doplní z přiřazeného vozidla, pokud ho backend najde.",
+      vehicleName ? `Vozidlo: ${vehicleName}` : "",
+      vin ? `VIN: ${vin}` : "",
+      "Bez potvrzení se nic neuloží ani neodešle."
+    ].filter(Boolean).join("\n");
+    const popupConfirmed = await confirm({
+      title: "Potvrdit hlášení řidiče",
+      message: confirmationMessage,
+      confirmLabel: "Uložit a předat",
+      cancelLabel: "Zrušit"
+    });
+
+    if (!popupConfirmed) {
+      return {
+        ok: false,
+        status: "cancelled",
+        message: "Zrušeno. Nic jsem nezapsala ani neodeslala.",
+        answerText: "Zrušeno. Nic jsem nezapsala ani neodeslala.",
+        intent: "driver_part_request",
+        verified: true,
+        requiresConfirmation: false,
+        preparedActions: [],
+        driverPartRequest: null,
+        notificationsSent: false,
+        apiStatus: "ready"
+      };
+    }
+
+    const confirmed = Boolean(popupConfirmed);
     const text = spokenSummary || [
       defectDescription,
       licensePlate ? `na autě ${licensePlate}` : "",
@@ -601,6 +630,7 @@ export function createElevenLabsClientTools({
         parameters: {
           defectDescription,
           licensePlate,
+          vehicleId,
           vehicleName,
           vin,
           vehicleBrand,
@@ -611,6 +641,7 @@ export function createElevenLabsClientTools({
           requestedIntent: "driver_part_request",
           defectDescription,
           licensePlate,
+          vehicleId,
           vehicleName,
           vin,
           vehicleBrand,

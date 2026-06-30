@@ -100,6 +100,8 @@ export const FLEET_VEHICLE_FIELDS = [
   "department",
   "assignedDriverId",
   "assignedDriverName",
+  "assignedDriverPhone",
+  "assignedDriverEmail",
   "status",
   "mileageKm",
   "stkValidTo",

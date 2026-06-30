@@ -1,6 +1,7 @@
 import { recordAiAction } from "./ai-action-log-store.js";
 import { createAbsenceRequestRecord } from "./absence-requests-store.js";
 import { createDriverPartRequest, handoffDriverPartRequest } from "./driver-part-requests-store.js";
+import { resolveFleetVehicleForDriver } from "./fleet-vehicles-store.js";
 import { getUsers } from "./auth.js";
 import {
   driverPartRequestMissingQuestion,
@@ -949,6 +950,7 @@ function driverPartDraftFromPayload(payload, speechText) {
   return compactObject({
     driverName: firstNonEmpty(parameters.driverName, context.driverName, payload.driverName),
     driverPhone: firstNonEmpty(parameters.driverPhone, context.driverPhone, payload.driverPhone),
+    vehicleId: firstNonEmpty(parameters.vehicleId, context.vehicleId, payload.vehicleId),
     vehicleName: firstNonEmpty(parameters.vehicleName, context.vehicleName, payload.vehicleName, licensePlate),
     licensePlate,
     vin: firstNonEmpty(parameters.vin, context.vin, payload.vin),
@@ -961,6 +963,39 @@ function driverPartDraftFromPayload(payload, speechText) {
     confirmation: driverPartConfirmation(payload, speechText),
     needsPartSideClarification: partMatch.needsPartSideClarification
   });
+}
+
+async function enrichDriverPartDraftWithAssignedVehicle(env, user, draft, payload = {}) {
+  if (draft.licensePlate && draft.vin && draft.vehicleName) {
+    return draft;
+  }
+
+  try {
+    const vehicle = await resolveFleetVehicleForDriver(env, user, {
+      driverUserId: draft.driverUserId || payload.driverUserId || user?.id,
+      driverName: draft.driverName || payload.driverName || user?.name,
+      driverPhone: draft.driverPhone || payload.driverPhone || user?.phone
+    });
+
+    if (!vehicle) {
+      return draft;
+    }
+
+    return compactObject({
+      ...draft,
+      vehicleId: firstNonEmpty(draft.vehicleId, vehicle.id, vehicle.vehicleId, vehicle.tcarsVehicleId),
+      vehicleName: firstNonEmpty(draft.vehicleName, vehicle.internalNumber, vehicle.model, vehicle.licensePlate, vehicle.tcarsLicensePlate),
+      licensePlate: draft.licensePlate || normalizeLicensePlate(vehicle.licensePlate || vehicle.tcarsLicensePlate),
+      vin: firstNonEmpty(draft.vin, vehicle.vin),
+      vehicleBrand: firstNonEmpty(draft.vehicleBrand, vehicle.brand, vehicle.model),
+      driverName: firstNonEmpty(draft.driverName, user?.name, vehicle.assignedDriverName),
+      driverPhone: firstNonEmpty(draft.driverPhone, user?.phone, vehicle.assignedDriverPhone),
+      vehicleResolvedFromAssignedDriver: true
+    });
+  } catch (error) {
+    console.info("voice_sarlota.driver_vehicle_enrichment_skipped", { message: cleanString(error?.message) });
+    return draft;
+  }
 }
 
 function isDriverPartRequestText(speechText) {
@@ -985,7 +1020,8 @@ function isDriverPartRequest(payload, speechText, context) {
 function driverPartSummaryMessage(draft) {
   const part = draft.probablePart || "náhradní díl";
   const vehicle = draft.licensePlate ? `na vozidle se SPZ ${draft.licensePlate}` : "bez SPZ";
-  return `Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že SPZ je správně, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
+  const intro = draft.vehicleResolvedFromAssignedDriver ? "Auto mám načtené podle tebe. " : "";
+  return `${intro}Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že SPZ je správně, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
 }
 
 function driverPartPreparedAction(draft) {
@@ -998,6 +1034,7 @@ function driverPartPreparedAction(draft) {
     parameters: compactObject({
       driverName: draft.driverName,
       driverPhone: draft.driverPhone,
+      vehicleId: draft.vehicleId,
       vehicleName: draft.vehicleName,
       licensePlate: draft.licensePlate,
       vin: draft.vin,
@@ -1020,7 +1057,12 @@ async function driverPartRequestTool(env, user, payload, context, speechText) {
     };
   }
 
-  const draft = driverPartDraftFromPayload(payload, speechText);
+  const draft = await enrichDriverPartDraftWithAssignedVehicle(
+    env,
+    user,
+    driverPartDraftFromPayload(payload, speechText),
+    payload
+  );
 
   if (draft.confirmation === "rejected") {
     return {

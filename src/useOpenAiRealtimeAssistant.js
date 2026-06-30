@@ -231,6 +231,7 @@ export function useOpenAiRealtimeAssistant({
   async function callDriverPartTool(args = {}, context = {}) {
     const defectDescription = cleanString(args.defectDescription || args.defect_description || args.description || args.issue || args.spokenSummary);
     const licensePlate = cleanString(args.licensePlate || args.license_plate || args.spz || args.plate);
+    const vehicleId = cleanString(args.vehicleId || args.vehicle_id);
     const vehicleName = cleanString(args.vehicleName || args.vehicle_name || args.vehicle);
     const vin = cleanString(args.vin || args.VIN);
     const vehicleBrand = cleanString(args.vehicleBrand || args.vehicle_brand || args.brand);
@@ -248,6 +249,7 @@ export function useOpenAiRealtimeAssistant({
       parameters: {
         defectDescription,
         licensePlate,
+        vehicleId,
         vehicleName,
         vin,
         vehicleBrand,
@@ -258,6 +260,7 @@ export function useOpenAiRealtimeAssistant({
         requestedIntent: "driver_part_request",
         defectDescription,
         licensePlate,
+        vehicleId,
         vehicleName,
         vin,
         vehicleBrand,

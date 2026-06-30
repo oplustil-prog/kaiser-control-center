@@ -1,5 +1,6 @@
 import { requireUserPermission, json } from "../../_lib/auth.js";
 import { sarlotaIntroAnnouncementForAi } from "../../_lib/ai-session-announcements.js";
+import { driverReportVehicleDynamicVariables } from "../../_lib/fleet-vehicles-store.js";
 import { userDynamicVariablesForAi } from "../../_lib/ai-people-summary.js";
 import {
   SARLOTA_PROMPT_VERSION,
@@ -147,6 +148,10 @@ function realtimeTools() {
             type: "string",
             description: "SPZ vozidla."
           },
+          vehicleId: {
+            type: "string",
+            description: "ID vozidla z KSO/T-Cars, pokud je dostupné z backendového kontextu."
+          },
           vehicleName: {
             type: "string",
             description: "Vozidlo nebo interní označení, pokud je známo."
@@ -252,9 +257,12 @@ export async function onRequestPost({ request, env }) {
   const payload = await request.json().catch(() => ({}));
   const assistant = { id: "sarlota", name: "Šarlota" };
   const introAnnouncement = await sarlotaIntroAnnouncementForAi(env, user, assistant);
+  const userVariables = userDynamicVariablesForAi(user);
+  const driverReportVehicleVariables = await driverReportVehicleDynamicVariables(env, user);
   const dynamicVariables = {
-    ...userDynamicVariablesForAi(user),
-    ...introAnnouncement.variables
+    ...userVariables,
+    ...introAnnouncement.variables,
+    ...driverReportVehicleVariables
   };
   const currentModule = cleanString(payload?.currentModule || payload?.module || "");
   const instructions = sarlotaRealtimePrompt({
@@ -265,6 +273,10 @@ export async function onRequestPost({ request, env }) {
     availableModules: dynamicVariables.available_modules,
     userPermissions: dynamicVariables.user_permissions,
     introAnnouncement: dynamicVariables.intro_announcement,
+    driverReportVehicleContext: dynamicVariables.driver_report_vehicle_context,
+    driverReportVehicleStatus: dynamicVariables.driver_report_vehicle_status,
+    driverReportVehicleLicensePlate: dynamicVariables.driver_report_vehicle_license_plate,
+    driverReportVehicleVin: dynamicVariables.driver_report_vehicle_vin,
     currentModule
   });
 

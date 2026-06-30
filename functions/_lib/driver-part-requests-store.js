@@ -1,5 +1,8 @@
 import { getUsers } from "./auth.js";
-import { loadFleetVehiclesPayload } from "./tcars-client.js";
+import {
+  loadFleetVehiclesWithAssignments,
+  resolveFleetVehicleForDriver
+} from "./fleet-vehicles-store.js";
 import {
   extractLicensePlate,
   identifyProbablePartFromDescription,
@@ -311,7 +314,7 @@ async function resolveVehicleFromFleet(env, licensePlate) {
   }
 
   try {
-    const payload = await loadFleetVehiclesPayload(env);
+    const payload = await loadFleetVehiclesWithAssignments(env);
     const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
     return vehicles.find((vehicle) => licensePlateKey(vehicle.licensePlate || vehicle.tcarsLicensePlate) === key) || null;
   } catch (error) {
@@ -326,7 +329,13 @@ function normalizeCreatePayload(payload, user, vehicle, driverContact = null) {
     throw new DriverPartRequestsStoreError("Vyplňte popis závady od řidiče.", 400, "driver_part_description_required");
   }
 
-  const licensePlate = normalizeLicensePlate(payload.licensePlate || payload.spz || extractLicensePlate(rawDescription));
+  const licensePlate = normalizeLicensePlate(
+    payload.licensePlate ||
+    payload.spz ||
+    vehicle?.licensePlate ||
+    vehicle?.tcarsLicensePlate ||
+    extractLicensePlate(rawDescription)
+  );
   if (!licensePlate) {
     throw new DriverPartRequestsStoreError("Chybí SPZ vozidla. Nejdřív doplňte vozidlo/SPZ.", 400, "driver_part_license_plate_required");
   }
@@ -435,8 +444,15 @@ export async function createDriverPartRequest(env, user, payload = {}) {
   }
 
   const db = database(env, true);
-  const licensePlate = normalizeLicensePlate(payload.licensePlate || payload.spz || extractLicensePlate(payload.defectDescription || payload.description || payload.speechText));
-  const vehicle = await resolveVehicleFromFleet(env, licensePlate);
+  const assignedDriverVehicle = await resolveFleetVehicleForDriver(env, user, payload);
+  const licensePlate = normalizeLicensePlate(
+    payload.licensePlate ||
+    payload.spz ||
+    assignedDriverVehicle?.licensePlate ||
+    assignedDriverVehicle?.tcarsLicensePlate ||
+    extractLicensePlate(payload.defectDescription || payload.description || payload.speechText)
+  );
+  const vehicle = await resolveVehicleFromFleet(env, licensePlate) || assignedDriverVehicle;
   const driverContact = await resolvePersonContact(env, {
     userIds: [payload.driverUserId, user?.id],
     nameIncludes: [payload.driverName, payload.driver, user?.name],

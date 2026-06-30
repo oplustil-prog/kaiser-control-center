@@ -52,6 +52,7 @@ import {
   syncTcarsLocations,
 } from "../functions/_lib/tcars-client.js";
 import {
+  driverPartRequestMissingQuestion,
   driverPartRequestInitialStatus,
   extractLicensePlate,
   identifyProbablePartFromDescription,
@@ -87,6 +88,7 @@ let mockEmployeeDocumentFiles = new Map();
 let mockEmployeeMedicalExams = new Map();
 let mockAbsenceRequests = [];
 let mockDriverPartRequests = [];
+let mockFleetAssignments = new Map();
 let mockModuleFeedback = [];
 let mockNotificationLogs = [];
 let mockAssistantDailyPromos = new Map();
@@ -534,6 +536,110 @@ function currentDevUser(request) {
   return mockUsers.find((user) => user.id === session.userId && user.status === "active") || null;
 }
 
+function mockFleetVehicleFixtures() {
+  return [
+    {
+      id: "tcars-889",
+      vehicleId: "",
+      externalProvider: "tcars",
+      externalVehicleId: "889",
+      tcarsVehicleId: "889",
+      tcarsUnitId: "local-dev-unit",
+      tcarsLicensePlate: "4B2 1234",
+      gpsProvider: "tcars",
+      licensePlate: "4B2 1234",
+      internalNumber: "DEV-889",
+      model: "Mercedes-Benz Actros cisterna",
+      brand: "Mercedes",
+      vehicleType: "Cisterna",
+      vin: "WDBLOCALDEV000889",
+      active: true,
+      status: "active",
+      source: "Lokální mock T-Cars"
+    }
+  ];
+}
+
+function mockFleetAssignmentFor(vehicle) {
+  const key = String(vehicle?.id || "").trim();
+  const assignment = mockFleetAssignments.get(key) || null;
+
+  return {
+    ...vehicle,
+    assignedDriverId: assignment?.assignedDriverId || "",
+    assignedDriverName: assignment?.assignedDriverName || "",
+    assignedDriverPhone: assignment?.assignedDriverPhone || "",
+    assignedDriverEmail: assignment?.assignedDriverEmail || "",
+    driverAssignmentNote: assignment?.note || "",
+    driverAssignmentUpdatedAt: assignment?.updatedAt || "",
+    driverAssignmentUpdatedByName: assignment?.updatedByName || "",
+    driverAssignmentEditable: true,
+    driverAssignmentSource: assignment ? "local_mock" : ""
+  };
+}
+
+function mockFleetSummary(vehicles) {
+  return {
+    total: vehicles.length,
+    active: vehicles.filter((vehicle) => vehicle.active !== false).length,
+    outOfOrder: 0,
+    inService: 0,
+    stkDue: 0,
+    revisionDue: 0,
+    insuranceDue: 0,
+    openDefects: 0,
+    assignedDrivers: vehicles.filter((vehicle) => vehicle.assignedDriverName || vehicle.assignedDriverId).length
+  };
+}
+
+async function loadDevFleetPayload() {
+  const payload = await loadFleetVehiclesPayload(process.env);
+  const baseVehicles = Array.isArray(payload.vehicles) && payload.vehicles.length
+    ? payload.vehicles
+    : mockFleetVehicleFixtures();
+  const vehicles = baseVehicles.map(mockFleetAssignmentFor);
+  const usingFixtures = !Array.isArray(payload.vehicles) || !payload.vehicles.length;
+
+  return {
+    ...payload,
+    apiStatus: usingFixtures ? "ready" : payload.apiStatus,
+    configured: payload.configured || usingFixtures,
+    vehicles,
+    summary: mockFleetSummary(vehicles),
+    assignmentApiStatus: "ready",
+    assignmentMessage: "Lokální přiřazení řidičů běží v paměti dev serveru.",
+    message: usingFixtures
+      ? "Lokální preview používá mock vozidla. Produkce čte vozidla z T-Cars."
+      : `${payload.message || ""} Lokální přiřazení řidičů běží v paměti dev serveru.`.trim(),
+    lastFetchedAt: payload.lastFetchedAt || new Date().toISOString()
+  };
+}
+
+function mockFleetVehicleMatches(vehicle, vehicleId) {
+  const wanted = String(vehicleId || "").trim().toLowerCase();
+  const compactWanted = wanted.replace(/[^a-z0-9]+/g, "");
+  return [
+    vehicle?.id,
+    vehicle?.vehicleId,
+    vehicle?.tcarsVehicleId,
+    vehicle?.tcarsVehicleId ? `tcars-${vehicle.tcarsVehicleId}` : "",
+    vehicle?.licensePlate,
+    vehicle?.tcarsLicensePlate
+  ].map((value) => String(value || "").trim().toLowerCase())
+    .some((candidate) => candidate === wanted || candidate.replace(/[^a-z0-9]+/g, "") === compactWanted);
+}
+
+function mockFleetVehicleForUser(user) {
+  const userId = String(user?.id || "").trim();
+  const userName = String(user?.name || "").trim().toLowerCase();
+  return mockFleetVehicleFixtures()
+    .map(mockFleetAssignmentFor)
+    .find((vehicle) => (
+      (userId && vehicle.assignedDriverId === userId) ||
+      (userName && String(vehicle.assignedDriverName || "").trim().toLowerCase() === userName)
+    )) || null;
+}
+
 function normalizeRouteSourceText(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -954,7 +1060,14 @@ function createMockDriverPartRequest(user, payload = {}) {
     throw error;
   }
 
-  const licensePlate = normalizeLicensePlate(payload.licensePlate || payload.spz || extractLicensePlate(defectDescription));
+  const assignedVehicle = mockFleetVehicleForUser(user);
+  const licensePlate = normalizeLicensePlate(
+    payload.licensePlate ||
+    payload.spz ||
+    assignedVehicle?.licensePlate ||
+    assignedVehicle?.tcarsLicensePlate ||
+    extractLicensePlate(defectDescription)
+  );
   if (!licensePlate) {
     const error = new Error("Chybí SPZ vozidla. Nejdřív doplňte vozidlo/SPZ.");
     error.status = 400;
@@ -972,11 +1085,11 @@ function createMockDriverPartRequest(user, payload = {}) {
     driverUserId: mockDriverClean(payload.driverUserId || user?.id),
     driverName: mockDriverClean(payload.driverName || payload.driver || driverContact.name || user?.name),
     driverPhone: mockDriverClean(payload.driverPhone || payload.phone || driverContact.phone),
-    vehicleId: mockDriverClean(payload.vehicleId),
-    vehicleName: mockDriverClean(payload.vehicleName || payload.vehicle || licensePlate),
+    vehicleId: mockDriverClean(payload.vehicleId || assignedVehicle?.id),
+    vehicleName: mockDriverClean(payload.vehicleName || payload.vehicle || assignedVehicle?.internalNumber || assignedVehicle?.model || licensePlate),
     licensePlate,
-    vin: mockDriverClean(payload.vin),
-    vehicleBrand: normalizeVehicleBrand(payload.vehicleBrand || payload.brand),
+    vin: mockDriverClean(payload.vin || assignedVehicle?.vin),
+    vehicleBrand: normalizeVehicleBrand(payload.vehicleBrand || payload.brand || assignedVehicle?.brand || assignedVehicle?.model),
     defectType: mockDriverClean(payload.defectType || partMatch.defectType),
     defectDescription,
     damagePhotoStatus: mockDriverClean(payload.damagePhotoStatus || "requested"),
@@ -2351,6 +2464,150 @@ async function handleApi(request, response) {
     return true;
   }
 
+  if (url.pathname === "/api/voice/sarlota" && request.method === "POST") {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "dashboard", "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění používat Šarlotu." });
+      return true;
+    }
+
+    const payload = await readJsonBody(request);
+    const intent = String(payload.intent || payload.context?.requestedIntent || "").trim();
+    if (intent !== "driver_part_request") {
+      sendJson(response, 200, {
+        ok: false,
+        status: "unsupported",
+        intent: intent || "unsupported",
+        reply: "Lokální mock Šarloty podporuje pro tenhle test jen Hlášení řidičů.",
+        text: "Lokální mock Šarloty podporuje pro tenhle test jen Hlášení řidičů.",
+        verified: true,
+        preparedActions: []
+      });
+      return true;
+    }
+
+    if (!mockDriverCanCreate(user) && !mockDriverCanManage(user)) {
+      sendJson(response, 403, { error: "Nemáte oprávnění vytvořit hlášení řidiče." });
+      return true;
+    }
+
+    const parameters = payload.parameters && typeof payload.parameters === "object" ? payload.parameters : {};
+    const defectDescription = mockDriverClean(parameters.defectDescription || parameters.description || payload.text || payload.transcript);
+    const assignedVehicle = mockFleetVehicleForUser(user);
+    const licensePlate = normalizeLicensePlate(
+      parameters.licensePlate ||
+      parameters.spz ||
+      assignedVehicle?.licensePlate ||
+      assignedVehicle?.tcarsLicensePlate ||
+      extractLicensePlate(defectDescription)
+    );
+    const missingQuestion = driverPartRequestMissingQuestion({
+      description: defectDescription,
+      licensePlate
+    });
+
+    if (missingQuestion) {
+      sendJson(response, 200, {
+        ok: false,
+        status: "needs_input",
+        intent: "driver_part_request",
+        reply: missingQuestion,
+        text: missingQuestion,
+        verified: true,
+        preparedActions: [],
+        notificationsSent: false,
+        apiStatus: "ready"
+      });
+      return true;
+    }
+
+    const confirmed = parameters.confirmed === true || parameters.writeConfirmed === true;
+    const partMatch = identifyProbablePartFromDescription(defectDescription);
+    if (!confirmed) {
+      const intro = assignedVehicle ? "Auto mám načtené podle tebe. " : "";
+      const reply = `${intro}Rozumím. Chceš nahlásit ${partMatch.probablePart || "náhradní díl"} na vozidle se SPZ ${licensePlate}. Potvrď prosím, že SPZ je správně, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
+      sendJson(response, 200, {
+        ok: false,
+        status: "needs_confirmation",
+        intent: "driver_part_request",
+        reply,
+        text: reply,
+        verified: true,
+        preparedActions: [
+          {
+            type: "driver_part_request",
+            action: "create_and_handoff",
+            requiresConfirmation: true,
+            notificationsSent: false,
+            parameters: {
+              defectDescription,
+              licensePlate,
+              vehicleId: assignedVehicle?.id || "",
+              vehicleName: assignedVehicle?.internalNumber || assignedVehicle?.model || "",
+              vin: assignedVehicle?.vin || "",
+              vehicleBrand: assignedVehicle?.brand || ""
+            }
+          }
+        ],
+        notificationsSent: false,
+        apiStatus: "ready"
+      });
+      return true;
+    }
+
+    try {
+      let item = createMockDriverPartRequest(user, {
+        ...parameters,
+        defectDescription,
+        licensePlate,
+        vehicleId: parameters.vehicleId || assignedVehicle?.id,
+        vehicleName: parameters.vehicleName || assignedVehicle?.internalNumber || assignedVehicle?.model,
+        vin: parameters.vin || assignedVehicle?.vin,
+        vehicleBrand: parameters.vehicleBrand || assignedVehicle?.brand,
+        damagePhotoStatus: "requested",
+        source: "voice"
+      });
+      item = handoffMockDriverPartRequest(user, item.id);
+      const handedOff = item.status === "handed_to_ordering";
+      const reply = handedOff
+        ? "Hotovo. Hlášení jsem zapsala a předala k objednání dílu."
+        : "Hlášení jsem zapsala, ale předání není hotové. Zkontroluj prosím notifikace v detailu.";
+      sendJson(response, 200, {
+        ok: true,
+        status: handedOff ? "created" : "created_notification_pending",
+        intent: "driver_part_request",
+        reply,
+        text: reply,
+        verified: true,
+        preparedActions: [],
+        driverPartRequest: {
+          id: item.id,
+          reportId: item.reportId,
+          status: item.status,
+          licensePlate: item.licensePlate,
+          vin: item.vin,
+          probablePart: item.probablePart
+        },
+        notificationsSent: handedOff,
+        apiStatus: "ready"
+      });
+    } catch (error) {
+      sendJson(response, error.status || 500, {
+        error: error.message || "Hlášení se nepodařilo zapsat.",
+        status: "failed",
+        intent: "driver_part_request",
+        verified: false,
+        notificationsSent: false,
+        apiStatus: "ready"
+      });
+    }
+    return true;
+  }
+
   if (url.pathname === "/api/driver-reports" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
@@ -3281,6 +3538,74 @@ async function handleApi(request, response) {
     }
   }
 
+  const fleetVehicleDetailMatch = url.pathname.match(/^\/api\/vehicles\/([^/]+)$/);
+  if (fleetVehicleDetailMatch && ["GET", "PATCH"].includes(request.method)) {
+    const user = currentDevUser(request);
+    if (!user) {
+      sendJson(response, 401, { error: "Nepřihlášeno." });
+      return true;
+    }
+    if (!hasPermission(user, "fleet", request.method === "PATCH" ? "edit" : "view")) {
+      sendJson(response, 403, { error: "Nemáte oprávnění." });
+      return true;
+    }
+
+    const payload = await loadDevFleetPayload();
+    const vehicleId = decodeURIComponent(fleetVehicleDetailMatch[1] || "");
+    const vehicle = payload.vehicles.find((item) => mockFleetVehicleMatches(item, vehicleId));
+
+    if (!vehicle) {
+      sendJson(response, 404, { error: "Vozidlo nebylo nalezeno.", apiStatus: "ready" });
+      return true;
+    }
+
+    if (request.method === "PATCH") {
+      const body = await readJsonBody(request);
+      const assignedDriverId = String(body.assignedDriverId || "").trim();
+      const selectedDriver = assignedDriverId
+        ? mockUsers.find((item) => String(item.id || "") === assignedDriverId)
+        : null;
+      const assignedDriverName = String(selectedDriver?.name || body.assignedDriverName || "").trim();
+      const now = new Date().toISOString();
+
+      if (!assignedDriverId && !assignedDriverName && !String(body.assignedDriverPhone || body.assignedDriverEmail || body.note || "").trim()) {
+        mockFleetAssignments.delete(vehicle.id);
+      } else {
+        mockFleetAssignments.set(vehicle.id, {
+          assignedDriverId,
+          assignedDriverName,
+          assignedDriverPhone: String(selectedDriver?.phone || body.assignedDriverPhone || "").trim(),
+          assignedDriverEmail: String(selectedDriver?.email || body.assignedDriverEmail || "").trim(),
+          note: String(body.note || "").trim(),
+          updatedAt: now,
+          updatedByName: user.name || ""
+        });
+      }
+
+      const nextPayload = await loadDevFleetPayload();
+      const nextVehicle = nextPayload.vehicles.find((item) => mockFleetVehicleMatches(item, vehicle.id)) || vehicle;
+      sendJson(response, 200, {
+        provider: nextPayload.provider,
+        source: nextPayload.source,
+        apiStatus: nextPayload.apiStatus,
+        assignmentApiStatus: nextPayload.assignmentApiStatus,
+        assignmentMessage: nextPayload.assignmentMessage,
+        vehicle: nextVehicle
+      });
+      return true;
+    }
+
+    sendJson(response, 200, {
+      provider: payload.provider,
+      source: payload.source,
+      apiStatus: payload.apiStatus,
+      assignmentApiStatus: payload.assignmentApiStatus,
+      assignmentMessage: payload.assignmentMessage,
+      vehicle
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/vehicles" && request.method === "GET") {
     const user = currentDevUser(request);
     if (!user) {
@@ -3292,7 +3617,7 @@ async function handleApi(request, response) {
       return true;
     }
 
-    sendJson(response, 200, await loadFleetVehiclesPayload(process.env));
+    sendJson(response, 200, await loadDevFleetPayload());
     return true;
   }
 

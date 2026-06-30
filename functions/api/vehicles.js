@@ -1,5 +1,5 @@
 import { json, requireUserPermission } from "../_lib/auth.js";
-import { loadFleetVehiclesPayload } from "../_lib/tcars-client.js";
+import { loadFleetVehiclesWithAssignments } from "../_lib/fleet-vehicles-store.js";
 
 export async function onRequestGet({ request, env }) {
   const { response } = await requireUserPermission(env, request, "fleet", "view");
@@ -8,5 +8,5 @@ export async function onRequestGet({ request, env }) {
     return response;
   }
 
-  return json(await loadFleetVehiclesPayload(env));
+  return json(await loadFleetVehiclesWithAssignments(env));
 }
