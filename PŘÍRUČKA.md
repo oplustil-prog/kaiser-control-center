@@ -1373,6 +1373,7 @@ Při každé změně Šarloty ověřit:
 - Změna musí být minimální doplnění nebo cílená úprava, aby nezmizela existující pravidla, nástroje, dynamic variables ani bezpečnostní pokyny.
 - Po uložení se musí ověřit, že agent stále používá správné dynamic variables, first message, nástroje a model.
 - Pokud není dostupný bezpečný read/write přístup k ElevenLabs, změnu neprovádět naslepo; připravit repo-side prompt/dynamic variables a jasně napsat, že upstream prompt v ElevenLabs nebyl uložen.
+- Synchronizace ElevenLabs client tools smí proběhnout jen přes chráněný backendový postup: nejdřív read-only návrh, potom explicitní `apply: true`, kontrola správného agenta Šarloty a ověření, že se nemění system prompt, first message ani model.
 
 ## 18. Datová schránka a UI pravidla
 

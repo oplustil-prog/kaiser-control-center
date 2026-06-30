@@ -6,6 +6,10 @@ import { sarlotaHumanTouchContext } from "../../../_lib/sarlota-human-touch.js";
 import { ELEVENLABS_CLIENT_TOOL_SCHEMAS } from "../../../../src/elevenLabsClientTools.js";
 
 const SARLOTA_AGENT_NAME = "Šarlota – Smart odpady";
+const SARLOTA_AGENT_NAME_ALIASES = [
+  SARLOTA_AGENT_NAME,
+  "Chytré odpadky – Šarlota"
+];
 const LLM_MODEL_EXPECTED_IN_ELEVENLABS = "Qwen3.5-397B-A17B";
 const LLM_MODEL_EXPECTED_NORMALIZED = "qwen35397ba17b";
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
@@ -185,7 +189,8 @@ function toolNamesFromAgent(agentConfig) {
 }
 
 function safeAgentNameMatches(agentConfig) {
-  return cleanString(agentConfig?.name) === SARLOTA_AGENT_NAME;
+  const agentName = cleanString(agentConfig?.name);
+  return SARLOTA_AGENT_NAME_ALIASES.includes(agentName);
 }
 
 async function readElevenLabsAgentConfig({ apiKey, agentId }) {

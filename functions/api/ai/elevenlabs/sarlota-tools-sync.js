@@ -1,0 +1,638 @@
+import { json, readJson, requireUserPermission } from "../../../_lib/auth.js";
+import { ELEVENLABS_CLIENT_TOOL_SCHEMAS } from "../../../../src/elevenLabsClientTools.js";
+
+const SARLOTA_AGENT_NAME = "Šarlota – Smart odpady";
+const SARLOTA_AGENT_NAME_ALIASES = [
+  SARLOTA_AGENT_NAME,
+  "Chytré odpadky – Šarlota"
+];
+const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
+const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1/convai";
+const SAFE_AGENT_TOOL_PATHS = [
+  ["conversation_config", "agent", "prompt", "tool_ids"],
+  ["conversation_config", "agent", "prompt", "tools"],
+  ["conversation_config", "agent", "tools"],
+  ["conversation_config", "tools"]
+];
+
+function cleanString(value) {
+  return String(value ?? "").trim();
+}
+
+function safeErrorMessage(error) {
+  return cleanString(error?.message || error?.name || "unknown_error");
+}
+
+function agentIdFor(env) {
+  return ["ELEVENLABS_AGENT_ID_SARLOTA", "VITE_ELEVENLABS_AGENT_ID_SARLOTA"]
+    .map((key) => cleanString(env?.[key]))
+    .find(Boolean) || "";
+}
+
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getPathValue(source, path) {
+  return path.reduce((value, key) => {
+    if (!value || typeof value !== "object") {
+      return undefined;
+    }
+
+    return value[key];
+  }, source);
+}
+
+function setPathValue(source, path, value) {
+  const parentPath = path.slice(0, -1);
+  const key = path.at(-1);
+  const parent = getPathValue(source, parentPath);
+
+  if (!parent || typeof parent !== "object" || !key) {
+    return false;
+  }
+
+  parent[key] = value;
+  return true;
+}
+
+function normalizeToolType(type) {
+  const normalized = cleanString(type).toLowerCase();
+  if (["number", "boolean", "array", "object"].includes(normalized)) {
+    return normalized;
+  }
+
+  return "string";
+}
+
+function expectedToolConfig(tool) {
+  const properties = {};
+  const required = [];
+
+  for (const parameter of tool.parameters || []) {
+    const name = cleanString(parameter.name);
+    if (!name) {
+      continue;
+    }
+
+    properties[name] = {
+      type: normalizeToolType(parameter.type),
+      description: cleanString(parameter.description) || name
+    };
+
+    if (parameter.required) {
+      required.push(name);
+    }
+  }
+
+  return {
+    type: "client",
+    name: cleanString(tool.name),
+    description: cleanString(tool.description),
+    parameters: {
+      type: "object",
+      properties,
+      required
+    }
+  };
+}
+
+function expectedTools() {
+  return ELEVENLABS_CLIENT_TOOL_SCHEMAS
+    .map(expectedToolConfig)
+    .filter((tool) => tool.name);
+}
+
+function toolName(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return cleanString(value.name || value.tool_name || value.toolName || value.tool_config?.name || value.toolConfig?.name);
+}
+
+function toolType(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return cleanString(value.type || value.tool_config?.type || value.toolConfig?.type);
+}
+
+function toolId(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return cleanString(value.id || value.tool_id || value.toolId);
+}
+
+function toolConfigFromWorkspaceTool(tool) {
+  return tool?.tool_config || tool?.toolConfig || tool || {};
+}
+
+function toolConfigChanged(currentTool, expectedTool) {
+  const current = toolConfigFromWorkspaceTool(currentTool);
+  return JSON.stringify({
+    type: current.type,
+    name: current.name,
+    description: current.description,
+    parameters: current.parameters || {}
+  }) !== JSON.stringify(expectedTool);
+}
+
+function toolNamesFromAgent(agentConfig) {
+  const names = new Set();
+
+  function walk(value, key = "") {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      if (cleanString(key).toLowerCase().includes("tool")) {
+        value.forEach((item) => {
+          const name = toolName(item);
+          if (name) {
+            names.add(name);
+          }
+        });
+      }
+
+      value.forEach((item) => walk(item));
+      return;
+    }
+
+    const name = toolName(value);
+    if (name && cleanString(key).toLowerCase().includes("tool")) {
+      names.add(name);
+    }
+
+    Object.entries(value).forEach(([childKey, child]) => walk(child, childKey));
+  }
+
+  walk(agentConfig);
+  return [...names].sort((a, b) => a.localeCompare(b, "cs"));
+}
+
+function firstMessageFromAgent(agentConfig) {
+  return cleanString(
+    getPathValue(agentConfig, ["conversation_config", "agent", "first_message"])
+    || getPathValue(agentConfig, ["conversation_config", "agent", "firstMessage"])
+    || getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "first_message"])
+    || getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "firstMessage"])
+  );
+}
+
+function summarizeTool(tool) {
+  return {
+    idPresent: Boolean(toolId(tool)),
+    name: toolName(tool),
+    type: toolType(tool),
+    keys: Object.keys(tool || {}).sort()
+  };
+}
+
+function findAgentToolArray(agentConfig) {
+  for (const path of SAFE_AGENT_TOOL_PATHS) {
+    const value = getPathValue(agentConfig, path);
+    if (Array.isArray(value)) {
+      return {
+        path,
+        pathText: path.join("."),
+        value,
+        kind: path.at(-1) === "tool_ids" ? "tool_ids" : "tools"
+      };
+    }
+  }
+
+  return null;
+}
+
+function workspaceToolList(payload) {
+  const candidates = [
+    payload?.tools,
+    payload?.items,
+    payload?.data,
+    payload
+  ];
+
+  return candidates.find(Array.isArray) || [];
+}
+
+async function elevenLabsRequest({ apiKey, path, method = "GET", body = null }) {
+  const response = await fetch(`${ELEVENLABS_API_BASE}${path}`, {
+    method,
+    headers: {
+      "xi-api-key": apiKey,
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    body: body ? JSON.stringify(body) : null
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error("elevenlabs_request_failed");
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function readLiveContext(env) {
+  const apiKey = cleanString(env?.ELEVENLABS_API_KEY);
+  const agentId = agentIdFor(env);
+
+  if (!apiKey || !agentId) {
+    return {
+      ok: false,
+      status: "missing_configuration",
+      apiKeyPresent: Boolean(apiKey),
+      agentIdPresent: Boolean(agentId)
+    };
+  }
+
+  const [agentConfig, toolsPayload] = await Promise.all([
+    elevenLabsRequest({ apiKey, path: `/agents/${encodeURIComponent(agentId)}` }),
+    elevenLabsRequest({ apiKey, path: "/tools" }).catch((error) => ({
+      __toolsReadError: true,
+      status: error.status || 0
+    }))
+  ]);
+
+  return {
+    ok: true,
+    apiKey,
+    agentId,
+    agentConfig,
+    workspaceTools: toolsPayload.__toolsReadError ? [] : workspaceToolList(toolsPayload),
+    workspaceToolsReadStatus: toolsPayload.__toolsReadError ? "error" : "ok",
+    workspaceToolsUpstreamStatus: toolsPayload.__toolsReadError ? toolsPayload.status : null
+  };
+}
+
+function buildSyncPlan(agentConfig, workspaceTools) {
+  const expected = expectedTools();
+  const expectedNames = expected.map((tool) => tool.name);
+  const workspaceByName = new Map();
+
+  for (const tool of workspaceTools) {
+    const name = toolName(tool);
+    if (name && !workspaceByName.has(name)) {
+      workspaceByName.set(name, tool);
+    }
+  }
+
+  const missingWorkspaceTools = [];
+  const changedWorkspaceTools = [];
+  const workspaceOperations = [];
+
+  for (const tool of expected) {
+    const existing = workspaceByName.get(tool.name);
+    if (!existing) {
+      missingWorkspaceTools.push(tool.name);
+      workspaceOperations.push({ action: "create", tool });
+      continue;
+    }
+
+    if (toolConfigChanged(existing, tool)) {
+      changedWorkspaceTools.push(tool.name);
+      workspaceOperations.push({
+        action: "update",
+        tool,
+        id: toolId(existing)
+      });
+    }
+  }
+
+  const agentToolArray = findAgentToolArray(agentConfig);
+  const configuredAgentToolNames = toolNamesFromAgent(agentConfig);
+  const configuredAgentToolNameSet = new Set(configuredAgentToolNames);
+  const missingAgentTools = expectedNames.filter((name) => !configuredAgentToolNameSet.has(name));
+  const agentNameMatches = SARLOTA_AGENT_NAME_ALIASES.includes(cleanString(agentConfig?.name));
+  const firstMessage = firstMessageFromAgent(agentConfig);
+  const firstMessageMatches = firstMessage === FIRST_MESSAGE_TEMPLATE;
+
+  return {
+    expectedNames,
+    agentNameMatches,
+    firstMessageMatches,
+    configuredAgentToolNames,
+    missingAgentTools,
+    missingWorkspaceTools,
+    changedWorkspaceTools,
+    workspaceOperations,
+    agentToolPath: agentToolArray?.pathText || "",
+    agentToolPathKind: agentToolArray?.kind || "",
+    agentToolPathWritable: Boolean(agentToolArray),
+    agentToolSamples: (agentToolArray?.value || []).slice(0, 4).map(summarizeTool)
+  };
+}
+
+async function applyWorkspaceOperations(apiKey, operations) {
+  const results = [];
+
+  for (const operation of operations) {
+    if (operation.action === "create") {
+      const result = await elevenLabsRequest({
+        apiKey,
+        path: "/tools",
+        method: "POST",
+        body: { tool_config: operation.tool }
+      });
+      results.push({
+        action: "create",
+        name: operation.tool.name,
+        ok: true,
+        idPresent: Boolean(toolId(result) || toolId(result?.tool))
+      });
+      continue;
+    }
+
+    if (operation.action === "update" && operation.id) {
+      await elevenLabsRequest({
+        apiKey,
+        path: `/tools/${encodeURIComponent(operation.id)}`,
+        method: "PATCH",
+        body: { tool_config: operation.tool }
+      });
+      results.push({
+        action: "update",
+        name: operation.tool.name,
+        ok: true,
+        idPresent: true
+      });
+      continue;
+    }
+
+    results.push({
+      action: operation.action,
+      name: operation.tool.name,
+      ok: false,
+      reason: "missing_workspace_tool_id"
+    });
+  }
+
+  return results;
+}
+
+function buildAgentPatch(agentConfig, workspaceTools, expectedNames) {
+  const toolArray = findAgentToolArray(agentConfig);
+  if (!toolArray) {
+    return {
+      ok: false,
+      reason: "agent_tool_attachment_path_not_found"
+    };
+  }
+
+  const workspaceIdsByName = new Map();
+  workspaceTools.forEach((tool) => {
+    const name = toolName(tool);
+    const id = toolId(tool);
+    if (name && id) {
+      workspaceIdsByName.set(name, id);
+    }
+  });
+
+  const nextConfig = deepClone(agentConfig);
+  const expectedToolConfigs = expectedTools();
+  const expectedByName = new Map(expectedToolConfigs.map((tool) => [tool.name, tool]));
+
+  if (toolArray.kind === "tool_ids") {
+    const expectedIds = expectedNames
+      .map((name) => workspaceIdsByName.get(name))
+      .filter(Boolean);
+
+    if (expectedIds.length !== expectedNames.length) {
+      return {
+        ok: false,
+        reason: "workspace_tool_ids_missing"
+      };
+    }
+
+    const existingIds = toolArray.value
+      .map((value) => cleanString(value))
+      .filter(Boolean);
+    const mergedIds = [...new Set([...existingIds, ...expectedIds])];
+    setPathValue(nextConfig, toolArray.path, mergedIds);
+
+    return {
+      ok: true,
+      path: toolArray.pathText,
+      requestBody: { conversation_config: nextConfig.conversation_config }
+    };
+  }
+
+  const existingTools = Array.isArray(toolArray.value) ? toolArray.value : [];
+  const retainedTools = existingTools.filter((tool) => {
+    const name = toolName(tool);
+    return !name || !expectedByName.has(name);
+  });
+  const mergedTools = [...retainedTools, ...expectedToolConfigs];
+  setPathValue(nextConfig, toolArray.path, mergedTools);
+
+  return {
+    ok: true,
+    path: toolArray.pathText,
+    requestBody: { conversation_config: nextConfig.conversation_config }
+  };
+}
+
+async function planPayload(env) {
+  const context = await readLiveContext(env);
+  if (!context.ok) {
+    return {
+      mode: "dry_run",
+      ready: false,
+      status: context.status,
+      apiKeyPresent: context.apiKeyPresent,
+      agentIdPresent: context.agentIdPresent,
+      message: "Chybí serverová ElevenLabs konfigurace."
+    };
+  }
+
+  const plan = buildSyncPlan(context.agentConfig, context.workspaceTools);
+
+  return {
+    mode: "dry_run",
+    ready: plan.agentNameMatches && plan.firstMessageMatches && context.workspaceToolsReadStatus === "ok",
+    generatedAt: new Date().toISOString(),
+    agent: {
+      expectedName: SARLOTA_AGENT_NAME,
+      nameMatches: plan.agentNameMatches,
+      firstMessage: FIRST_MESSAGE_TEMPLATE,
+      firstMessageMatches: plan.firstMessageMatches
+    },
+    workspaceTools: {
+      readStatus: context.workspaceToolsReadStatus,
+      upstreamStatus: context.workspaceToolsUpstreamStatus,
+      missing: plan.missingWorkspaceTools,
+      changed: plan.changedWorkspaceTools,
+      operationsCount: plan.workspaceOperations.length
+    },
+    agentTools: {
+      path: plan.agentToolPath,
+      kind: plan.agentToolPathKind,
+      writablePathFound: plan.agentToolPathWritable,
+      expected: plan.expectedNames,
+      configured: plan.configuredAgentToolNames,
+      missing: plan.missingAgentTools,
+      samples: plan.agentToolSamples
+    },
+    safety: {
+      willNotPatchPrompt: true,
+      willNotPatchFirstMessage: true,
+      willNotPatchModel: true,
+      requiresPostApplyTrue: true
+    }
+  };
+}
+
+async function applyPayload(env) {
+  const context = await readLiveContext(env);
+  if (!context.ok) {
+    return json({
+      error: "ElevenLabs konfigurace není dostupná.",
+      code: context.status,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  let plan = buildSyncPlan(context.agentConfig, context.workspaceTools);
+  if (context.workspaceToolsReadStatus !== "ok") {
+    return json({
+      error: "ElevenLabs workspace tools nejde bezpečně přečíst, takže synchronizaci nespouštím.",
+      code: "elevenlabs_workspace_tools_read_failed",
+      upstreamStatus: context.workspaceToolsUpstreamStatus,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  if (!plan.agentNameMatches || !plan.firstMessageMatches) {
+    return json({
+      error: "ElevenLabs agent nevypadá jako bezpečná Šarlota konfigurace.",
+      code: "sarlota_agent_safety_check_failed",
+      agentNameMatches: plan.agentNameMatches,
+      firstMessageMatches: plan.firstMessageMatches,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const workspaceResults = await applyWorkspaceOperations(context.apiKey, plan.workspaceOperations);
+  const failedWorkspaceResults = workspaceResults.filter((result) => !result.ok);
+  if (failedWorkspaceResults.length) {
+    return json({
+      error: "Některé ElevenLabs workspace tools nejde bezpečně vytvořit nebo upravit.",
+      code: "elevenlabs_workspace_tools_sync_failed",
+      workspaceResults,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const refreshedToolsPayload = await elevenLabsRequest({ apiKey: context.apiKey, path: "/tools" });
+  const refreshedWorkspaceTools = workspaceToolList(refreshedToolsPayload);
+  plan = buildSyncPlan(context.agentConfig, refreshedWorkspaceTools);
+
+  const agentPatch = buildAgentPatch(context.agentConfig, refreshedWorkspaceTools, plan.expectedNames);
+  if (!agentPatch.ok) {
+    return json({
+      error: "Nástroje ve workspace jsou připravené, ale strukturu agenta nejde bezpečně upravit naslepo.",
+      code: agentPatch.reason,
+      workspaceResults,
+      agentTools: {
+        path: plan.agentToolPath,
+        kind: plan.agentToolPathKind,
+        writablePathFound: plan.agentToolPathWritable,
+        missing: plan.missingAgentTools
+      },
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  await elevenLabsRequest({
+    apiKey: context.apiKey,
+    path: `/agents/${encodeURIComponent(context.agentId)}`,
+    method: "PATCH",
+    body: agentPatch.requestBody
+  });
+
+  const verifiedAgentConfig = await elevenLabsRequest({
+    apiKey: context.apiKey,
+    path: `/agents/${encodeURIComponent(context.agentId)}`
+  });
+  const verifiedNames = toolNamesFromAgent(verifiedAgentConfig);
+  const missingAfter = plan.expectedNames.filter((name) => !new Set(verifiedNames).has(name));
+
+  return json({
+    status: missingAfter.length ? "partial" : "ok",
+    generatedAt: new Date().toISOString(),
+    workspaceResults,
+    agentPatch: {
+      applied: true,
+      path: agentPatch.path,
+      promptChanged: false,
+      firstMessageChanged: false,
+      modelChanged: false
+    },
+    verification: {
+      configuredAgentToolNames: verifiedNames,
+      missingTools: missingAfter
+    }
+  }, missingAfter.length ? 207 : 200);
+}
+
+export async function onRequestGet({ request, env }) {
+  try {
+    const { response } = await requireUserPermission(env, request, "settings", "manage");
+
+    if (response) {
+      return response;
+    }
+
+    return json(await planPayload(env));
+  } catch (error) {
+    console.error("elevenlabs.sarlota_tools_sync_plan_failed", {
+      message: safeErrorMessage(error),
+      status: error.status || 0
+    });
+    return json({
+      error: "Návrh synchronizace Šarloty se teď nepodařilo připravit.",
+      code: "sarlota_tools_sync_plan_failed",
+      apiStatus: "waiting"
+    }, 500);
+  }
+}
+
+export async function onRequestPost({ request, env }) {
+  try {
+    const { response } = await requireUserPermission(env, request, "settings", "manage");
+
+    if (response) {
+      return response;
+    }
+
+    const payload = await readJson(request);
+    if (payload?.apply !== true) {
+      return json({
+        error: "Synchronizace vyžaduje potvrzení apply: true.",
+        code: "sarlota_tools_sync_apply_required",
+        apiStatus: "waiting"
+      }, 409);
+    }
+
+    return await applyPayload(env);
+  } catch (error) {
+    console.error("elevenlabs.sarlota_tools_sync_apply_failed", {
+      message: safeErrorMessage(error),
+      status: error.status || 0
+    });
+    return json({
+      error: "Synchronizace Šarloty se nepodařila. Zkus to prosím znovu po kontrole konfigurace.",
+      code: "sarlota_tools_sync_apply_failed",
+      apiStatus: "waiting"
+    }, 500);
+  }
+}

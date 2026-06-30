@@ -323,6 +323,8 @@ Aplikace má backend endpoint:
 GET /api/ai/elevenlabs/signed-url?assistant=sarlota
 GET /api/ai/elevenlabs/signed-url?assistant=marek
 GET /api/ai/elevenlabs/sarlota-status
+GET /api/ai/elevenlabs/sarlota-tools-sync
+POST /api/ai/elevenlabs/sarlota-tools-sync
 ```
 
 Endpoint používá `ELEVENLABS_API_KEY` pouze na backendu a vrací dočasný `signedUrl`.
@@ -333,6 +335,12 @@ mohl ověřit identitu přihlášeného uživatele Smart odpady.
 signed URL, API klíče, tokeny, prompt ani hodnoty osobních dynamic variables.
 Pokud má backend `ELEVENLABS_API_KEY` a Agent ID, ověří agenta read-only přes
 ElevenLabs API a vrátí pouze odvozené stavy pro first message, model a tools.
+
+`sarlota-tools-sync` je chráněný interní endpoint pro adminy s oprávněním
+`settings:manage`. `GET` vrací jen návrh synchronizace client tools. `POST`
+vyžaduje payload `{ "apply": true }` a před zápisem ověřuje, že jde o Šarlotu,
+first message zůstává `{{intro_announcement}}` a patch nemění prompt, model ani
+first message.
 
 ## Log AI akcí
 
