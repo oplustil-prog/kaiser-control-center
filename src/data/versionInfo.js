@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.246"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.247"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Datová schránka: ukládání AI Boost konceptů",
+    text: "Cloud DB akce Datové schránky nově povolují i typy AI Boost a kontrolní návrh, aby se koncepty pro potvrzení ukládaly stejně jako archivace, e-mail a odpověď."
+  },
   {
     title: "Vozový park: Vistos Vehicle preview",
     text: "Vozový park má read-only náhled entity Vehicle z Vistosu přes backend API. Modul zůstává master evidencí vozidel a ostatní moduly mají používat vazbu na Vozový park."

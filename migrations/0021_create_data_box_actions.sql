@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS data_box_actions (
   id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL,
   data_box_id TEXT,
-  action_type TEXT NOT NULL CHECK (action_type IN ('archive', 'email', 'reply')),
+  action_type TEXT NOT NULL CHECK (action_type IN ('archive', 'email', 'reply', 'review', 'ai_boost')),
   status TEXT NOT NULL CHECK (status IN ('prepared', 'requires_confirmation', 'confirmed', 'sent', 'archived', 'blocked', 'failed', 'skipped')),
   recipient TEXT,
   subject TEXT,
