@@ -463,12 +463,19 @@ function buildAgentPatch(agentConfig, workspaceTools, expectedNames) {
       .map((value) => cleanString(value))
       .filter(Boolean);
     const mergedIds = [...new Set([...existingIds, ...expectedIds])];
-    setPathValue(nextConfig, toolArray.path, mergedIds);
 
     return {
       ok: true,
       path: toolArray.pathText,
-      requestBody: { conversation_config: nextConfig.conversation_config }
+      requestBody: {
+        conversation_config: {
+          agent: {
+            prompt: {
+              tool_ids: mergedIds
+            }
+          }
+        }
+      }
     };
   }
 
