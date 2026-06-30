@@ -18086,16 +18086,28 @@ function driverReportNotificationPill(label, status, error) {
 
 function driverReportListItem(item) {
   const active = driverReportsState.selected?.id === item.id;
+  const title = item.licensePlate || item.vehicleName || item.reportId;
+  const part = item.probablePart || item.verifiedPart || item.defectType || "náhradní díl";
+  const vehicle = item.vehicleName && item.vehicleName !== item.licensePlate ? item.vehicleName : "";
   return `
     <button class="driver-report-item ${active ? "driver-report-item--active" : ""}" type="button" data-driver-report-select="${escapeHtml(item.id)}">
       <span class="driver-report-item__top">
-        <strong>${escapeHtml(item.licensePlate || item.vehicleName || item.reportId)}</strong>
+        <span class="driver-report-item__lane">Pitstop</span>
+        <strong>${escapeHtml(title)}</strong>
         <span class="driver-report-badge driver-report-badge--${escapeHtml(driverReportStatusTone(item.status))}">
           ${escapeHtml(driverReportBadgeLabel(item.status))}
         </span>
       </span>
-      <span>${escapeHtml(item.probablePart || item.verifiedPart || item.defectType || "náhradní díl")}</span>
-      <small>${escapeHtml(item.driverName || "řidič")} · ${escapeHtml(formatDateTime(item.reportedAt))}</small>
+      <span class="driver-report-item__part">${escapeHtml(part)}</span>
+      <span class="driver-report-item__meta">
+        <small>${escapeHtml(item.driverName || "řidič")}</small>
+        ${vehicle ? `<small>${escapeHtml(vehicle)}</small>` : ""}
+        <small>${escapeHtml(formatDateTime(item.reportedAt))}</small>
+      </span>
+      <span class="driver-report-item__footer">
+        <small>${escapeHtml(item.reportId || "ND")}</small>
+        <small>${escapeHtml(driverReportStatusLabel(item.status))}</small>
+      </span>
     </button>
   `;
 }

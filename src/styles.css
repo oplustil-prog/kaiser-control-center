@@ -21940,29 +21940,53 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
 
 .driver-report-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   padding: 0 16px 16px;
 }
 
 .driver-report-item {
+  position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 64px;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--driver-report-line);
+  min-height: 116px;
+  gap: 9px;
+  overflow: hidden;
+  padding: 13px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--driver-report-pit) 22%, var(--driver-report-line));
   border-radius: 8px;
-  background: #ffffff;
+  background:
+    linear-gradient(90deg, var(--driver-report-pit) 0 5px, transparent 5px),
+    linear-gradient(180deg, #ffffff 0%, color-mix(in srgb, #ffffff 86%, var(--driver-report-pit-amber)) 100%);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 10px 20px rgba(17, 24, 39, 0.08);
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.driver-report-item::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 7px;
+  background:
+    conic-gradient(#ffffff 25%, #111827 0 50%, #ffffff 0 75%, #111827 0) 0 0 / 16px 16px;
+  content: "";
+  opacity: 0.72;
+}
+
+.driver-report-item:hover {
+  border-color: color-mix(in srgb, var(--driver-report-pit-red) 38%, var(--driver-report-line));
+  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.12);
+  transform: translateY(-1px);
 }
 
 .driver-report-item--active {
-  border-color: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 58%, var(--driver-report-line));
-  background: color-mix(in srgb, var(--theme-primary, var(--kaiser-green)) 10%, #ffffff);
+  border-color: color-mix(in srgb, var(--driver-report-pit-red) 54%, var(--theme-primary, var(--kaiser-green)));
+  background:
+    linear-gradient(90deg, var(--driver-report-pit-red) 0 5px, transparent 5px),
+    linear-gradient(180deg, color-mix(in srgb, #ffffff 84%, var(--driver-report-pit-amber)) 0%, #ffffff 100%);
 }
 
 .driver-report-item__top {
@@ -21973,11 +21997,66 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
   gap: 8px;
 }
 
+.driver-report-item__lane {
+  flex: 0 0 auto;
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--driver-report-pit);
+  color: var(--driver-report-pit-amber);
+  padding: 4px 8px;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .driver-report-item strong,
 .driver-report-item span,
 .driver-report-item small {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.driver-report-item__top strong {
+  flex: 1 1 auto;
+  color: var(--driver-report-pit);
+  font-size: 1.08rem;
+  line-height: 1.1;
+}
+
+.driver-report-item__part {
+  display: block;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.24;
+}
+
+.driver-report-item__meta,
+.driver-report-item__footer {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.driver-report-item__meta small,
+.driver-report-item__footer small {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 4px 8px;
+  line-height: 1.15;
+}
+
+.driver-report-item__footer {
+  justify-content: space-between;
+  border-top: 1px solid color-mix(in srgb, var(--driver-report-line) 72%, transparent);
+  padding-top: 8px;
 }
 
 .driver-report-item small {
@@ -22165,6 +22244,10 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
 }
 
 @media (max-width: 760px) {
+  .driver-reports-page > .module-feedback {
+    display: none;
+  }
+
   .driver-report-summary,
   .driver-report-workspace,
   .driver-report-quick-fields,
@@ -22203,6 +22286,43 @@ body:has(.data-box-page) .data-box-attachment-item__body strong {
 
   .driver-report-workspace {
     gap: 12px;
+  }
+
+  .driver-report-list {
+    gap: 10px;
+    padding: 0 12px 12px;
+  }
+
+  .driver-report-item {
+    min-height: 120px;
+    padding: 14px 11px 11px;
+  }
+
+  .driver-report-item__top {
+    align-items: flex-start;
+    gap: 7px;
+  }
+
+  .driver-report-item__lane {
+    padding-inline: 7px;
+    font-size: 0.62rem;
+  }
+
+  .driver-report-item__top strong {
+    font-size: 1rem;
+  }
+
+  .driver-report-item__part {
+    font-size: 0.92rem;
+  }
+
+  .driver-report-item__meta,
+  .driver-report-item__footer {
+    gap: 5px;
+  }
+
+  .driver-report-item__footer {
+    justify-content: flex-start;
   }
 
   .driver-report-panel__head,
