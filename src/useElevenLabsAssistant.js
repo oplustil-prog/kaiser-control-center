@@ -456,10 +456,15 @@ export function useElevenLabsAssistant({
     voiceAudioPlayer.stop();
   }
 
-  async function sendClientToolResult(socket, toolCall = {}) {
+  async function sendClientToolResult(socket, toolCall = {}, context = {}) {
     const toolName = String(toolCall.tool_name || "").trim();
     const toolCallId = String(toolCall.tool_call_id || "").trim();
-    const parameters = toolCall.parameters || {};
+    const parameters = { ...(toolCall.parameters || {}) };
+    const conversationId = String(context.conversationId || "").trim();
+    if (conversationId) {
+      parameters.conversationId = parameters.conversationId || parameters.conversation_id || conversationId;
+      parameters.sessionId = parameters.sessionId || parameters.session_id || conversationId;
+    }
     const tool = clientTools[toolName];
     let isError = false;
     let result = { ok: false, error: "Nástroj není v textovém režimu dostupný." };
@@ -647,7 +652,7 @@ export function useElevenLabsAssistant({
         }
 
         if (payload.type === "client_tool_call") {
-          sendClientToolResult(socket, payload.client_tool_call);
+          sendClientToolResult(socket, payload.client_tool_call, { conversationId });
           return;
         }
 
@@ -1048,7 +1053,7 @@ export function useElevenLabsAssistant({
         }
 
         if (payload.type === "client_tool_call") {
-          sendClientToolResult(socket, payload.client_tool_call);
+          sendClientToolResult(socket, payload.client_tool_call, { conversationId });
           return;
         }
 
@@ -1346,7 +1351,7 @@ export function useElevenLabsAssistant({
         }
 
         if (payload.type === "client_tool_call") {
-          sendClientToolResult(socket, payload.client_tool_call);
+          sendClientToolResult(socket, payload.client_tool_call, { conversationId });
           return;
         }
 

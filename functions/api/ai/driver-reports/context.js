@@ -12,6 +12,7 @@ const MODULE_ID = "hlaseni-ridicu";
 const MODULE_KEY = "driver-reports";
 const NO_VEHICLE_QUESTION = "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?";
 const LOAD_FAILED_QUESTION = "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.";
+const VERIFIED_VEHICLE_STATUSES = new Set(["single", "selected", "multiple"]);
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -114,6 +115,49 @@ function responseMessage(vehicles = [], fallbackQuestion = NO_VEHICLE_QUESTION) 
   return fallbackQuestion;
 }
 
+function safeVehicleContext(match = {}, driverResolved = false) {
+  const rawVehicles = vehicleContextItems(match);
+  const fallbackUsed = match?.fallbackUsed === true;
+  const isDemoData = match?.mockData === true;
+  const status = cleanString(match?.status);
+  const vehiclesVerified = Boolean(
+    driverResolved &&
+    rawVehicles.length &&
+    !fallbackUsed &&
+    !isDemoData &&
+    VERIFIED_VEHICLE_STATUSES.has(status)
+  );
+
+  return {
+    vehicles: vehiclesVerified ? rawVehicles : [],
+    rawVehiclesCount: rawVehicles.length,
+    vehiclesVerified,
+    status,
+    fallbackUsed,
+    isDemoData
+  };
+}
+
+function emptyErrorCode({ driverResolved, vehiclesVerified, rawVehiclesCount, fallbackUsed, isDemoData }) {
+  if (vehiclesVerified) {
+    return "";
+  }
+
+  if (!driverResolved) {
+    return "DRIVER_NOT_MAPPED";
+  }
+
+  if (isDemoData) {
+    return "DEMO_VEHICLES_BLOCKED";
+  }
+
+  if (fallbackUsed || rawVehiclesCount) {
+    return "NO_VERIFIED_DRIVER_VEHICLES";
+  }
+
+  return "NO_VEHICLES_ASSIGNED";
+}
+
 function errorPayload(errorCode, message, status = 400, extra = {}) {
   return json({
     ok: false,
@@ -148,23 +192,37 @@ export async function onRequestGet({ request, env }) {
   const sessionId = cleanString(url.searchParams.get("sessionId") || url.searchParams.get("conversationId"));
   const currentModule = cleanString(url.searchParams.get("currentModule")) || MODULE_ID;
   const employee = await driverEmployeeFor(env, user);
+  const driverResolved = Boolean(employee);
   const employeeId = cleanString(employee?.id || user.id);
+  const resolvedEmployeeId = driverResolved ? employeeId : "";
   const driverUserId = cleanString(employee?.userId || user.id);
+  const resolvedDriverUserId = driverResolved ? driverUserId : "";
   const driverIds = [employee?.id, employee?.userId, user.id].map(cleanString).filter(Boolean);
   const driverName = fullEmployeeName(employee) || cleanString(user.name);
 
   let match;
   try {
-    match = await resolveFleetVehiclesForDriver(env, user, {
-      strictDriverAssignment: true,
-      driverIds,
-      driverEmployeeId: employeeId,
-      driverUserId,
-      driverName,
-      driverPhone: cleanString(employee?.phone || user.phone),
-      transcriptIntent,
-      currentModule
-    });
+    match = driverResolved
+      ? await resolveFleetVehiclesForDriver(env, user, {
+        strictDriverAssignment: true,
+        driverIds,
+        driverEmployeeId: employeeId,
+        driverUserId,
+        driverName,
+        driverPhone: cleanString(employee?.phone || user.phone),
+        transcriptIntent,
+        currentModule
+      })
+      : {
+        status: "driver_not_mapped",
+        vehicle: null,
+        candidates: [],
+        question: "",
+        fallbackUsed: false,
+        mockData: false,
+        dataSource: "",
+        identity: { source: "auth_user" }
+      };
   } catch (error) {
     console.error("driver_reports.context_vehicle_lookup_failed", { message: cleanString(error?.message) });
     return errorPayload("VEHICLES_UNAVAILABLE", "Vozidla se mi teď nepodařilo načíst.", 500);
@@ -174,25 +232,35 @@ export async function onRequestGet({ request, env }) {
     return errorPayload("VEHICLES_UNAVAILABLE", "Vozidla se mi teď nepodařilo načíst.", 500);
   }
 
-  const vehicles = vehicleContextItems(match);
-  const emptyReason = vehicles.length
-    ? ""
-    : employee ? "NO_DRIVER_VEHICLES" : "DRIVER_NOT_MAPPED";
-  const fallbackQuestion = vehicles.length > 1
+  const safeContext = safeVehicleContext(match, driverResolved);
+  const vehicles = safeContext.vehicles;
+  const vehiclesSource = cleanString(match?.dataSource);
+  const emptyReason = emptyErrorCode({
+    driverResolved,
+    vehiclesVerified: safeContext.vehiclesVerified,
+    rawVehiclesCount: safeContext.rawVehiclesCount,
+    fallbackUsed: safeContext.fallbackUsed,
+    isDemoData: safeContext.isDemoData
+  });
+  const fallbackQuestion = safeContext.vehiclesVerified && vehicles.length > 1
     ? (match.question || fleetVehicleSelectionQuestion(vehicles))
-    : vehicles.length === 1
+    : safeContext.vehiclesVerified && vehicles.length === 1
       ? "Kterého vozidla se to týká?"
       : NO_VEHICLE_QUESTION;
   const diagnostics = {
     userId: cleanString(user.id),
-    employeeId,
-    driverUserId,
-    driverMapped: Boolean(employee),
+    employeeId: resolvedEmployeeId,
+    driverUserId: resolvedDriverUserId,
+    driverMapped: driverResolved,
+    driverResolved,
     identitySource: cleanString(match?.identity?.source || (employee ? "employees" : "auth_user")),
-    dataSource: cleanString(match?.dataSource),
+    dataSource: vehiclesSource,
     vehiclesCount: vehicles.length,
-    fallbackUsed: match?.fallbackUsed === true,
-    mockData: match?.mockData === true,
+    rawVehiclesCount: safeContext.rawVehiclesCount,
+    vehiclesVerified: safeContext.vehiclesVerified,
+    fallbackUsed: safeContext.fallbackUsed,
+    mockData: safeContext.isDemoData,
+    isDemoData: safeContext.isDemoData,
     emptyReason
   };
 
@@ -205,13 +273,19 @@ export async function onRequestGet({ request, env }) {
     sessionId,
     status: match?.status || "none",
     errorCode: emptyReason,
+    driverResolved,
+    driverId: driverResolved ? employeeId : "",
+    vehiclesVerified: safeContext.vehiclesVerified,
+    vehiclesSource,
+    isDemoData: safeContext.isDemoData,
+    fallbackUsed: safeContext.fallbackUsed,
     user: {
       id: cleanString(user.id),
       name: cleanString(user.name),
-      employeeId
+      employeeId: resolvedEmployeeId
     },
     driver: {
-      employeeId,
+      employeeId: resolvedEmployeeId,
       displayName: driverName,
       source: diagnostics.identitySource
     },

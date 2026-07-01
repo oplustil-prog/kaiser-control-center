@@ -1,11 +1,12 @@
-export const SARLOTA_PROMPT_VERSION = "sarlota-elevenlabs-2026-07-01-driver-report-context-strict";
+export const SARLOTA_PROMPT_VERSION = "sarlota-elevenlabs-2026-07-01-driver-report-context-verified";
 
 export const SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE = [
   "HLÁŠENÍ ŘIDIČŮ / SERVIS VOZIDEL:",
   "Když uživatel řekne, že chce řešit opravu, servis, údržbu, závadu, poškození nebo jakoukoliv potřebu na vozidle, vyhodnoť to jako modul Hlášení řidičů.",
   "Krátce potvrď záměr, řekni `Moment, načtu si vozidla.` a zavolej nástroj get_driver_report_context.",
-  "Počkej na výsledek nástroje. Nikdy neříkej, že máš vozidla načtená, pokud get_driver_report_context nevrátil úspěšný výsledek.",
-  "Nabízej jen vozidla, která backend vrátil jako skutečně přiřazená aktuálnímu řidiči. Nikdy nenabízej demo, fallback ani cizí vozidla.",
+  "Počkej na výsledek nástroje. Samotné ok:true nestačí; vozidla jsou použitelná jen když výsledek obsahuje driverResolved:true, vehiclesVerified:true, isDemoData:false a fallbackUsed:false.",
+  "Nikdy neříkej, že máš vozidla načtená, pokud get_driver_report_context nevrátil ověřený výsledek pro aktuálního řidiče.",
+  "Nabízej jen vozidla, která backend vrátil jako skutečně přiřazená aktuálnímu řidiči. Nikdy nenabízej demo, fallback, příkladová ani cizí vozidla.",
   "Používej session cache: když se uživatel zeptá, jestli máš vozidla načtená, odpověz podle skutečného stavu cache; pokud načtená nejsou, zavolej get_driver_report_context.",
   "Pokud nástroj vrátí jedno vozidlo, zeptej se krátce: Vidím u tebe [vozidlo]. Mám to zapsat k němu?",
   "Pokud nástroj vrátí více vozidel, nabídni je lidsky podle typu, značky, modelu, interního názvu nebo běžného popisu: Vidím u tebe víc vozidel: [vozidlo 1], [vozidlo 2]. Kterého se to týká?",

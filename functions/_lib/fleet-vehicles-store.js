@@ -844,8 +844,14 @@ export function fleetPayloadUsesMockData(payload = {}) {
   return /\b(mock|demo|local dev|lokalni mock|lokalni dev)\b/.test(sourceText);
 }
 
+function canUseMockFleetForDriverReports(env = {}) {
+  const appEnv = normalizeKey(env.APP_ENV || env.NODE_ENV);
+  const explicitlyAllowed = normalizeKey(env.ALLOW_DRIVER_REPORT_MOCK_FLEET) === "true";
+  return explicitlyAllowed || ["development", "local", "test"].includes(appEnv);
+}
+
 export function shouldBlockFleetPayloadForDriverReports(env = {}, payload = {}) {
-  return isProduction(env) && fleetPayloadUsesMockData(payload);
+  return fleetPayloadUsesMockData(payload) && (isProduction(env) || !canUseMockFleetForDriverReports(env));
 }
 
 export function driverVehicleCandidateMatches(vehicles = [], payload = {}, user = {}) {
@@ -1010,7 +1016,7 @@ export async function resolveFleetVehiclesForDriver(env, user, payload = {}) {
   }
 
   try {
-    const fleet = await loadFleetVehiclesWithAssignments(env);
+    const fleet = await loadFleetVehiclesWithAssignments(env, user);
     const dataSource = cleanString(fleet.provider || fleet.source);
     const mockData = fleetPayloadUsesMockData(fleet);
     const identity = driverLookupIdentity(payload, user, Array.isArray(fleet.driverCandidates) ? fleet.driverCandidates : []);
@@ -1120,15 +1126,18 @@ function truncateDynamicVariable(value, max = 260) {
 }
 
 export async function driverReportVehicleDynamicVariables(env, user) {
-  const match = await resolveFleetVehiclesForDriver(env, user);
+  const match = await resolveFleetVehiclesForDriver(env, user, {
+    strictDriverAssignment: true
+  });
   const vehicle = match.vehicle;
   const vehicleName = cleanString(vehicle?.internalNumber || vehicle?.model || vehicle?.vehicleName || vehicle?.licensePlate);
   const licensePlate = cleanString(vehicle?.licensePlate || vehicle?.tcarsLicensePlate);
   const vin = cleanString(vehicle?.vin);
   const vehicleType = vehicleTypeForHumanTouch(vehicle);
   const firstName = cleanString(user?.name).split(/\s+/).filter(Boolean)[0] || "řidiči";
+  const contextVerified = !match.mockData && !match.fallbackUsed && ["single", "selected", "multiple"].includes(cleanString(match.status));
 
-  if (match.status === "multiple") {
+  if (contextVerified && match.status === "multiple") {
     const options = (match.labels || fleetVehicleOptionLabels(match.candidates)).join(", ");
     return {
       driver_report_vehicle_status: "vice_moznosti",
@@ -1147,7 +1156,7 @@ export async function driverReportVehicleDynamicVariables(env, user) {
     };
   }
 
-  if (!vehicle || !licensePlate) {
+  if (!contextVerified || !vehicle || !licensePlate) {
     return {
       driver_report_vehicle_status: "nenalezeno",
       driver_report_vehicle_id: "",
@@ -1158,7 +1167,7 @@ export async function driverReportVehicleDynamicVariables(env, user) {
       driver_report_vehicle_options_count: "0",
       driver_report_vehicle_options: "",
       driver_report_vehicle_selection_question: "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?",
-      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě přiřazené. Neříkej, že máš vozidla načtená, a požádej o SPZ pro ruční ověření."
+      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě přiřazené. Neříkej, že máš vozidla načtená ani nenabízej příkladová vozidla. Požádej o SPZ pro ruční ověření."
     };
   }
 

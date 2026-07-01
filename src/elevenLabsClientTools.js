@@ -323,6 +323,11 @@ export function createElevenLabsClientTools({
 
   const safeRequestJson = requestJson || defaultRequestJson;
   const driverReportContextCache = new Map();
+  const localDriverReportSessionId = `browser-${Date.now().toString(36)}-${
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : Math.random().toString(36).slice(2)
+  }`;
 
   function withQuery(path, params = {}) {
     const query = new URLSearchParams();
@@ -377,14 +382,18 @@ export function createElevenLabsClientTools({
     return false;
   }
 
-  function driverReportSessionKey(parameters = {}) {
-    return cleanString(
+  function driverReportSessionInfo(parameters = {}) {
+    const explicitSessionKey = cleanString(
       parameters.sessionId ||
       parameters.session_id ||
       parameters.conversationId ||
-      parameters.conversation_id ||
-      "active"
-    ) || "active";
+      parameters.conversation_id
+    );
+
+    return {
+      key: explicitSessionKey || localDriverReportSessionId,
+      cacheEnabled: Boolean(explicitSessionKey)
+    };
   }
 
   function vehicleNamesForSpeech(vehicles = []) {
@@ -393,23 +402,49 @@ export function createElevenLabsClientTools({
       .filter(Boolean);
   }
 
+  function driverReportContextIsVerified(result = {}) {
+    const vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
+    return Boolean(
+      result.ok === true &&
+      result.driverResolved === true &&
+      result.vehiclesVerified === true &&
+      result.isDemoData !== true &&
+      result.fallbackUsed !== true &&
+      vehicles.length > 0
+    );
+  }
+
+  function sanitizeDriverReportContextResult(result = {}) {
+    if (driverReportContextIsVerified(result)) {
+      return result;
+    }
+
+    return {
+      ...result,
+      vehicles: [],
+      vehiclesCount: 0,
+      vehiclesVerified: false
+    };
+  }
+
   function driverReportContextAnswer(result = {}, cached = false) {
     const vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
     const names = vehicleNamesForSpeech(vehicles);
+    const verified = driverReportContextIsVerified(result);
 
-    if (cached && names.length === 1) {
+    if (cached && verified && names.length === 1) {
       return `Ano, mám je načtená. Vidím u tebe ${names[0]}. Mám to zapsat k němu?`;
     }
 
-    if (cached && names.length > 1) {
+    if (cached && verified && names.length > 1) {
       return `Ano, mám je načtená. Vidím u tebe ${names.slice(0, 5).join(", ")}${names.length > 5 ? " a další" : ""}. Kterého se to týká?`;
     }
 
     return cleanString(result.message || result.fallbackQuestion) || "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.";
   }
 
-  function cacheDriverReportContext(key, result) {
-    if (result?.ok !== true) {
+  function cacheDriverReportContext(key, result, cacheEnabled = false) {
+    if (!cacheEnabled || !driverReportContextIsVerified(result)) {
       return;
     }
 
@@ -420,11 +455,12 @@ export function createElevenLabsClientTools({
   }
 
   async function getDriverReportContext(parameters = {}) {
-    const sessionKey = driverReportSessionKey(parameters);
+    const sessionInfo = driverReportSessionInfo(parameters);
+    const sessionKey = sessionInfo.key;
     const forceReload = booleanToolValue(parameters.forceReload || parameters.force_reload);
     const cached = driverReportContextCache.get(sessionKey);
 
-    if (cached && !forceReload) {
+    if (cached && !forceReload && driverReportContextIsVerified(cached)) {
       const answerText = driverReportContextAnswer(cached, true);
       return {
         ...cached,
@@ -433,6 +469,10 @@ export function createElevenLabsClientTools({
         message: answerText,
         answerText
       };
+    }
+
+    if (cached && !driverReportContextIsVerified(cached)) {
+      driverReportContextCache.delete(sessionKey);
     }
 
     toast("Moment, načtu si vozidla.", { tone: "info" });
@@ -444,6 +484,7 @@ export function createElevenLabsClientTools({
         transcriptIntent: cleanString(parameters.transcriptIntent || parameters.transcript_intent || parameters.intent || parameters.query),
         currentModule: cleanString(parameters.currentModule || parameters.current_module || "hlaseni-ridicu")
       });
+      result = sanitizeDriverReportContextResult(result);
     } catch (error) {
       const code = cleanString(error?.payload?.errorCode || error?.payload?.code || "DRIVER_REPORT_CONTEXT_FAILED");
       const message = code === "UNAUTHENTICATED"
@@ -464,13 +505,14 @@ export function createElevenLabsClientTools({
       };
     }
 
-    cacheDriverReportContext(sessionKey, result);
+    cacheDriverReportContext(sessionKey, result, sessionInfo.cacheEnabled);
     const answerText = driverReportContextAnswer(result, false);
 
     return {
       ...result,
       cached: false,
       sessionCacheKey: sessionKey,
+      sessionCacheEnabled: sessionInfo.cacheEnabled,
       message: answerText,
       answerText
     };
@@ -756,7 +798,9 @@ export function createElevenLabsClientTools({
         };
       }
 
-      const vehicles = Array.isArray(contextResult.vehicles) ? contextResult.vehicles : [];
+      const vehicles = driverReportContextIsVerified(contextResult) && Array.isArray(contextResult.vehicles)
+        ? contextResult.vehicles
+        : [];
       if (vehicles.length === 1) {
         const vehicle = vehicles[0];
         vehicleId = cleanString(vehicle.vehicleId || vehicle.id);
@@ -771,7 +815,7 @@ export function createElevenLabsClientTools({
           message: contextResult.answerText || contextResult.message,
           answerText: contextResult.answerText || contextResult.message,
           intent: "driver_part_request",
-          verified: true,
+          verified: driverReportContextIsVerified(contextResult),
           requiresConfirmation: false,
           preparedActions: [],
           driverPartRequest: null,

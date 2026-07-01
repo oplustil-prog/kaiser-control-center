@@ -9,6 +9,7 @@ import {
   driverPartRequestNeedsManualVehicleReview,
   driverPartRequestSourceHasManualVehicleReview
 } from "../functions/_lib/driver-part-requests-store.js";
+import { createElevenLabsClientTools } from "../src/elevenLabsClientTools.js";
 
 const radimUser = {
   id: "user-radim",
@@ -89,6 +90,7 @@ const vehicles = [
 {
   assert.equal(fleetPayloadUsesMockData({ provider: "local_mock", source: "Lokální mock T-Cars" }), true);
   assert.equal(shouldBlockFleetPayloadForDriverReports({ APP_ENV: "production" }, { provider: "local_mock" }), true);
+  assert.equal(shouldBlockFleetPayloadForDriverReports({}, { provider: "local_mock" }), true);
   assert.equal(shouldBlockFleetPayloadForDriverReports({ APP_ENV: "development" }, { provider: "local_mock" }), false);
 }
 
@@ -104,6 +106,109 @@ const vehicles = [
   assert.equal(driverPartRequestNeedsManualVehicleReview(assignedMatch, "3A4 1234", validation), true);
   assert.equal(driverPartRequestSourceHasManualVehicleReview("voice_manual_vehicle_review"), true);
   assert.equal(driverPartRequestSourceHasManualVehicleReview("voice"), false);
+}
+
+function clientToolsWithResponses(responses = []) {
+  const calls = [];
+  const tools = createElevenLabsClientTools({
+    requestJson: async (path, options = {}) => {
+      calls.push({ path, options });
+      if (!responses.length) {
+        throw new Error(`Unexpected request: ${path}`);
+      }
+      const next = responses.shift();
+      if (next instanceof Error) {
+        throw next;
+      }
+      return next;
+    }
+  });
+
+  return { tools, calls };
+}
+
+const verifiedContext = {
+  ok: true,
+  module: "hlaseni-ridicu",
+  driverResolved: true,
+  vehiclesVerified: true,
+  isDemoData: false,
+  fallbackUsed: false,
+  vehicles: [
+    { id: "vehicle-radim-1", displayName: "Mercedes Actros", licensePlate: "1A1 1111" }
+  ],
+  vehiclesCount: 1,
+  message: "Vidím u tebe Mercedes Actros. Mám hlášení zapsat k němu?"
+};
+
+const unverifiedContextWithForeignVehicle = {
+  ok: true,
+  module: "hlaseni-ridicu",
+  driverResolved: false,
+  vehiclesVerified: false,
+  isDemoData: false,
+  fallbackUsed: false,
+  errorCode: "DRIVER_NOT_MAPPED",
+  vehicles: [
+    { id: "vehicle-foreign", displayName: "Ford Transit", licensePlate: "3A4 1234" }
+  ],
+  vehiclesCount: 0,
+  fallbackQuestion: "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?",
+  message: "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?"
+};
+
+{
+  const { tools, calls } = clientToolsWithResponses([{ ...verifiedContext }]);
+  const first = await tools.get_driver_report_context({ conversationId: "conv-radim" });
+  const second = await tools.get_driver_report_context({ conversationId: "conv-radim" });
+
+  assert.equal(calls.length, 1);
+  assert.equal(first.cached, false);
+  assert.equal(second.cached, true);
+  assert.match(second.answerText, /Ano, mám je načtená/);
+  assert.match(second.answerText, /Mercedes Actros/);
+}
+
+{
+  const { tools, calls } = clientToolsWithResponses([
+    { ...unverifiedContextWithForeignVehicle },
+    { ...unverifiedContextWithForeignVehicle }
+  ]);
+  const first = await tools.get_driver_report_context({ conversationId: "conv-foreign" });
+  const second = await tools.get_driver_report_context({ conversationId: "conv-foreign" });
+
+  assert.equal(calls.length, 2);
+  assert.equal(first.cached, false);
+  assert.equal(second.cached, false);
+  assert.doesNotMatch(first.answerText, /Ford Transit|3A4 1234/);
+  assert.doesNotMatch(second.answerText, /Ano, mám je načtená|Ford Transit|3A4 1234/);
+}
+
+{
+  const { tools, calls } = clientToolsWithResponses([
+    { ...verifiedContext },
+    { ...verifiedContext, vehicles: [{ id: "vehicle-radim-2", displayName: "MAN TGE" }] }
+  ]);
+  const first = await tools.get_driver_report_context({});
+  const second = await tools.get_driver_report_context({});
+
+  assert.equal(calls.length, 2);
+  assert.equal(first.sessionCacheEnabled, false);
+  assert.equal(second.sessionCacheEnabled, false);
+}
+
+{
+  const { tools, calls } = clientToolsWithResponses([{ ...unverifiedContextWithForeignVehicle }]);
+  const result = await tools.create_driver_part_request({
+    conversationId: "conv-part-request",
+    defectDescription: "poškozené brzdy"
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.status, "needs_input");
+  assert.equal(result.verified, false);
+  assert.equal(result.driverPartRequest, null);
+  assert.doesNotMatch(result.answerText, /Ford Transit|3A4 1234/);
 }
 
 console.log("driver-report-context tests passed");
