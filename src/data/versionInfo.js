@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.274"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.275"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: diagnostické odpojení tools",
+    text: "Nastavení Šarloty má chráněný diagnostický režim, který dočasně odpojí ElevenLabs client tools od agenta, nechá identitu přes signed-url dynamic variables a umožní rollback běžnou synchronizací tools."
+  },
   {
     title: "Hlášení řidičů: partslink24 VIN pilot",
     text: "Detail hlášení má read-only pilot pro vyhledání náhradních dílů podle VIN přes partslink24 pouze pro osobní vozidla. KSO ukládá audit s maskovaným VIN a nepředstírá plnou automatizaci; pokračování běží ručně přes schválený GitHub Actions runner."

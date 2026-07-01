@@ -164,6 +164,9 @@ export function SarlotaStatusPanel({
           <button class="primary-action sarlota-status__sync" type="button" data-sarlota-tools-sync ${loading || syncing ? "disabled" : ""}>
             ${syncing ? "Synchronizuji..." : "Synchronizovat tools"}
           </button>
+          <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-tools-diagnostic ${loading || syncing ? "disabled" : ""}>
+            Diagnostika: odpojit tools
+          </button>
           <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-prompt-sync ${loading || syncing ? "disabled" : ""}>
             Doplnit prompt
           </button>

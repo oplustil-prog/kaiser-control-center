@@ -7,6 +7,7 @@ const SARLOTA_AGENT_NAME_ALIASES = [
   "Chytré odpadky – Šarlota"
 ];
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
+const DIAGNOSTIC_IDENTITY_ONLY_MODE = "diagnostic_identity_only";
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1/convai";
 const SAFE_AGENT_TOOL_PATHS = [
   ["conversation_config", "agent", "prompt", "tool_ids"],
@@ -494,7 +495,101 @@ function buildAgentPatch(agentConfig, workspaceTools, expectedNames) {
   };
 }
 
-async function planPayload(env) {
+function buildDiagnosticIdentityOnlyPatch(agentConfig) {
+  const toolArray = findAgentToolArray(agentConfig);
+  if (!toolArray) {
+    return {
+      ok: false,
+      reason: "agent_tool_attachment_path_not_found"
+    };
+  }
+
+  if (toolArray.kind === "tool_ids" && toolArray.pathText === "conversation_config.agent.prompt.tool_ids") {
+    return {
+      ok: true,
+      path: toolArray.pathText,
+      requestBody: {
+        conversation_config: {
+          agent: {
+            prompt: {
+              tool_ids: []
+            }
+          }
+        }
+      }
+    };
+  }
+
+  const nextConfig = deepClone(agentConfig);
+  setPathValue(nextConfig, toolArray.path, []);
+
+  return {
+    ok: true,
+    path: toolArray.pathText,
+    requestBody: { conversation_config: nextConfig.conversation_config }
+  };
+}
+
+async function diagnosticIdentityOnlyPlanPayload(env) {
+  const context = await readLiveContext(env);
+  if (!context.ok) {
+    return {
+      mode: DIAGNOSTIC_IDENTITY_ONLY_MODE,
+      ready: false,
+      status: context.status,
+      apiKeyPresent: context.apiKeyPresent,
+      agentIdPresent: context.agentIdPresent,
+      message: "Chybí serverová ElevenLabs konfigurace."
+    };
+  }
+
+  const plan = buildSyncPlan(context.agentConfig, context.workspaceTools);
+  const patch = buildDiagnosticIdentityOnlyPatch(context.agentConfig);
+
+  return {
+    mode: DIAGNOSTIC_IDENTITY_ONLY_MODE,
+    ready: plan.agentNameMatches && plan.firstMessageMatches && patch.ok,
+    generatedAt: new Date().toISOString(),
+    agent: {
+      expectedName: SARLOTA_AGENT_NAME,
+      nameMatches: plan.agentNameMatches,
+      firstMessage: FIRST_MESSAGE_TEMPLATE,
+      firstMessageMatches: plan.firstMessageMatches
+    },
+    agentTools: {
+      path: plan.agentToolPath,
+      kind: plan.agentToolPathKind,
+      writablePathFound: plan.agentToolPathWritable,
+      configured: plan.configuredAgentToolNames,
+      configuredCount: plan.configuredAgentToolNames.length,
+      willDetachCount: plan.configuredAgentToolNames.length
+    },
+    backup: {
+      source: "live_elevenlabs_agent_tool_list",
+      configuredAgentToolNames: plan.configuredAgentToolNames,
+      configuredCount: plan.configuredAgentToolNames.length,
+      restoreEndpoint: "/api/ai/elevenlabs/sarlota-tools-sync",
+      restorePayload: { apply: true },
+      restoreNote: "Normální synchronizace znovu připne repo-side client tools. Workspace tools se při diagnostice nemažou."
+    },
+    safety: {
+      diagnosticOnly: true,
+      identityDynamicVariablesRemain: true,
+      willDetachAgentTools: true,
+      willDeleteWorkspaceTools: false,
+      willNotPatchPrompt: true,
+      willNotPatchFirstMessage: true,
+      willNotPatchModel: true,
+      requiresPostApplyTrue: true
+    }
+  };
+}
+
+async function planPayload(env, mode = "") {
+  if (mode === DIAGNOSTIC_IDENTITY_ONLY_MODE) {
+    return diagnosticIdentityOnlyPlanPayload(env);
+  }
+
   const context = await readLiveContext(env);
   if (!context.ok) {
     return {
@@ -545,7 +640,123 @@ async function planPayload(env) {
   };
 }
 
-async function applyPayload(env) {
+async function applyDiagnosticIdentityOnlyPayload(env) {
+  const context = await readLiveContext(env);
+  if (!context.ok) {
+    return json({
+      error: "ElevenLabs konfigurace není dostupná.",
+      code: context.status,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const plan = buildSyncPlan(context.agentConfig, context.workspaceTools);
+  if (!plan.agentNameMatches || !plan.firstMessageMatches) {
+    return json({
+      error: "ElevenLabs agent nevypadá jako bezpečná Šarlota konfigurace.",
+      code: "sarlota_agent_safety_check_failed",
+      agentNameMatches: plan.agentNameMatches,
+      firstMessageMatches: plan.firstMessageMatches,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const agentPatch = buildDiagnosticIdentityOnlyPatch(context.agentConfig);
+  if (!agentPatch.ok) {
+    return json({
+      error: "Strukturu tools u ElevenLabs agenta nejde bezpečně upravit naslepo.",
+      code: agentPatch.reason,
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const backup = {
+    source: "live_elevenlabs_agent_tool_list",
+    configuredAgentToolNames: plan.configuredAgentToolNames,
+    configuredCount: plan.configuredAgentToolNames.length,
+    restoreEndpoint: "/api/ai/elevenlabs/sarlota-tools-sync",
+    restorePayload: { apply: true },
+    restoreNote: "Normální synchronizace znovu připne repo-side client tools. Workspace tools se při diagnostice nemažou."
+  };
+
+  try {
+    await elevenLabsRequest({
+      apiKey: context.apiKey,
+      path: `/agents/${encodeURIComponent(context.agentId)}`,
+      method: "PATCH",
+      body: agentPatch.requestBody
+    });
+  } catch (error) {
+    return json({
+      error: `Diagnostické odpojení ElevenLabs tools se nepodařilo bezpečně uložit. ${error.status ? `HTTP ${error.status}. ` : ""}${upstreamErrorSummary(error)}`,
+      code: "elevenlabs_agent_diagnostic_patch_failed",
+      backup,
+      agentPatch: {
+        applied: false,
+        path: agentPatch.path,
+        promptChanged: false,
+        firstMessageChanged: false,
+        modelChanged: false
+      },
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  let verifiedAgentConfig = null;
+  try {
+    verifiedAgentConfig = await elevenLabsRequest({
+      apiKey: context.apiKey,
+      path: `/agents/${encodeURIComponent(context.agentId)}`
+    });
+  } catch (error) {
+    return json({
+      error: `Diagnostické odpojení bylo uložené, ale následné ověření selhalo. ${error.status ? `HTTP ${error.status}. ` : ""}${upstreamErrorSummary(error)}`,
+      code: "elevenlabs_agent_diagnostic_verify_failed",
+      backup,
+      agentPatch: {
+        applied: true,
+        path: agentPatch.path,
+        promptChanged: false,
+        firstMessageChanged: false,
+        modelChanged: false
+      },
+      apiStatus: "waiting"
+    }, 409);
+  }
+
+  const verifiedNames = toolNamesFromAgent(verifiedAgentConfig);
+
+  return json({
+    status: verifiedNames.length ? "partial" : "ok",
+    mode: DIAGNOSTIC_IDENTITY_ONLY_MODE,
+    generatedAt: new Date().toISOString(),
+    backup,
+    agentPatch: {
+      applied: true,
+      path: agentPatch.path,
+      promptChanged: false,
+      firstMessageChanged: false,
+      modelChanged: false
+    },
+    verification: {
+      configuredAgentToolNames: verifiedNames,
+      detachedToolCount: Math.max(0, backup.configuredCount - verifiedNames.length),
+      identityDynamicVariablesRemain: true,
+      workspaceToolsDeleted: false
+    },
+    restore: {
+      endpoint: "/api/ai/elevenlabs/sarlota-tools-sync",
+      payload: { apply: true },
+      button: "Synchronizovat tools"
+    }
+  }, verifiedNames.length ? 207 : 200);
+}
+
+async function applyPayload(env, mode = "") {
+  if (mode === DIAGNOSTIC_IDENTITY_ONLY_MODE) {
+    return applyDiagnosticIdentityOnlyPayload(env);
+  }
+
   const context = await readLiveContext(env);
   if (!context.ok) {
     return json({
@@ -685,7 +896,8 @@ export async function onRequestGet({ request, env }) {
       return response;
     }
 
-    return json(await planPayload(env));
+    const mode = cleanString(new URL(request.url).searchParams.get("mode"));
+    return json(await planPayload(env, mode));
   } catch (error) {
     console.error("elevenlabs.sarlota_tools_sync_plan_failed", {
       message: safeErrorMessage(error),
@@ -716,7 +928,8 @@ export async function onRequestPost({ request, env }) {
       }, 409);
     }
 
-    return await applyPayload(env);
+    const mode = cleanString(payload?.mode);
+    return await applyPayload(env, mode);
   } catch (error) {
     console.error("elevenlabs.sarlota_tools_sync_apply_failed", {
       message: safeErrorMessage(error),

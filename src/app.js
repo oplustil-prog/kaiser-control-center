@@ -23282,6 +23282,79 @@ async function syncSarlotaTools() {
   }
 }
 
+function sarlotaToolsDiagnosticConfirmText(plan = {}) {
+  const configuredCount = Number(plan.agentTools?.configuredCount || plan.backup?.configuredCount || 0);
+  const path = plan.agentTools?.path || "nenalezena";
+  const names = Array.isArray(plan.agentTools?.configured)
+    ? plan.agentTools.configured.slice(0, 8).join(", ")
+    : "";
+
+  return [
+    "Dočasně odpojit ElevenLabs tools Šarloty pro diagnostiku?",
+    "",
+    `Odpojované tools: ${configuredCount}`,
+    names ? `Záloha názvů: ${names}${configuredCount > 8 ? "..." : ""}` : "Záloha názvů: bez připojených tools",
+    `Cesta v agentovi: ${path}`,
+    "",
+    "Workspace tools se nemažou.",
+    "Identita zůstává přes signed-url dynamic variables.",
+    "Prompt, first message ani model se nemění.",
+    "Rollback: tlačítko Synchronizovat tools.",
+    "",
+    "Bez potvrzení se nic neprovede."
+  ].join("\n");
+}
+
+async function diagnosticSarlotaToolsIdentityOnly() {
+  if (!authState.user || sarlotaStatusState.syncing || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  sarlotaStatusState.syncing = true;
+  sarlotaStatusState.syncError = "";
+  sarlotaStatusState.syncMessage = "Načítám návrh diagnostického odpojení ElevenLabs tools...";
+  render();
+
+  try {
+    const mode = "diagnostic_identity_only";
+    const plan = await apiJson(`/api/ai/elevenlabs/sarlota-tools-sync?mode=${encodeURIComponent(mode)}`);
+
+    if (!plan.ready) {
+      sarlotaStatusState.syncError = "Diagnostiku nejde bezpečně spustit. Zkontroluj název agenta, first message a cestu tools.";
+      sarlotaStatusState.syncMessage = "";
+      return;
+    }
+
+    if (!window.confirm(sarlotaToolsDiagnosticConfirmText(plan))) {
+      sarlotaStatusState.syncMessage = "Diagnostické odpojení zrušeno.";
+      return;
+    }
+
+    sarlotaStatusState.syncMessage = "Odpojuji ElevenLabs tools pro diagnostiku...";
+    render();
+
+    const result = await apiJson("/api/ai/elevenlabs/sarlota-tools-sync", {
+      method: "POST",
+      body: JSON.stringify({ apply: true, mode })
+    });
+    const remainingCount = Array.isArray(result.verification?.configuredAgentToolNames)
+      ? result.verification.configuredAgentToolNames.length
+      : 0;
+
+    sarlotaStatusState.syncMessage = remainingCount
+      ? `Diagnostika zapnutá částečně, v agentovi zůstává ${remainingCount} tools. Rollback: Synchronizovat tools.`
+      : "Diagnostika zapnutá: tools jsou odpojené, identita zůstává. Rollback: Synchronizovat tools.";
+    await loadSarlotaStatus({ force: true, renderAfter: false });
+  } catch (error) {
+    console.error("smart_odpady_sarlota_tools_diagnostic_failed", error);
+    sarlotaStatusState.syncError = error.payload?.error || "Diagnostické odpojení ElevenLabs tools se nepodařilo.";
+    sarlotaStatusState.syncMessage = "";
+  } finally {
+    sarlotaStatusState.syncing = false;
+    render();
+  }
+}
+
 function sarlotaPromptSyncConfirmText(plan = {}) {
   return [
     "Doplnit pravidlo Hlášení řidičů do ElevenLabs promptu Šarloty?",
@@ -27178,6 +27251,13 @@ document.addEventListener("click", async (event) => {
   if (sarlotaToolsSync) {
     event.preventDefault();
     await syncSarlotaTools();
+    return;
+  }
+
+  const sarlotaToolsDiagnostic = event.target.closest("[data-sarlota-tools-diagnostic]");
+  if (sarlotaToolsDiagnostic) {
+    event.preventDefault();
+    await diagnosticSarlotaToolsIdentityOnly();
     return;
   }
 

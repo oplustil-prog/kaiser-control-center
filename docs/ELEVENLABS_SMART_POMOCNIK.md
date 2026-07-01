@@ -352,6 +352,18 @@ vyžaduje payload `{ "apply": true }` a před zápisem ověřuje, že jde o Šar
 first message zůstává `{{intro_announcement}}` a patch nemění prompt, model ani
 tools.
 
+Pro produkční diagnostiku je dostupný i režim `diagnostic_identity_only`:
+
+```text
+GET /api/ai/elevenlabs/sarlota-tools-sync?mode=diagnostic_identity_only
+POST /api/ai/elevenlabs/sarlota-tools-sync
+{ "apply": true, "mode": "diagnostic_identity_only" }
+```
+
+Režim dočasně odpojí tools od agenta, ale nemaže workspace tools. Identita
+uživatele zůstává přes signed-url dynamic variables. Rollback je běžná
+synchronizace `{ "apply": true }`.
+
 `sarlota-prompt-sync` je oddělený chráněný endpoint pro adminy s oprávněním
 `settings:manage`. `GET` načte aktuální ElevenLabs agenta a vrátí jen bezpečný
 návrh bez textu promptu. `POST` vyžaduje `{ "apply": true }` a doplní pouze blok
