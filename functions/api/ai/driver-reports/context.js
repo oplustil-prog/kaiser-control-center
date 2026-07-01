@@ -10,8 +10,8 @@ import { hasPermission } from "../../../../src/permissions.js";
 
 const MODULE_ID = "hlaseni-ridicu";
 const MODULE_KEY = "driver-reports";
-const NO_VEHICLE_QUESTION = "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?";
-const LOAD_FAILED_QUESTION = "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.";
+const NO_VERIFIED_VEHICLE_QUESTION = "Nemám u tebe teď bezpečně ověřené žádné přiřazené vozidlo. Řekni mi prosím SPZ vozidla.";
+const LOAD_FAILED_QUESTION = "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím SPZ vozidla.";
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -85,7 +85,11 @@ function vehicleContextItem(vehicle = {}, displayName = "") {
     internalName: cleanString(vehicle.internalNumber || vehicle.vehicleName || vehicle.name),
     licensePlate: cleanString(vehicle.licensePlate || vehicle.tcarsLicensePlate),
     vin: cleanString(vehicle.vin),
-    assignmentHint: "přiřazené vozidlo"
+    assignmentHint: "přiřazené vozidlo",
+    source: "fleet_db",
+    assignedToCurrentDriver: true,
+    existsInFleet: true,
+    active: true
   };
 }
 
@@ -100,7 +104,7 @@ function vehicleContextItems(match = {}) {
   return vehicles.map((vehicle, index) => vehicleContextItem(vehicle, labels[index]));
 }
 
-function responseMessage(vehicles = [], fallbackQuestion = NO_VEHICLE_QUESTION) {
+function responseMessage(vehicles = [], fallbackQuestion = NO_VERIFIED_VEHICLE_QUESTION) {
   if (vehicles.length === 1) {
     return `Vidím u tebe ${vehicles[0].displayName}. Mám hlášení zapsat k němu?`;
   }
@@ -118,8 +122,16 @@ function errorPayload(errorCode, message, status = 400, extra = {}) {
   return json({
     ok: false,
     module: MODULE_ID,
+    userResolved: false,
+    employeeResolved: false,
+    driverResolved: false,
+    vehiclesVerified: false,
+    vehicles: [],
+    vehiclesCount: 0,
+    vehicleLookupMode: "manual_spz_required",
     errorCode,
     message,
+    messageForAssistant: message,
     fallbackQuestion: LOAD_FAILED_QUESTION,
     apiStatus: status >= 500 ? "waiting" : "ready",
     ...extra
@@ -174,7 +186,16 @@ export async function onRequestGet({ request, env }) {
     return errorPayload("VEHICLES_UNAVAILABLE", "Vozidla se mi teď nepodařilo načíst.", 500);
   }
 
-  const vehicles = vehicleContextItems(match);
+  const rawVehicles = vehicleContextItems(match);
+  const vehiclesAreSafelyVerified = Boolean(
+    employee &&
+    rawVehicles.length > 0 &&
+    match?.fallbackUsed !== true &&
+    match?.mockData !== true &&
+    match?.status !== "failed" &&
+    rawVehicles.every((vehicle) => vehicle.id && vehicle.existsInFleet === true && vehicle.assignedToCurrentDriver === true && vehicle.active === true)
+  );
+  const vehicles = vehiclesAreSafelyVerified ? rawVehicles : [];
   const emptyReason = vehicles.length
     ? ""
     : employee ? "NO_DRIVER_VEHICLES" : "DRIVER_NOT_MAPPED";
@@ -182,15 +203,24 @@ export async function onRequestGet({ request, env }) {
     ? (match.question || fleetVehicleSelectionQuestion(vehicles))
     : vehicles.length === 1
       ? "Kterého vozidla se to týká?"
-      : NO_VEHICLE_QUESTION;
+      : NO_VERIFIED_VEHICLE_QUESTION;
+  const vehicleLookupMode = vehiclesAreSafelyVerified ? "verified_list" : "manual_spz_required";
+  const messageForAssistant = vehiclesAreSafelyVerified
+    ? responseMessage(vehicles, fallbackQuestion)
+    : NO_VERIFIED_VEHICLE_QUESTION;
   const diagnostics = {
     userId: cleanString(user.id),
+    userName: cleanString(user.name),
     employeeId,
     driverUserId,
     driverMapped: Boolean(employee),
+    driverResolved: vehiclesAreSafelyVerified,
     identitySource: cleanString(match?.identity?.source || (employee ? "employees" : "auth_user")),
     dataSource: cleanString(match?.dataSource),
-    vehiclesCount: vehicles.length,
+    vehiclesCountBeforeFilter: rawVehicles.length,
+    vehiclesCountAfterFilter: vehicles.length,
+    vehiclesVerified: vehiclesAreSafelyVerified,
+    vehicleLookupMode,
     fallbackUsed: match?.fallbackUsed === true,
     mockData: match?.mockData === true,
     emptyReason
@@ -205,6 +235,12 @@ export async function onRequestGet({ request, env }) {
     sessionId,
     status: match?.status || "none",
     errorCode: emptyReason,
+    userName: cleanString(user.name),
+    userResolved: true,
+    employeeResolved: Boolean(employee),
+    driverResolved: vehiclesAreSafelyVerified,
+    vehiclesVerified: vehiclesAreSafelyVerified,
+    vehicleLookupMode,
     user: {
       id: cleanString(user.id),
       name: cleanString(user.name),
@@ -219,7 +255,8 @@ export async function onRequestGet({ request, env }) {
     vehiclesCount: vehicles.length,
     permissions,
     fallbackQuestion,
-    message: responseMessage(vehicles, fallbackQuestion),
+    message: messageForAssistant,
+    messageForAssistant,
     diagnostics,
     apiStatus: "ready"
   });

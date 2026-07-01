@@ -221,6 +221,15 @@ export const ELEVENLABS_CLIENT_TOOL_SCHEMAS = [
     ]
   },
   {
+    name: "validate_driver_vehicle_spz",
+    description: "Read-only ověří ručně nadiktovanou SPZ pro Hlášení řidičů proti Vozovému parku a aktuálnímu kontextu řidiče. Nic nezapisuje.",
+    parameters: [
+      { name: "spz", type: "string", required: true },
+      { name: "sessionId", type: "string", required: false },
+      { name: "conversationId", type: "string", required: false }
+    ]
+  },
+  {
     name: "search_user",
     description: "Vyhledá uživatele podle jména nebo role, pouze pokud má přihlášený uživatel oprávnění.",
     parameters: [
@@ -393,9 +402,19 @@ export function createElevenLabsClientTools({
       .filter(Boolean);
   }
 
+  function licensePlateCompareKey(value) {
+    return cleanString(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  }
+
   function driverReportContextAnswer(result = {}, cached = false) {
     const vehicles = Array.isArray(result.vehicles) ? result.vehicles : [];
-    const names = vehicleNamesForSpeech(vehicles);
+    const vehiclesVerified = result.vehiclesVerified === true && vehicles.length > 0;
+    const names = vehiclesVerified ? vehicleNamesForSpeech(vehicles) : [];
+
+    if (!vehiclesVerified) {
+      return cleanString(result.messageForAssistant || result.fallbackQuestion || result.message) ||
+        "Nemám u tebe teď bezpečně ověřené žádné přiřazené vozidlo. Řekni mi prosím SPZ vozidla.";
+    }
 
     if (cached && names.length === 1) {
       return `Ano, mám je načtená. Vidím u tebe ${names[0]}. Mám to zapsat k němu?`;
@@ -405,7 +424,8 @@ export function createElevenLabsClientTools({
       return `Ano, mám je načtená. Vidím u tebe ${names.slice(0, 5).join(", ")}${names.length > 5 ? " a další" : ""}. Kterého se to týká?`;
     }
 
-    return cleanString(result.message || result.fallbackQuestion) || "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.";
+    return cleanString(result.messageForAssistant || result.message || result.fallbackQuestion) ||
+      "Nemám u tebe teď bezpečně ověřené žádné přiřazené vozidlo. Řekni mi prosím SPZ vozidla.";
   }
 
   function cacheDriverReportContext(key, result) {
@@ -455,24 +475,127 @@ export function createElevenLabsClientTools({
         ok: false,
         module: "hlaseni-ridicu",
         status: "failed",
+        userResolved: false,
+        employeeResolved: false,
+        driverResolved: false,
+        vehiclesVerified: false,
+        vehicles: [],
+        vehiclesCount: 0,
+        vehicleLookupMode: "manual_spz_required",
         cached: false,
         sessionCacheKey: sessionKey,
         errorCode: code,
         message,
+        messageForAssistant: message,
         answerText: message,
         apiStatus: error?.payload?.apiStatus || "waiting"
       };
     }
 
-    cacheDriverReportContext(sessionKey, result);
-    const answerText = driverReportContextAnswer(result, false);
+    const vehicles = result.vehiclesVerified === true && Array.isArray(result.vehicles)
+      ? result.vehicles
+      : [];
+    const normalizedResult = {
+      ok: result.ok === true,
+      module: result.module || "hlaseni-ridicu",
+      currentModule: result.currentModule || "hlaseni-ridicu",
+      sessionId: result.sessionId || cleanString(parameters.sessionId || parameters.session_id || parameters.conversationId || parameters.conversation_id),
+      status: result.status || (vehicles.length ? "verified" : "manual_spz_required"),
+      userName: result.userName || result.user?.name || "",
+      userResolved: result.userResolved === true,
+      employeeResolved: result.employeeResolved === true,
+      driverResolved: result.driverResolved === true,
+      vehiclesVerified: result.vehiclesVerified === true && vehicles.length > 0,
+      vehicleLookupMode: result.vehicleLookupMode || (vehicles.length ? "verified_list" : "manual_spz_required"),
+      errorCode: result.errorCode || "",
+      user: result.user || null,
+      driver: result.driver || null,
+      vehicles,
+      vehiclesCount: vehicles.length,
+      permissions: result.permissions || {},
+      fallbackQuestion: result.fallbackQuestion || "",
+      message: result.messageForAssistant || result.message || result.fallbackQuestion || "",
+      messageForAssistant: result.messageForAssistant || result.message || result.fallbackQuestion || "",
+      diagnostics: result.diagnostics || null,
+      apiStatus: result.apiStatus || "ready"
+    };
+    cacheDriverReportContext(sessionKey, normalizedResult);
+    const answerText = driverReportContextAnswer(normalizedResult, false);
 
     return {
-      ...result,
+      ...normalizedResult,
       cached: false,
       sessionCacheKey: sessionKey,
+      intent: "driver_part_request",
+      verified: normalizedResult.vehiclesVerified,
+      requiresConfirmation: false,
+      preparedActions: [],
+      driverPartRequest: null,
+      notificationsSent: false,
       message: answerText,
       answerText
+    };
+  }
+
+  async function validateDriverVehicleSpz(parameters = {}) {
+    const spz = cleanString(parameters.spz || parameters.licensePlate || parameters.plate);
+    const sessionKey = driverReportSessionKey(parameters);
+
+    if (!spz) {
+      return {
+        ok: false,
+        errorCode: "SPZ_REQUIRED",
+        vehiclesVerified: false,
+        existsInFleet: false,
+        assignedToCurrentDriver: false,
+        manualVehicleReview: true,
+        messageForAssistant: "Řekni mi prosím SPZ vozidla."
+      };
+    }
+
+    let validation;
+    try {
+      validation = await readJson("/api/driver-reports/license-plate", { spz });
+    } catch (error) {
+      const message = cleanString(error?.payload?.error || error?.message) || "SPZ se teď nepodařilo ověřit.";
+      return {
+        ok: false,
+        errorCode: cleanString(error?.payload?.code || "SPZ_LOOKUP_FAILED"),
+        vehiclesVerified: false,
+        existsInFleet: false,
+        assignedToCurrentDriver: false,
+        manualVehicleReview: true,
+        messageForAssistant: `${message} Můžu ji zapsat ručně ke kontrole dispečera?`,
+        apiStatus: error?.payload?.apiStatus || "waiting"
+      };
+    }
+
+    const normalized = cleanString(validation.normalized || spz);
+    const normalizedKey = licensePlateCompareKey(normalized);
+    const cachedContext = driverReportContextCache.get(sessionKey);
+    const assignedToCurrentDriver = cachedContext?.vehiclesVerified === true &&
+      Array.isArray(cachedContext.vehicles) &&
+      cachedContext.vehicles.some((vehicle) => licensePlateCompareKey(vehicle.licensePlate) === normalizedKey);
+    const existsInFleet = validation.exact === true;
+    const manualVehicleReview = !existsInFleet || !assignedToCurrentDriver;
+    const messageForAssistant = assignedToCurrentDriver
+      ? `Děkuji. SPZ ${normalized} mám ověřenou u tebe.`
+      : existsInFleet
+        ? "Tuhle SPZ u tebe nemám přiřazenou, ale můžu závadu zapsat k ruční kontrole dispečera. Je to tak správně?"
+        : "Tuhle SPZ v seznamu vozidel nevidím. Můžu ji zapsat ručně ke kontrole dispečera?";
+
+    return {
+      ok: true,
+      spzNormalized: normalized,
+      existsInFleet,
+      assignedToCurrentDriver,
+      vehicleVerified: assignedToCurrentDriver,
+      vehiclesVerified: assignedToCurrentDriver,
+      vehicleId: assignedToCurrentDriver ? cleanString(validation.vehicle?.id || validation.vehicle?.vehicleId) : null,
+      manualVehicleReview,
+      messageForAssistant,
+      validation,
+      apiStatus: validation.apiStatus || "ready"
     };
   }
 
@@ -757,7 +880,7 @@ export function createElevenLabsClientTools({
       }
 
       const vehicles = Array.isArray(contextResult.vehicles) ? contextResult.vehicles : [];
-      if (vehicles.length === 1) {
+      if (contextResult.vehiclesVerified === true && vehicles.length === 1) {
         const vehicle = vehicles[0];
         vehicleId = cleanString(vehicle.vehicleId || vehicle.id);
         vehicleName = cleanString(vehicle.displayName || vehicle.internalName || vehicle.model);
@@ -1062,6 +1185,10 @@ export function createElevenLabsClientTools({
 
     async get_driver_report_context(parameters = {}) {
       return getDriverReportContext(parameters);
+    },
+
+    async validate_driver_vehicle_spz(parameters = {}) {
+      return validateDriverVehicleSpz(parameters);
     },
 
     async search_user(parameters = {}) {

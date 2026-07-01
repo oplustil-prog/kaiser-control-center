@@ -9,6 +9,7 @@ import {
   driverPartRequestNeedsManualVehicleReview,
   driverPartRequestSourceHasManualVehicleReview
 } from "../functions/_lib/driver-part-requests-store.js";
+import { createElevenLabsClientTools } from "../src/elevenLabsClientTools.js";
 
 const radimUser = {
   id: "user-radim",
@@ -104,6 +105,62 @@ const vehicles = [
   assert.equal(driverPartRequestNeedsManualVehicleReview(assignedMatch, "3A4 1234", validation), true);
   assert.equal(driverPartRequestSourceHasManualVehicleReview("voice_manual_vehicle_review"), true);
   assert.equal(driverPartRequestSourceHasManualVehicleReview("voice"), false);
+}
+
+{
+  const tools = createElevenLabsClientTools({
+    requestJson: async () => ({
+      ok: true,
+      module: "hlaseni-ridicu",
+      userName: "Radim",
+      userResolved: true,
+      employeeResolved: true,
+      driverResolved: false,
+      vehiclesVerified: false,
+      vehicles: [
+        { id: "fake", displayName: "Mercedes Sprinter", licensePlate: "5A4 8912" }
+      ],
+      vehiclesCount: 1,
+      vehicleLookupMode: "manual_spz_required",
+      messageForAssistant: "Nemám u tebe teď bezpečně ověřené žádné přiřazené vozidlo. Řekni mi prosím SPZ vozidla.",
+      apiStatus: "ready"
+    })
+  });
+  const result = await tools.get_driver_report_context({ sessionId: "voice-radim" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.vehiclesVerified, false);
+  assert.deepEqual(result.vehicles, []);
+  assert.match(result.answerText, /bezpečně ověřené žádné přiřazené vozidlo/);
+  assert.equal(result.answerText.includes("Mercedes Sprinter"), false);
+  assert.equal(result.answerText.includes("5A4 8912"), false);
+}
+
+{
+  const tools = createElevenLabsClientTools({
+    requestJson: async () => ({
+      ok: true,
+      module: "hlaseni-ridicu",
+      userName: "Radim",
+      userResolved: true,
+      employeeResolved: true,
+      driverResolved: true,
+      vehiclesVerified: true,
+      vehicles: [
+        { id: "vehicle-radim-1", displayName: "Mercedes Actros", licensePlate: "1A1 1111" }
+      ],
+      vehiclesCount: 1,
+      vehicleLookupMode: "verified_list",
+      messageForAssistant: "Vidím u tebe Mercedes Actros. Mám hlášení zapsat k němu?",
+      apiStatus: "ready"
+    })
+  });
+  const result = await tools.get_driver_report_context({ sessionId: "voice-radim-verified" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.vehiclesVerified, true);
+  assert.equal(result.vehicles.length, 1);
+  assert.match(result.answerText, /Mercedes Actros/);
 }
 
 console.log("driver-report-context tests passed");

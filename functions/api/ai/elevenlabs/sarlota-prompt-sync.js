@@ -8,7 +8,7 @@ const SARLOTA_AGENT_NAME_ALIASES = [
 ];
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1/convai";
-const PROMPT_RULE_MARKER = "HLÁŠENÍ ŘIDIČŮ / VOZIDLA";
+const PROMPT_RULE_MARKER = "HLÁŠENÍ ŘIDIČŮ / VOZIDLA / OVĚŘENÁ VOZIDLA ONLY";
 const PROMPT_RULE_BLOCK = [
   "",
   PROMPT_RULE_MARKER,

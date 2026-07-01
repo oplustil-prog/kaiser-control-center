@@ -40,8 +40,12 @@ function shouldOmitDriverReportVehicleContext(request, assistant) {
   }
 
   const url = new URL(request.url);
-  return cleanString(url.searchParams.get("diagnosticMode")) === DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE ||
-    cleanString(url.searchParams.get("omitDriverReportVehicles")) === "true";
+  const includeForExplicitDiagnostic = cleanString(url.searchParams.get("includeDriverReportVehicles")) === "true";
+  if (includeForExplicitDiagnostic) {
+    return false;
+  }
+
+  return true;
 }
 
 function maskAgentId(agentId) {
