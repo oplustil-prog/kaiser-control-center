@@ -11,6 +11,15 @@ on:
         description: "Volitelné ID vozidla v KSO pro auditní vazbu."
         required: false
         type: string
+      vehicle_kind:
+        description: "Typ vozidla. partslink24 pilot je povolený jen pro osobní vozidla."
+        required: true
+        type: choice
+        options:
+          - osobni
+          - nakladni
+          - neznamy
+        default: osobni
       request_id:
         description: "Volitelné ID hlášení řidiče v KSO pro auditní vazbu."
         required: false
@@ -60,7 +69,7 @@ jobs:
           node-version: 22
 
       - name: Install Playwright for confirmed live pilot
-        if: ${{ inputs.dry_run == false && inputs.allow_live_login == true }}
+        if: ${{ inputs.dry_run == false && inputs.allow_live_login == true && inputs.vehicle_kind == 'osobni' }}
         run: |
           npm install --no-save playwright@1.53.0
           npx playwright install chromium
@@ -72,6 +81,7 @@ jobs:
           PARTSLINK24_PASSWORD: ${{ secrets.PARTSLINK24_PASSWORD }}
           PARTSLINK24_TEST_VIN: ${{ inputs.vin }}
           PARTSLINK24_TEST_VEHICLE_ID: ${{ inputs.vehicle_id }}
+          PARTSLINK24_TEST_VEHICLE_KIND: ${{ inputs.vehicle_kind }}
           PARTSLINK24_TEST_REQUEST_ID: ${{ inputs.request_id }}
           PARTSLINK24_PILOT_DRY_RUN: ${{ inputs.dry_run }}
           PARTSLINK24_ALLOW_LIVE_LOGIN: ${{ inputs.allow_live_login }}

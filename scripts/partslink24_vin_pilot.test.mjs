@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
 import {
+  isPassengerVehicleKind,
   maskVin,
+  normalizeVehicleKind,
   parseBoolean,
   redactSensitive,
   runPartslink24VinPilot
@@ -9,6 +11,9 @@ import {
 
 assert.equal(maskVin("WDB12345678901234"), "WDB**********1234");
 assert.equal(maskVin("ABC1234"), "*******");
+assert.equal(normalizeVehicleKind("osobní"), "osobni");
+assert.equal(isPassengerVehicleKind("osobní"), true);
+assert.equal(isPassengerVehicleKind("nákladní"), false);
 assert.equal(parseBoolean("true"), true);
 assert.equal(parseBoolean("0"), false);
 assert.equal(redactSensitive("login admin pass dummy-password VIN WDB12345678901234", [
@@ -23,6 +28,7 @@ assert.equal(redactSensitive("login admin pass dummy-password VIN WDB12345678901
     PARTSLINK24_USERNAME: "admin",
     PARTSLINK24_PASSWORD: "dummy-password",
     PARTSLINK24_TEST_VIN: "WDB12345678901234",
+    PARTSLINK24_TEST_VEHICLE_KIND: "osobni",
     PARTSLINK24_PILOT_DRY_RUN: "true"
   });
   assert.equal(result.ok, true);
@@ -32,6 +38,7 @@ assert.equal(redactSensitive("login admin pass dummy-password VIN WDB12345678901
 
 {
   const result = await runPartslink24VinPilot({}, {
+    PARTSLINK24_TEST_VEHICLE_KIND: "osobni",
     PARTSLINK24_TEST_VIN: "WDB12345678901234"
   });
   assert.equal(result.ok, false);
@@ -42,6 +49,33 @@ assert.equal(redactSensitive("login admin pass dummy-password VIN WDB12345678901
     "PARTSLINK24_USERNAME",
     "PARTSLINK24_PASSWORD"
   ]);
+}
+
+{
+  const result = await runPartslink24VinPilot({}, {
+    PARTSLINK24_COMPANY_ID: "cz-879576",
+    PARTSLINK24_USERNAME: "admin",
+    PARTSLINK24_PASSWORD: "dummy-password",
+    PARTSLINK24_TEST_VIN: "WDB12345678901234",
+    PARTSLINK24_TEST_VEHICLE_KIND: "nakladni",
+    PARTSLINK24_PILOT_DRY_RUN: "true"
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.errorCode, "VEHICLE_KIND_NOT_SUPPORTED");
+}
+
+{
+  const result = await runPartslink24VinPilot({}, {
+    PARTSLINK24_COMPANY_ID: "cz-879576",
+    PARTSLINK24_USERNAME: "admin",
+    PARTSLINK24_PASSWORD: "dummy-password",
+    PARTSLINK24_TEST_VIN: "WDB12345678901234",
+    PARTSLINK24_PILOT_DRY_RUN: "true"
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "blocked");
+  assert.equal(result.errorCode, "VEHICLE_KIND_REQUIRED");
 }
 
 console.log("partslink24 VIN pilot tests passed");

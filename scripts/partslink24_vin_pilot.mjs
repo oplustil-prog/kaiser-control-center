@@ -49,6 +49,14 @@ const VIN_SEARCH_SELECTORS = [
   "input[type='search']"
 ];
 
+const PASSENGER_VEHICLE_KINDS = new Set([
+  "osobni",
+  "oa",
+  "passenger",
+  "passenger_car",
+  "car"
+]);
+
 export function cleanString(value) {
   return String(value ?? "").trim();
 }
@@ -84,6 +92,19 @@ export function redactSensitive(text, values = []) {
     output = output.split(secret).join("[REDACTED]");
   }
   return output;
+}
+
+export function normalizeVehicleKind(value) {
+  return cleanString(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export function isPassengerVehicleKind(value) {
+  return PASSENGER_VEHICLE_KINDS.has(normalizeVehicleKind(value));
 }
 
 function parseArgs(argv = []) {
@@ -124,6 +145,7 @@ function auditBase(config) {
     startUrl: PARTSLINK24_START_URL,
     requestId: config.requestId,
     vehicleId: config.vehicleId,
+    vehicleKind: config.vehicleKind,
     vinMasked: maskVin(config.vin),
     dryRun: config.dryRun,
     liveLoginAllowed: config.allowLiveLogin,
@@ -187,6 +209,7 @@ function configFrom(options = {}, env = process.env) {
     password: cleanString(options.password || args.password || env.PARTSLINK24_PASSWORD),
     vin: cleanString(options.vin || args.vin || env.PARTSLINK24_TEST_VIN),
     vehicleId: cleanString(options.vehicleId || args.vehicleId || env.PARTSLINK24_TEST_VEHICLE_ID),
+    vehicleKind: cleanString(options.vehicleKind || args.vehicleKind || env.PARTSLINK24_TEST_VEHICLE_KIND),
     requestId: cleanString(options.requestId || args.requestId || env.PARTSLINK24_TEST_REQUEST_ID),
     dryRun: parseBoolean(options.dryRun ?? args.dryRun ?? env.PARTSLINK24_PILOT_DRY_RUN, true),
     allowLiveLogin: parseBoolean(options.allowLiveLogin ?? args.allowLiveLogin ?? env.PARTSLINK24_ALLOW_LIVE_LOGIN, false),
@@ -219,6 +242,24 @@ export async function runPartslink24VinPilot(options = {}, env = process.env) {
       status: "configuration_missing",
       errorCode: "VIN_MISSING",
       message: "Chybí VIN pro pilotní vyhledání."
+    });
+  }
+
+  if (!config.vehicleKind) {
+    return finished({
+      ok: false,
+      status: "blocked",
+      errorCode: "VEHICLE_KIND_REQUIRED",
+      message: "partslink24 pilot vyžaduje typ vozidla. Povolená jsou jen osobní vozidla."
+    });
+  }
+
+  if (!isPassengerVehicleKind(config.vehicleKind)) {
+    return finished({
+      ok: false,
+      status: "blocked",
+      errorCode: "VEHICLE_KIND_NOT_SUPPORTED",
+      message: "partslink24 pilot je povolený jen pro osobní vozidla. Nákladní vozidla jsou mimo tento pilot."
     });
   }
 

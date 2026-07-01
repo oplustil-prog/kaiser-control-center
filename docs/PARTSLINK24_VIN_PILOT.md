@@ -4,6 +4,14 @@ Stav: Read-only pilot / AI Boost pilot.
 
 Tento dokument popisuje pilotní ověření vyhledání náhradních dílů podle VIN přes partslink24 pro modul Hlášení řidičů. Nejde o běžné API napojení. partslink24 nemá v projektu dostupné API, proto se pilot ověřuje přes server-side browser automation.
 
+## Rozsah vozidel
+
+Pilot partslink24 je povolený jen pro osobní vozidla.
+
+Nákladní vozidla jsou mimo tento pilot. Pro nákladní auta je potřeba samostatné ověřené řešení, aby KSO nevytvářelo dojem, že partslink24 umí pokrýt i nákladní workflow.
+
+Runner proto vyžaduje typ vozidla. Pokud typ chybí nebo není osobní, vrátí bezpečný stav `blocked` a nespustí přihlášení do partslink24.
+
 ## Co pilot smí dělat
 
 - Přihlásit se do partslink24.
@@ -53,6 +61,7 @@ Výchozí režim je `dry_run=true`, tedy bez přihlášení do partslink24. Skut
 ```text
 dry_run=false
 allow_live_login=true
+vehicle_kind=osobni
 PARTSLINK24_COMPANY_ID/USERNAME/PASSWORD jsou nastavené jako GitHub secrets
 ```
 
@@ -65,6 +74,7 @@ PARTSLINK24_COMPANY_ID=cz-879576 \
 PARTSLINK24_USERNAME=admin \
 PARTSLINK24_PASSWORD=placeholder \
 PARTSLINK24_TEST_VIN=WDB12345678901234 \
+PARTSLINK24_TEST_VEHICLE_KIND=osobni \
 PARTSLINK24_PILOT_DRY_RUN=true \
 node scripts/partslink24_vin_pilot.mjs
 ```
@@ -74,9 +84,11 @@ node scripts/partslink24_vin_pilot.mjs
 Fáze 1 má být až po ověřeném Fáze 0 loginu a vyhledání:
 
 - Frontend v Hlášení řidičů zobrazí sekci `Náhradní díly podle VIN`.
+- Sekce se zobrazí jen pro osobní vozidlo, nebo jasně řekne, že nákladní vozidla jsou mimo partslink24 pilot.
 - Frontend nezná heslo a nevolá partslink24 přímo.
 - Backend endpoint přijme `vehicleId` nebo `requestId`, ověří přihlášení a oprávnění.
 - Backend ověří VIN proti Vozovému parku.
+- Backend ověří, že vozidlo je osobní.
 - Backend založí auditní záznam a spustí server-side runner.
 - Runner vrátí stav `Nalezeno`, `Vyžaduje ruční kontrolu` nebo `Chyba`.
 
