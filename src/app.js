@@ -904,7 +904,7 @@ const dataBoxState = {
   aiBoostMessage: "",
   aiBoostEditingId: "",
   selectedDataBoxId: "kaiser-primary",
-  activeTab: "received",
+  activeTab: "unresolved",
   syncLoading: false,
   syncMessage: "",
   syncError: "",
@@ -14821,7 +14821,7 @@ const DATA_BOX_PAGE_SIZES = [5, 10, 20, 30, 50, 100];
 
 const DATA_BOX_STATUS_OPTIONS = [
   ["all", "Všechny stavy"],
-  ["new", "Nová"],
+  ["new", "Nepřečtená"],
   ["read", "Přečtená"],
   ["unresolved", "Nevyřízená"],
   ["in_progress", "V řešení"],
@@ -15003,6 +15003,23 @@ function dataBoxMessagesForDirection(direction) {
 
 function dataBoxFilteredMessages(direction) {
   return dataBoxMessagesForDirection(direction).filter((message) => dataBoxMessageMatchesFilters(message));
+}
+
+function dataBoxMessagesForView(direction, view = "") {
+  const rows = dataBoxMessagesForDirection(direction);
+  if (view === "unresolved") {
+    return rows.filter((message) => !["done", "archived"].includes(dataBoxWorkflowStatus(message).id));
+  }
+
+  if (view === "archive") {
+    return rows.filter((message) => dataBoxWorkflowStatus(message).id === "archived");
+  }
+
+  return rows;
+}
+
+function dataBoxFilteredMessagesForView(direction, view = "") {
+  return dataBoxMessagesForView(direction, view).filter((message) => dataBoxMessageMatchesFilters(message));
 }
 
 function dataBoxHasActiveMessageFilters() {
@@ -15415,14 +15432,28 @@ function dataBoxHeaderActions(user) {
   `;
 }
 
-function dataBoxTabs() {
-  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
+function dataBoxCanManageRules(user) {
+  return hasPermission(user, DATA_BOX_MODULE_KEY, "manage") || isFullAccessRole(user);
+}
+
+function dataBoxVisibleTabs(user) {
+  return DATA_BOX_TABS.filter((tab) => tab.id !== "rules" || dataBoxCanManageRules(user));
+}
+
+function dataBoxResolvedActiveTab(user) {
+  const visibleTabs = dataBoxVisibleTabs(user);
+  return visibleTabs.some((tab) => tab.id === dataBoxState.activeTab)
     ? dataBoxState.activeTab
-    : "received";
+    : "unresolved";
+}
+
+function dataBoxTabs(user) {
+  const visibleTabs = dataBoxVisibleTabs(user);
+  const activeTab = dataBoxResolvedActiveTab(user);
 
   return `
     <div class="data-box-tabs" role="tablist" aria-label="Menu modulu Datová schránka">
-      ${DATA_BOX_TABS.map((tab) => `
+      ${visibleTabs.map((tab) => `
         <button
           class="data-box-tab ${activeTab === tab.id ? "data-box-tab--active" : ""}"
           type="button"
@@ -15439,9 +15470,14 @@ function dataBoxTabs() {
 }
 
 function dataBoxActivePanel(user) {
-  const activeTab = DATA_BOX_TABS.some((tab) => tab.id === dataBoxState.activeTab)
-    ? dataBoxState.activeTab
-    : "received";
+  const activeTab = dataBoxResolvedActiveTab(user);
+
+  if (activeTab === "unresolved") {
+    return `
+      ${dataBoxMessageInbox("Nevyřízené zprávy", "received", "unresolved")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
 
   if (activeTab === "received") {
     return `
@@ -15453,6 +15489,13 @@ function dataBoxActivePanel(user) {
   if (activeTab === "sent") {
     return `
       ${dataBoxMessageInbox("Odeslané zprávy", "sent")}
+      ${dataBoxMessageDetailPanel()}
+    `;
+  }
+
+  if (activeTab === "archive") {
+    return `
+      ${dataBoxMessageInbox("Archivace", "received", "archive")}
       ${dataBoxMessageDetailPanel()}
     `;
   }
@@ -15471,7 +15514,7 @@ function dataBoxActivePanel(user) {
   }
 
   return `
-    ${dataBoxMessageInbox("Přijaté zprávy", "received")}
+    ${dataBoxMessageInbox("Nevyřízené zprávy", "received", "unresolved")}
     ${dataBoxMessageDetailPanel()}
   `;
 }
@@ -15650,6 +15693,17 @@ function dataBoxMessageHasAttachmentProblem(message) {
     || source.includes("download failed");
 }
 
+function dataBoxTechnicalReadState(message) {
+  const status = dataBoxSearchText(message.readStatus || message.technicalStatus || message.status || "");
+  const readAt = message.readAt || message.openedAt || message.seenAt || "";
+
+  if (readAt || status.includes("precten") || status.includes("read") || status.includes("seen")) {
+    return { id: "read", label: "Přečtená", tone: "info" };
+  }
+
+  return { id: "new", label: "Nepřečtená", tone: "new" };
+}
+
 function dataBoxWorkflowStatus(message) {
   const status = dataBoxSearchText(message.processingStatus || message.workflowStatus || message.status || "");
   const aiStatus = dataBoxSearchText(message.aiStatus || "");
@@ -15678,11 +15732,11 @@ function dataBoxWorkflowStatus(message) {
     return { id: "unresolved", label: "Nevyřízená", tone: "warning" };
   }
 
-  if (message.readAt || message.acceptedAt) {
-    return { id: "read", label: "Přečtená", tone: "info" };
+  if (message.direction === "sent") {
+    return { id: "done", label: "Odeslaná", tone: "done" };
   }
 
-  return { id: "new", label: "Nová", tone: "new" };
+  return { id: "unresolved", label: "Nevyřízená", tone: "warning" };
 }
 
 function dataBoxMessagePriority(message) {
@@ -15885,10 +15939,11 @@ function dataBoxMessageMatchesDateFilter(message) {
 function dataBoxMessageMatchesQuickFilter(message) {
   const quick = dataBoxState.messageFilters.quick || "all";
   const status = dataBoxWorkflowStatus(message);
+  const readState = dataBoxTechnicalReadState(message);
   const deadline = dataBoxDeadlineInfo(message);
 
   if (quick === "new") {
-    return status.id === "new";
+    return readState.id === "new";
   }
 
   if (quick === "unresolved") {
@@ -15925,6 +15980,7 @@ function dataBoxMessageMatchesQuickFilter(message) {
 function dataBoxMessageMatchesFilters(message) {
   const filters = dataBoxState.messageFilters;
   const status = dataBoxWorkflowStatus(message);
+  const readState = dataBoxTechnicalReadState(message);
   const priority = dataBoxMessagePriority(message);
   const type = dataBoxMessageType(message);
   const deadline = dataBoxDeadlineInfo(message);
@@ -15935,7 +15991,15 @@ function dataBoxMessageMatchesFilters(message) {
     return false;
   }
 
-  if (filters.status !== "all" && status.id !== filters.status) {
+  if (filters.status === "new" && readState.id !== "new") {
+    return false;
+  }
+
+  if (filters.status === "read" && readState.id !== "read") {
+    return false;
+  }
+
+  if (!["all", "new", "read"].includes(filters.status) && status.id !== filters.status) {
     return false;
   }
 
@@ -16020,7 +16084,7 @@ function dataBoxInboxMetrics(direction) {
     ?? null;
 
   return {
-    newCount: messages.filter((message) => dataBoxWorkflowStatus(message).id === "new").length,
+    newCount: messages.filter((message) => dataBoxTechnicalReadState(message).id === "new").length,
     unresolved: messages.filter((message) => !["done", "archived"].includes(dataBoxWorkflowStatus(message).id)).length,
     urgent: messages.filter((message) => dataBoxMessagePriority(message).id === "urgent").length,
     deadline3: messages.filter((message) => {
@@ -16395,6 +16459,7 @@ function dataBoxInboxIsEmptyState(notice, allRows) {
 
 function dataBoxMessageCard(message, selected) {
   const status = dataBoxWorkflowStatus(message);
+  const readState = dataBoxTechnicalReadState(message);
   const priority = dataBoxMessagePriority(message);
   const attachmentCount = dataBoxAttachmentCount(message);
   const deliveredAt = formatDateTime(dataBoxMessageTimestamp(message));
@@ -16402,7 +16467,7 @@ function dataBoxMessageCard(message, selected) {
   const actor = actorValue && actorValue !== "-" ? actorValue : "Neznámý odesílatel";
   const subject = String(message.subject || message.title || "").trim() || "Bez předmětu";
   const attachmentLabel = attachmentCount ? `Příloha${attachmentCount > 1 ? ` ${attachmentCount}` : ""}` : "";
-  const unread = status.id === "new";
+  const unread = readState.id === "new";
   const companyBadge = dataBoxCompanyBadgeMarkup(message);
 
   return `
@@ -16421,6 +16486,7 @@ function dataBoxMessageCard(message, selected) {
           <span class="data-box-message-card__subject">${escapeHtml(subject)}</span>
           <span class="data-box-message-card__extras" aria-label="Doplňkové informace">
             ${dataBoxMessageFlagsMarkup(message, { limit: 3 })}
+            ${dataBoxBadge(status.label, status.tone)}
             ${dataBoxPriorityBadge(priority)}
             ${attachmentCount ? `<span class="data-box-message-card__attachment" title="${escapeHtml(attachmentLabel)}" aria-label="${escapeHtml(attachmentLabel)}">Příloha</span>` : ""}
             ${companyBadge}
@@ -16494,8 +16560,10 @@ function dataBoxReadingPane(message, direction) {
         ${dataBoxMessageFlagsMarkup(message, { limit: 6, detailed: true })}
         ${dataBoxPriorityBadge(priority)}
         ${dataBoxBadge(status.label, status.tone)}
+        ${dataBoxBadge(readState.label, readState.tone)}
         ${deadline.date ? dataBoxBadge(deadline.label, deadline.tone) : ""}
       </div>
+      ${dataBoxAiBoostRecommendationSection(message)}
       ${dataBoxAttachmentsSection(message)}
       <section class="data-box-reading-section data-box-reading-section--content">
         <h4>Obsah / náhled</h4>
@@ -16598,6 +16666,33 @@ function dataBoxAiBoostStatusLabel(action = {}) {
     skipped: "Přeskočeno"
   };
   return labels[String(action.status || "").toLowerCase()] || action.status || "Koncept";
+}
+
+function dataBoxAiBoostRecommendationSection(message) {
+  const action = dataBoxPrimaryAiBoostAction(message);
+  if (!action) {
+    return "";
+  }
+
+  const reason = String(action.bodyPreview || action.result?.reason || action.result?.summary || "").trim();
+  const recipient = String(action.recipient || action.result?.recipient || "").trim();
+  const confidence = Number(action.result?.confidence || 0);
+  const confidenceText = confidence ? ` · jistota ${Math.round(confidence * 100)} %` : "";
+
+  return `
+    <section class="data-box-reading-section data-box-reading-section--ai-boost">
+      <h4>AI Boost doporučuje</h4>
+      <p>
+        <strong>${escapeHtml(dataBoxAiBoostActionLabel(action))}</strong>
+        ${recipient ? ` · ${escapeHtml(recipient)}` : ""}
+        ${escapeHtml(confidenceText)}
+      </p>
+      ${reason ? `<p>${escapeHtml(reason)}</p>` : ""}
+      <div class="data-box-reading-pane__badges">
+        ${dataBoxAiBoostWorkTags(action).map((tag) => dataBoxBadge(tag.label, tag.tone)).join("")}
+      </div>
+    </section>
+  `;
 }
 
 function dataBoxAiBoostWorkTags(action = {}) {
@@ -16954,13 +17049,13 @@ function dataBoxAiBoostPanel(user) {
   `;
 }
 
-function dataBoxMessageInbox(title, direction) {
+function dataBoxMessageInbox(title, direction, view = "") {
   const statusClass = dataBoxState.apiStatus === "ready" ? "employee-card-status--ready" : "employee-card-status--waiting";
   const statusLabel = dataBoxState.apiStatus === "ready" ? "Načteno" : (dataBoxState.loading ? "Načítám" : "Nenastaveno");
   const selectedAccount = dataBoxSelectedAccount();
   const sectionTitle = selectedAccount ? `${title}: ${selectedAccount.label}` : title;
-  const allRows = dataBoxMessagesForDirection(direction);
-  const rows = dataBoxFilteredMessages(direction);
+  const allRows = dataBoxMessagesForView(direction, view);
+  const rows = dataBoxFilteredMessagesForView(direction, view);
   const pagination = dataBoxPaginationForRows(rows);
   const visibleRows = pagination.visibleRows;
   const activeMessageId = String(dataBoxState.selectedPreviewMessageId || dataBoxState.selectedMessageId || "");
@@ -17674,6 +17769,7 @@ function dataBoxMessageDetailOverlayMarkup() {
     const actorValue = dataBoxMessageActor(message);
     const deadline = dataBoxDeadlineInfo(message);
     const workflow = dataBoxWorkflowStatus(message);
+    const readState = dataBoxTechnicalReadState(message);
     const priority = dataBoxMessagePriority(message);
     const messageType = dataBoxMessageType(message);
     const mailboxLabel = dataBoxDisplayName(message.dataBoxId, message.dataBoxLabel);
@@ -17686,11 +17782,12 @@ function dataBoxMessageDetailOverlayMarkup() {
           <strong>${escapeHtml(actorValue || "neuvedeno")}</strong>
           <h3>${escapeHtml(message.subject || "(bez předmětu)")}</h3>
           <p class="data-box-detail-summary__context">Schránka: <strong>${escapeHtml(mailboxLabel)}</strong></p>
-          <p>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "bez data")} · ${escapeHtml(priority.label)} · ${escapeHtml(workflow.label)}</p>
+          <p>${escapeHtml(formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt) || "bez data")} · ${escapeHtml(priority.label)} · ${escapeHtml(workflow.label)} · ${escapeHtml(readState.label)}</p>
           ${dataBoxMessageFlagsMarkup(message, { limit: 6, detailed: true })}
         </section>
         ${dataBoxMessageSafeActions(message)}
         ${dataBoxActionFeedbackMarkup()}
+        ${dataBoxAiBoostRecommendationSection(message)}
         ${dataBoxAttachmentsSection(message)}
         <div class="data-box-detail-subject">
           <span>Obsah / náhled</span>
@@ -17703,6 +17800,7 @@ function dataBoxMessageDetailOverlayMarkup() {
             ${dataBoxDetailField("Schránka", mailboxLabel)}
             ${dataBoxDetailField(actorLabel, actorValue)}
             ${dataBoxDetailField("Stav", workflow.label)}
+            ${dataBoxDetailField("Přečtení", readState.label)}
             ${dataBoxDetailField("Priorita", priority.label)}
             ${dataBoxDetailField("Typ zprávy", messageType.label)}
             ${dataBoxDetailField("Doručeno", formatDateTime(message.deliveredAt || message.acceptedAt || message.storedAt))}
@@ -17899,7 +17997,7 @@ function dataBoxPage(moduleItem, user) {
       </section>
 
       ${dataBoxAccountsSwitcher()}
-      ${dataBoxTabs()}
+      ${dataBoxTabs(user)}
       ${dataBoxActivePanel(user)}
       ${feedbackBox}
     </main>
@@ -20781,7 +20879,7 @@ function resetDataBoxState() {
   dataBoxState.aiBoostError = "";
   dataBoxState.aiBoostMessage = "";
   dataBoxState.selectedDataBoxId = DATA_BOX_DEFAULT_ACCOUNT_ID;
-  dataBoxState.activeTab = "received";
+  dataBoxState.activeTab = "unresolved";
   dataBoxState.syncLoading = false;
   dataBoxState.syncMessage = "";
   dataBoxState.syncError = "";
@@ -21444,7 +21542,7 @@ function openDataBoxAiBoostMessage(messageId) {
   if (message?.dataBoxId) {
     dataBoxState.selectedDataBoxId = message.dataBoxId;
   }
-  dataBoxState.activeTab = "received";
+  dataBoxState.activeTab = "unresolved";
   void loadDataBoxMessageDetail(id);
 }
 
@@ -27398,7 +27496,7 @@ document.addEventListener("click", async (event) => {
       quick: dataBoxQuickFilter.dataset.dataBoxQuickFilter || "all"
     };
     resetDataBoxPagination();
-    dataBoxState.activeTab = "received";
+    dataBoxState.activeTab = "unresolved";
     dataBoxState.selectedPreviewMessageId = "";
     dataBoxState.selectedMessageId = "";
     dataBoxState.selectedMessage = null;
@@ -27567,7 +27665,7 @@ document.addEventListener("click", async (event) => {
 
   const dataBoxTab = event.target.closest("[data-data-box-tab]");
   if (dataBoxTab) {
-    dataBoxState.activeTab = dataBoxTab.dataset.dataBoxTab || "received";
+    dataBoxState.activeTab = dataBoxTab.dataset.dataBoxTab || "unresolved";
     resetDataBoxPagination();
     dataBoxState.selectedMessageId = "";
     dataBoxState.selectedMessage = null;

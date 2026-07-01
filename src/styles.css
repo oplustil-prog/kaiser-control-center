@@ -9614,6 +9614,15 @@ body:has(.data-box-page) {
   background: var(--data-box-panel);
 }
 
+.data-box-reading-section--ai-boost {
+  border-color: color-mix(in srgb, var(--data-box-primary) 24%, var(--data-box-border));
+  background: color-mix(in srgb, var(--data-box-primary) 7%, var(--data-box-panel));
+}
+
+.data-box-reading-section--ai-boost strong {
+  color: var(--data-box-text);
+}
+
 .data-box-reading-section--tasks {
   border-color: color-mix(in srgb, var(--data-box-primary) 24%, var(--data-box-border));
   background: color-mix(in srgb, var(--data-box-primary) 8%, var(--data-box-panel));
