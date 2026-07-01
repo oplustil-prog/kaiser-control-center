@@ -17164,11 +17164,9 @@ function dataBoxAiBoostPanel(user) {
           <p>AI Boost pomáhá poznat typ datové zprávy a navrhnout další krok. Sám nic nemaže, neposílá ani neodesílá bez potvrzení.</p>
         </div>
         <div class="data-box-ai-boost-hero__actions" aria-label="Hlavní akce AI Boostu">
-          <a class="primary-action" href="#data-box-ai-create">Vytvořit pravidlo</a>
           <button class="primary-action" type="button" data-data-box-ai-run ${!canManage || dataBoxState.aiBoostLoading ? "disabled" : ""}>
             ${escapeHtml(dataBoxState.aiBoostLoading ? "Kontroluji..." : "Zkontrolovat zprávy")}
           </button>
-          <a class="secondary-link" href="#data-box-ai-rules">Moje pravidla</a>
         </div>
       </div>
       <p class="data-box-ai-boost-safe-line">Princip: když zpráva obsahuje X → AI Boost navrhne Y → nic se nemaže ani neposílá bez potvrzení.</p>
