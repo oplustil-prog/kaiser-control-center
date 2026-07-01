@@ -4360,6 +4360,7 @@ function loginPage() {
 }
 
 function homePage(user) {
+  ensureDataBoxData();
   const modulesForUser = hasPermission(user, "absence", "create")
     ? [quickAbsenceMenuItem, ...menuModules(user)]
     : menuModules(user);
@@ -4372,6 +4373,7 @@ function homePage(user) {
             <span class="module-icon">${renderModuleIcon(moduleItem)}</span>
             ${statusBadge(moduleItem)}
           </span>
+          ${moduleItem.id === DATA_BOX_MODULE_KEY ? dataBoxUnreadCornerBadge(dataBoxTotalUnreadCount(), "Nové datové zprávy") : ""}
           <span class="module-card__content">
             <span class="module-card__header">
               <span class="module-card__title">${moduleItem.title}</span>
@@ -15199,6 +15201,45 @@ function dataBoxFilteredSyncRuns() {
   return dataBoxState.syncRuns.filter((run) => !selectedAccount || run.dataBoxId === selectedAccount.id);
 }
 
+function dataBoxMessageIsTrash(message) {
+  const source = dataBoxSearchText([
+    message.processingStatus,
+    message.workflowStatus,
+    message.status,
+    message.folder,
+    message.category,
+    message.isdsState
+  ].filter(Boolean).join(" "));
+
+  return source.includes("kos")
+    || source.includes("trash")
+    || source.includes("deleted")
+    || source.includes("smaz")
+    || source.includes("odstran");
+}
+
+function dataBoxTotalUnreadCount() {
+  return dataBoxState.messages.filter((message) => (
+    message.direction === "received"
+    && dataBoxTechnicalReadState(message).id === "new"
+    && dataBoxWorkflowStatus(message).id !== "archived"
+    && !dataBoxMessageIsTrash(message)
+  )).length;
+}
+
+function dataBoxUnreadCornerBadge(count, label = "Nové zprávy") {
+  const value = Number(count) || 0;
+  if (value <= 0) {
+    return "";
+  }
+
+  return `
+    <span class="data-box-unread-corner-badge" title="${escapeHtml(label)}" aria-label="${escapeHtml(`${label}: ${value}`)}">
+      ${escapeHtml(value > 99 ? "99+" : String(value))}
+    </span>
+  `;
+}
+
 function dataBoxRunStatusLabel(status) {
   const labels = {
     success: "sync OK",
@@ -15215,6 +15256,14 @@ function dataBoxAccountStats(account, accountStatusMap = dataBoxAccountStatusMap
   const status = accountStatusMap.get(account.id);
   const received = messages.filter((message) => message.direction === "received").length;
   const sent = messages.filter((message) => message.direction === "sent").length;
+  const archive = messages.filter((message) => message.direction === "received" && dataBoxWorkflowStatus(message).id === "archived").length;
+  const trash = messages.filter((message) => message.direction === "received" && dataBoxMessageIsTrash(message)).length;
+  const unread = messages.filter((message) => (
+    message.direction === "received"
+    && dataBoxTechnicalReadState(message).id === "new"
+    && dataBoxWorkflowStatus(message).id !== "archived"
+    && !dataBoxMessageIsTrash(message)
+  )).length;
   const configured = Boolean(status?.configured || messages.length || runs.length);
 
   return {
@@ -15222,6 +15271,9 @@ function dataBoxAccountStats(account, accountStatusMap = dataBoxAccountStatusMap
     lastRun,
     received,
     sent,
+    archive,
+    trash,
+    unread,
     statusLabel: lastRun ? dataBoxRunStatusLabel(lastRun.status) : (configured ? "čeká na sync" : "nenastaveno")
   };
 }
@@ -15238,7 +15290,7 @@ function dataBoxAccountConnectionClass(stats) {
 }
 
 function dataBoxAccountSummary(stats) {
-  return `${stats.received} přijatých · ${stats.sent} odeslaných`;
+  return `${stats.received} přijatých · ${stats.sent} odeslaných · Archiv ${stats.archive || 0} · Koš ${stats.trash || 0}`;
 }
 
 function dataBoxAccountButton(account, stats, active = false) {
@@ -15255,6 +15307,7 @@ function dataBoxAccountButton(account, stats, active = false) {
         <strong>${escapeHtml(account.label)}</strong>
         <small>${escapeHtml(dataBoxAccountSummary(stats))}</small>
       </span>
+      ${dataBoxUnreadCornerBadge(stats.unread, `Nové zprávy: ${account.label}`)}
       <span class="data-box-account-card__status ${dataBoxAccountStatusClass(stats)}">
         ${escapeHtml(stats.statusLabel)}
       </span>
