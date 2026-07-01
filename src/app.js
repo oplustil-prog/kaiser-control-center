@@ -17190,7 +17190,7 @@ function dataBoxAiBoostPanel(user) {
           ${rules.length ? rules.map(dataBoxAiBoostRulePreviewMarkup).join("") : `
             <div class="data-box-ai-boost-empty">
               <strong>Zatím tu není žádné pravidlo.</strong>
-              <span>Začni tlačítkem Vytvořit pravidlo.</span>
+              <span>Pravidlo můžeš připravit níže v jednoduchém průvodci.</span>
             </div>
           `}
         </div>
