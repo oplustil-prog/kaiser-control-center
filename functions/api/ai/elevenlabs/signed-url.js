@@ -23,6 +23,7 @@ const ASSISTANTS = {
     agentEnvKeys: ["ELEVENLABS_AGENT_ID_MAREK", "VITE_ELEVENLABS_AGENT_ID_MAREK"]
   }
 };
+const DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE = "identity_no_driver_vehicles";
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -31,6 +32,16 @@ function cleanString(value) {
 function isDebugRequest(request) {
   const url = new URL(request.url);
   return cleanString(url.searchParams.get("debug")) === "codex";
+}
+
+function shouldOmitDriverReportVehicleContext(request, assistant) {
+  if (assistant.id !== "sarlota") {
+    return false;
+  }
+
+  const url = new URL(request.url);
+  return cleanString(url.searchParams.get("diagnosticMode")) === DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE ||
+    cleanString(url.searchParams.get("omitDriverReportVehicles")) === "true";
 }
 
 function maskAgentId(agentId) {
@@ -176,6 +187,7 @@ async function signedUrlPayload({ request, env, user, assistant, debug }) {
   const apiKey = cleanString(env.ELEVENLABS_API_KEY);
   const agentId = agentIdFor(env, assistant);
   const contextWarnings = [];
+  const omitDriverReportVehicleContext = shouldOmitDriverReportVehicleContext(request, assistant);
   const userDynamicVariables = userDynamicVariablesForAi(user);
   const introAnnouncement = await optionalContext(
     "intro_announcement",
@@ -189,7 +201,7 @@ async function signedUrlPayload({ request, env, user, assistant, debug }) {
     fallbackHumanTouchVariables,
     contextWarnings
   );
-  const driverReportVehicleVariables = assistant.id === "sarlota"
+  const driverReportVehicleVariables = assistant.id === "sarlota" && !omitDriverReportVehicleContext
     ? await optionalContext(
       "driver_report_vehicle",
       () => driverReportVehicleDynamicVariables(env, user),
@@ -197,6 +209,9 @@ async function signedUrlPayload({ request, env, user, assistant, debug }) {
       contextWarnings
     )
     : {};
+  if (omitDriverReportVehicleContext) {
+    contextWarnings.push("driver_report_vehicle_omitted_for_diagnostic");
+  }
   const dynamicVariables = {
     ...userDynamicVariables,
     ...introAnnouncement.variables,
@@ -268,13 +283,17 @@ async function signedUrlPayload({ request, env, user, assistant, debug }) {
       assistantName: assistant.name,
       actionType: "session",
       toolName: "elevenlabs_signed_url",
-      input: { assistantId: assistant.id },
+      input: {
+        assistantId: assistant.id,
+        diagnosticMode: omitDriverReportVehicleContext ? DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE : ""
+      },
       result: {
         configured: true,
         userRole: cleanString(dynamicVariables.user_role),
         availableModulesLength: cleanString(dynamicVariables.available_modules).length,
         humanTouchEnabled: dynamicVariables.human_touch_enabled,
         humanTouchType: dynamicVariables.human_touch_type,
+        driverReportVehicleContextOmitted: omitDriverReportVehicleContext,
         contextWarnings
       },
       status: "ok"
@@ -287,6 +306,10 @@ async function signedUrlPayload({ request, env, user, assistant, debug }) {
       assistantId: assistant.id,
       assistantName: assistant.name,
       dynamicVariables,
+      diagnostics: {
+        diagnosticMode: omitDriverReportVehicleContext ? DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE : "",
+        driverReportVehicleContextOmitted: omitDriverReportVehicleContext
+      },
       configured: true,
       apiStatus: "ready"
     });

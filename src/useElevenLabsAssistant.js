@@ -14,14 +14,18 @@ const VOICE_OUTPUT_GAIN = 5;
 const VOICE_OUTPUT_LIMIT = 0.995;
 const VOICE_INPUT_LEVEL_INTERVAL_MS = 250;
 const VOICE_INPUT_SPEAKING_LEVEL = 0.035;
+const DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE = "identity_no_driver_vehicles";
 
 function cleanApiBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function signedUrlEndpoint(apiBaseUrl, assistantId) {
+function signedUrlEndpoint(apiBaseUrl, assistantId, options = {}) {
   const base = cleanApiBaseUrl(apiBaseUrl);
   const query = new URLSearchParams({ assistant: assistantId || DEFAULT_AI_ASSISTANT_ID });
+  if (options.omitDriverReportVehicleContext === true) {
+    query.set("diagnosticMode", DRIVER_REPORT_NO_VEHICLE_DIAGNOSTIC_MODE);
+  }
   return `${base}/api/ai/elevenlabs/signed-url?${query.toString()}`;
 }
 
@@ -376,7 +380,8 @@ function createVoiceAudioPlayer() {
 export function useElevenLabsAssistant({
   apiBaseUrl = "",
   clientTools = {},
-  fetchJson = null
+  fetchJson = null,
+  signedUrlOptions = null
 } = {}) {
   let activeTextSession = null;
   let activeVoiceSession = null;
@@ -406,10 +411,20 @@ export function useElevenLabsAssistant({
     return payload;
   }
 
-  async function prepareSignedUrl(assistantId = DEFAULT_AI_ASSISTANT_ID) {
+  function signedUrlOptionsFor(assistantId, sessionContext = {}) {
+    const resolvedOptions = typeof signedUrlOptions === "function"
+      ? signedUrlOptions(assistantId, sessionContext)
+      : signedUrlOptions;
+
+    return resolvedOptions && typeof resolvedOptions === "object" && !Array.isArray(resolvedOptions)
+      ? resolvedOptions
+      : {};
+  }
+
+  async function prepareSignedUrl(assistantId = DEFAULT_AI_ASSISTANT_ID, sessionContext = {}) {
     const assistant = assistantById(assistantId);
     const loadJson = fetchJson || defaultFetchJson;
-    return loadJson(signedUrlEndpoint(apiBaseUrl, assistant.id));
+    return loadJson(signedUrlEndpoint(apiBaseUrl, assistant.id, signedUrlOptionsFor(assistant.id, sessionContext)));
   }
 
   function closeTextSession(reason = "reset") {
@@ -503,7 +518,7 @@ export function useElevenLabsAssistant({
 
     closeTextSession("new-text-session");
 
-    const signedUrlSession = await prepareSignedUrl(assistant.id);
+    const signedUrlSession = await prepareSignedUrl(assistant.id, { interfaceMode: "text" });
     const signedUrl = String(signedUrlSession?.signedUrl || "").trim();
 
     if (!signedUrl) {
@@ -744,7 +759,7 @@ export function useElevenLabsAssistant({
 
     let signedUrlSession = null;
     try {
-      signedUrlSession = await prepareSignedUrl(assistant.id);
+      signedUrlSession = await prepareSignedUrl(assistant.id, { interfaceMode: "voice" });
     } catch (error) {
       stopMediaStreamTracks(mediaStream);
       throw error;
@@ -1198,7 +1213,7 @@ export function useElevenLabsAssistant({
     voiceAudioPlayer.stop();
     await unlockVoiceAudio();
 
-    const signedUrlSession = await prepareSignedUrl(assistant.id);
+    const signedUrlSession = await prepareSignedUrl(assistant.id, { interfaceMode: "voice" });
     const signedUrl = String(signedUrlSession?.signedUrl || "").trim();
 
     if (!signedUrl) {

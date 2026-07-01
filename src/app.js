@@ -660,6 +660,9 @@ const sarlotaStatusState = {
   syncMessage: "",
   syncError: ""
 };
+const sarlotaVoiceDiagnosticsState = {
+  omitDriverReportVehicleContext: false
+};
 const sarlotaPanelStatusState = {
   loaded: false,
   loading: false,
@@ -1059,6 +1062,11 @@ const speechRecognition = useSpeechRecognition({
 });
 
 const elevenLabsAssistant = ElevenLabsAssistantProvider({
+  signedUrlOptions: (assistantId, sessionContext = {}) => ({
+    omitDriverReportVehicleContext: assistantId === "sarlota" &&
+      sessionContext.interfaceMode === "voice" &&
+      sarlotaVoiceDiagnosticsState.omitDriverReportVehicleContext
+  }),
   tools: {
     navigate: (route) => navigateFromAiAssistant(route),
     canUseRoute: (route) => canUseAiRoute(route),
@@ -4545,7 +4553,8 @@ function settingsManagementSection(user) {
       error: sarlotaStatusState.error,
       syncing: sarlotaStatusState.syncing,
       syncMessage: sarlotaStatusState.syncMessage,
-      syncError: sarlotaStatusState.syncError
+      syncError: sarlotaStatusState.syncError,
+      voiceDiagnostics: sarlotaVoiceDiagnosticsState
     })}
     ${AppearanceSettingsBox({
       draftSettings: themeState.draft,
@@ -23355,6 +23364,19 @@ async function diagnosticSarlotaToolsIdentityOnly() {
   }
 }
 
+function toggleSarlotaVoiceVehicleContextDiagnostic() {
+  if (!authState.user || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  sarlotaVoiceDiagnosticsState.omitDriverReportVehicleContext = !sarlotaVoiceDiagnosticsState.omitDriverReportVehicleContext;
+  sarlotaStatusState.syncError = "";
+  sarlotaStatusState.syncMessage = sarlotaVoiceDiagnosticsState.omitDriverReportVehicleContext
+    ? "Diagnostika hlasu zapnutá: další nová hlasová session Šarloty bude bez vozidlových dynamic variables. Zastav a spusť nový hovor."
+    : "Diagnostika hlasu vypnutá: další nová hlasová session Šarloty znovu pošle standardní vozidlové dynamic variables.";
+  render();
+}
+
 function sarlotaPromptSyncConfirmText(plan = {}) {
   return [
     "Doplnit pravidlo Hlášení řidičů do ElevenLabs promptu Šarloty?",
@@ -27258,6 +27280,13 @@ document.addEventListener("click", async (event) => {
   if (sarlotaToolsDiagnostic) {
     event.preventDefault();
     await diagnosticSarlotaToolsIdentityOnly();
+    return;
+  }
+
+  const sarlotaVehicleContextDiagnostic = event.target.closest("[data-sarlota-vehicle-context-diagnostic]");
+  if (sarlotaVehicleContextDiagnostic) {
+    event.preventDefault();
+    toggleSarlotaVoiceVehicleContextDiagnostic();
     return;
   }
 

@@ -4,12 +4,14 @@ import { useElevenLabsAssistant } from "./useElevenLabsAssistant.js";
 
 export function ElevenLabsAssistantProvider({
   apiBaseUrl = "",
-  tools = {}
+  tools = {},
+  signedUrlOptions = null
 } = {}) {
   const clientTools = createElevenLabsClientTools(tools);
   const assistant = useElevenLabsAssistant({
     apiBaseUrl,
-    clientTools
+    clientTools,
+    signedUrlOptions
   });
 
   return {

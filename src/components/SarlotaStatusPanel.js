@@ -274,9 +274,11 @@ export function SarlotaStatusPanel({
   error = "",
   syncing = false,
   syncMessage = "",
-  syncError = ""
+  syncError = "",
+  voiceDiagnostics = {}
 } = {}) {
   const data = status || {};
+  const omitDriverReportVehicleContext = voiceDiagnostics.omitDriverReportVehicleContext === true;
   const generatedAt = data.generatedAt ? new Date(data.generatedAt).toLocaleString("cs-CZ") : "neověřeno";
   const elevenLabsDetail = data.elevenLabs
     ? (data.elevenLabs.upstreamVerified
@@ -302,6 +304,13 @@ export function SarlotaStatusPanel({
     statusRow("Knowledge Base", data.knowledgeBase?.status || "unverified", knowledgeBaseDetail(data.knowledgeBase)),
     statusRow("Kontext vozidel", data.driverReportVehicleContext?.status ? "ok" : "unverified", vehicleContextDetail(data.driverReportVehicleContext)),
     statusRow(
+      "Hlasový test bez vozidel",
+      omitDriverReportVehicleContext ? "configured" : "ok",
+      omitDriverReportVehicleContext
+        ? "zapnuto pro další novou hlasovou session, driver_report_vehicle_* se nepošle"
+        : "vypnuto, hlas dostává standardní signed-url dynamic variables"
+    ),
+    statusRow(
       "Signed-url endpoint",
       data.signedUrlEndpoint?.status || "unverified",
       data.signedUrlEndpoint?.exists ? "/api/ai/elevenlabs/signed-url?assistant=sarlota" : "neověřeno"
@@ -325,6 +334,9 @@ export function SarlotaStatusPanel({
           <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-tools-diagnostic ${loading || syncing ? "disabled" : ""}>
             Diagnostika: odpojit tools
           </button>
+          <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-vehicle-context-diagnostic ${loading || syncing ? "disabled" : ""}>
+            ${omitDriverReportVehicleContext ? "Vypnout test bez vozidel" : "Test: bez vozidel v hlasu"}
+          </button>
           <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-prompt-sync ${loading || syncing ? "disabled" : ""}>
             Doplnit prompt
           </button>
@@ -338,7 +350,7 @@ export function SarlotaStatusPanel({
       </dl>
       ${diagnosticDetails(data)}
       <p class="sarlota-status__meta">
-        Aktualizováno: ${escapeHtml(generatedAt)}. Tools a prompt se synchronizují odděleně; first message a model se nemění.
+        Aktualizováno: ${escapeHtml(generatedAt)}. Tools a prompt se synchronizují odděleně; first message a model se nemění. Hlasový test bez vozidel je jen v této otevřené stránce.
       </p>
     </section>
   `;
