@@ -14,6 +14,15 @@ const LLM_MODEL_EXPECTED_IN_ELEVENLABS = "Qwen3.5-397B-A17B";
 const LLM_MODEL_EXPECTED_NORMALIZED = "qwen35397ba17b";
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
 const DRIVER_REPORT_PROMPT_MARKER = "HLÁŠENÍ ŘIDIČŮ / VOZIDLA";
+const DRIVER_REPORT_PROMPT_REQUIRED_PHRASE = "V hlasovém flow nikdy neříkej konkrétní vozidlo";
+const FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES = [
+  "Moment, načtu si " + "vozidla",
+  "Vozidla smíš " + "vyjmenovat",
+  "Mám u tebe ověřené " + "tyto vozy",
+  "Vyjmenuj " + "možnosti",
+  "SPZ chtěj až jako " + "poslední možnost",
+  "typ, značku nebo " + "interní název"
+];
 const SARLOTA_ASSISTANT = {
   id: "sarlota",
   name: "Šarlota",
@@ -218,10 +227,17 @@ function promptFromAgent(agentConfig) {
 
 function driverReportPromptRuleMatches(agentConfig) {
   const prompt = promptFromAgent(agentConfig);
-  return Boolean(prompt && (
-    prompt.includes(DRIVER_REPORT_PROMPT_MARKER) ||
-    prompt.includes(SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE)
-  ));
+  return Boolean(
+    prompt &&
+    prompt.includes(DRIVER_REPORT_PROMPT_MARKER) &&
+    prompt.includes(SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE) &&
+    prompt.includes(DRIVER_REPORT_PROMPT_REQUIRED_PHRASE)
+  );
+}
+
+function driverReportPromptForbiddenPhrases(agentConfig) {
+  const prompt = promptFromAgent(agentConfig).toLowerCase();
+  return FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES.filter((phrase) => prompt.includes(phrase.toLowerCase()));
 }
 
 function collectToolName(tool, names) {
@@ -456,6 +472,7 @@ async function readElevenLabsAgentConfig({ apiKey, agentId }) {
     const firstMessage = firstMessageFromAgent(agentConfig);
     const firstMessageMatches = cleanString(firstMessage) === FIRST_MESSAGE_TEMPLATE;
     const driverReportPromptRulePresent = driverReportPromptRuleMatches(agentConfig);
+    const driverReportPromptForbidden = driverReportPromptForbiddenPhrases(agentConfig);
     const configuredToolNames = toolNamesFromAgent(agentConfig);
     const configuredToolEntries = collectToolEntriesFromAgent(agentConfig);
     const knowledgeEntries = collectKnowledgeEntriesFromAgent(agentConfig);
@@ -469,6 +486,7 @@ async function readElevenLabsAgentConfig({ apiKey, agentId }) {
       modelMatches,
       firstMessageMatches,
       driverReportPromptRulePresent,
+      driverReportPromptForbidden,
       configuredToolNames,
       configuredToolEntries,
       knowledgeEntries,
@@ -551,8 +569,8 @@ function fallbackDriverReportVehicleVariables() {
     driver_report_vehicle_type: "",
     driver_report_vehicle_options_count: "0",
     driver_report_vehicle_options: "",
-    driver_report_vehicle_selection_question: "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?",
-    driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě přiřazené. Neříkej, že máš vozidla načtená, a požádej o SPZ pro ruční ověření."
+    driver_report_vehicle_selection_question: "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.",
+    driver_report_vehicle_context: "V Hlášení řidičů neříkej nahlas konkrétní vozidla. Otevři výběr v aplikaci, nebo požádej o SPZ."
   };
 }
 
@@ -655,7 +673,7 @@ export async function sarlotaStatusPayload(env, user) {
     ? (elevenLabsAgentConfig.modelMatches ? "ok" : "error")
     : (liveAgentError ? "error" : "unverified");
   const driverReportPromptStatus = liveAgentVerified
-    ? (elevenLabsAgentConfig.driverReportPromptRulePresent ? "ok" : "error")
+    ? (elevenLabsAgentConfig.driverReportPromptRulePresent && !elevenLabsAgentConfig.driverReportPromptForbidden?.length ? "ok" : "error")
     : (liveAgentError ? "error" : "unverified");
 
   return {
@@ -714,6 +732,7 @@ export async function sarlotaStatusPayload(env, user) {
     driverReportPrompt: {
       status: driverReportPromptStatus,
       rulePresent: liveAgentVerified ? elevenLabsAgentConfig.driverReportPromptRulePresent : null,
+      forbiddenPhrasesPresent: liveAgentVerified ? (elevenLabsAgentConfig.driverReportPromptForbidden || []) : [],
       promptTextReturned: false,
       syncEndpoint: "/api/ai/elevenlabs/sarlota-prompt-sync"
     },

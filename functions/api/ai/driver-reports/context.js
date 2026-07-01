@@ -2,7 +2,6 @@ import { currentUser, getUsers, json, normalizeIdentifier } from "../../../_lib/
 import { canCreateDriverPartRequest } from "../../../_lib/driver-part-requests-store.js";
 import { listEmployeeCards } from "../../../_lib/employees-store.js";
 import {
-  fleetVehicleSelectionQuestion,
   fleetVehicleVoiceLabel,
   resolveFleetVehiclesForDriver
 } from "../../../_lib/fleet-vehicles-store.js";
@@ -10,8 +9,10 @@ import { hasPermission } from "../../../../src/permissions.js";
 
 const MODULE_ID = "hlaseni-ridicu";
 const MODULE_KEY = "driver-reports";
-const NO_VERIFIED_VEHICLE_QUESTION = "Nemám u tebe teď bezpečně ověřené žádné přiřazené vozidlo. Řekni mi prosím SPZ vozidla.";
-const LOAD_FAILED_QUESTION = "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím SPZ vozidla.";
+const VEHICLE_PICKER_MESSAGE = "Otevřu ti výběr vozidla v aplikaci.";
+const VEHICLE_PICKER_OR_SPZ_QUESTION = "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
+const NO_VERIFIED_VEHICLE_QUESTION = "Vozidlo se mi teď nepodařilo bezpečně ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
+const LOAD_FAILED_QUESTION = "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -104,20 +105,6 @@ function vehicleContextItems(match = {}) {
   return vehicles.map((vehicle, index) => vehicleContextItem(vehicle, labels[index]));
 }
 
-function responseMessage(vehicles = [], fallbackQuestion = NO_VERIFIED_VEHICLE_QUESTION) {
-  if (vehicles.length === 1) {
-    return `Vidím u tebe ${vehicles[0].displayName}. Mám hlášení zapsat k němu?`;
-  }
-
-  if (vehicles.length > 1) {
-    const names = vehicles.slice(0, 5).map((vehicle) => vehicle.displayName).join(", ");
-    const suffix = vehicles.length > 5 ? " a další" : "";
-    return `Vidím u tebe víc vozidel: ${names}${suffix}. Kterého se to týká?`;
-  }
-
-  return fallbackQuestion;
-}
-
 function errorPayload(errorCode, message, status = 400, extra = {}) {
   return json({
     ok: false,
@@ -159,6 +146,9 @@ export async function onRequestGet({ request, env }) {
   const transcriptIntent = cleanString(url.searchParams.get("transcriptIntent") || url.searchParams.get("intent"));
   const sessionId = cleanString(url.searchParams.get("sessionId") || url.searchParams.get("conversationId"));
   const currentModule = cleanString(url.searchParams.get("currentModule")) || MODULE_ID;
+  const includeVehiclePicker = ["true", "1", "ano", "vehicle_picker"].includes(
+    cleanString(url.searchParams.get("includeVehiclePicker") || url.searchParams.get("vehiclePicker") || url.searchParams.get("mode")).toLowerCase()
+  );
   const employee = await driverEmployeeFor(env, user);
   const employeeId = cleanString(employee?.id || user.id);
   const driverUserId = cleanString(employee?.userId || user.id);
@@ -195,18 +185,18 @@ export async function onRequestGet({ request, env }) {
     match?.status !== "failed" &&
     rawVehicles.every((vehicle) => vehicle.id && vehicle.existsInFleet === true && vehicle.assignedToCurrentDriver === true && vehicle.active === true)
   );
-  const vehicles = vehiclesAreSafelyVerified ? rawVehicles : [];
-  const emptyReason = vehicles.length
+  const vehicles = vehiclesAreSafelyVerified && includeVehiclePicker ? rawVehicles : [];
+  const emptyReason = vehiclesAreSafelyVerified
     ? ""
     : employee ? "NO_DRIVER_VEHICLES" : "DRIVER_NOT_MAPPED";
-  const fallbackQuestion = vehicles.length > 1
-    ? (match.question || fleetVehicleSelectionQuestion(vehicles))
-    : vehicles.length === 1
-      ? "Kterého vozidla se to týká?"
-      : NO_VERIFIED_VEHICLE_QUESTION;
-  const vehicleLookupMode = vehiclesAreSafelyVerified ? "verified_list" : "manual_spz_required";
+  const fallbackQuestion = vehiclesAreSafelyVerified
+    ? VEHICLE_PICKER_OR_SPZ_QUESTION
+    : NO_VERIFIED_VEHICLE_QUESTION;
+  const vehicleLookupMode = vehiclesAreSafelyVerified
+    ? (includeVehiclePicker ? "verified_ui_picker" : "ui_picker_or_manual_spz")
+    : "manual_spz_required";
   const messageForAssistant = vehiclesAreSafelyVerified
-    ? responseMessage(vehicles, fallbackQuestion)
+    ? VEHICLE_PICKER_MESSAGE
     : NO_VERIFIED_VEHICLE_QUESTION;
   const diagnostics = {
     userId: cleanString(user.id),
@@ -217,10 +207,12 @@ export async function onRequestGet({ request, env }) {
     driverResolved: vehiclesAreSafelyVerified,
     identitySource: cleanString(match?.identity?.source || (employee ? "employees" : "auth_user")),
     dataSource: cleanString(match?.dataSource),
-    vehiclesCountBeforeFilter: rawVehicles.length,
+    vehiclesCountBeforeFilter: includeVehiclePicker ? rawVehicles.length : 0,
     vehiclesCountAfterFilter: vehicles.length,
-    vehiclesVerified: vehiclesAreSafelyVerified,
+    vehiclesVerified: vehiclesAreSafelyVerified && includeVehiclePicker,
+    vehiclePickerAvailable: vehiclesAreSafelyVerified,
     vehicleLookupMode,
+    vehicleListReturned: includeVehiclePicker,
     fallbackUsed: match?.fallbackUsed === true,
     mockData: match?.mockData === true,
     emptyReason
@@ -239,7 +231,8 @@ export async function onRequestGet({ request, env }) {
     userResolved: true,
     employeeResolved: Boolean(employee),
     driverResolved: vehiclesAreSafelyVerified,
-    vehiclesVerified: vehiclesAreSafelyVerified,
+    vehiclesVerified: vehiclesAreSafelyVerified && includeVehiclePicker,
+    vehiclePickerAvailable: vehiclesAreSafelyVerified,
     vehicleLookupMode,
     user: {
       id: cleanString(user.id),

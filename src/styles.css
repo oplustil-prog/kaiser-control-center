@@ -6648,6 +6648,96 @@ body:has(.ai-assistant-promo-modal) {
   margin-top: 22px;
 }
 
+.ai-driver-vehicle-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 74;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(248, 250, 246, 0.82);
+}
+
+.ai-driver-vehicle-picker {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 520px);
+  max-height: min(680px, calc(100vh - 40px));
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid rgba(117, 189, 37, 0.24);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 26px 70px rgba(31, 41, 33, 0.24);
+}
+
+.ai-driver-vehicle-picker__eyebrow {
+  color: var(--kaiser-green-dark);
+  font-size: 0.75rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.ai-driver-vehicle-picker h2,
+.ai-driver-vehicle-picker p {
+  margin: 0;
+}
+
+.ai-driver-vehicle-picker h2 {
+  color: var(--ink);
+  font-size: 1.45rem;
+  line-height: 1.14;
+}
+
+.ai-driver-vehicle-picker p {
+  color: var(--steel);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.ai-driver-vehicle-picker__list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-driver-vehicle-picker__option {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid rgba(31, 41, 33, 0.13);
+  border-radius: 8px;
+  background: #f8fbf4;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-driver-vehicle-picker__option:hover,
+.ai-driver-vehicle-picker__option:focus-visible {
+  border-color: rgba(117, 189, 37, 0.55);
+  background: #ffffff;
+}
+
+.ai-driver-vehicle-picker__option strong {
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.ai-driver-vehicle-picker__option span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.ai-driver-vehicle-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .ai-assistant-toast,
 .ai-assistant-highlight-message {
   position: fixed;
@@ -6704,6 +6794,7 @@ body:has(.ai-assistant-promo-modal) {
 .ai-assistant-chat__action:focus-visible,
 .assistant-avatar-card:focus-visible,
 .ai-confirmation-modal button:focus-visible,
+.ai-driver-vehicle-picker button:focus-visible,
 .ai-assistant-launcher:focus-visible {
   outline: 3px solid rgba(117, 189, 37, 0.2);
   outline-offset: 2px;

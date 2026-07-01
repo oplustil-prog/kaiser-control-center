@@ -572,7 +572,7 @@ function mockFleetVehicleFixtures() {
       vehicleId: "local-passenger-bmw",
       externalProvider: "local",
       externalVehicleId: "local-passenger-bmw",
-      licensePlate: "1AB 2345",
+      licensePlate: "9Z9 9999",
       internalNumber: "BMW osobní",
       model: "BMW 5",
       brand: "BMW",
@@ -654,15 +654,18 @@ function mockFleetVehicleMatches(vehicle, vehicleId) {
     .some((candidate) => candidate === wanted || candidate.replace(/[^a-z0-9]+/g, "") === compactWanted);
 }
 
-function mockFleetVehicleForUser(user) {
+function mockFleetVehicleForUser(user, options = {}) {
   const userId = String(user?.id || "").trim();
   const userName = String(user?.name || "").trim().toLowerCase();
+  const wantedVehicleId = String(options.vehicleId || "").trim();
   return mockFleetVehicleFixtures()
     .map(mockFleetAssignmentFor)
-    .find((vehicle) => (
-      (userId && vehicle.assignedDriverId === userId) ||
-      (userName && String(vehicle.assignedDriverName || "").trim().toLowerCase() === userName)
-    )) || null;
+    .find((vehicle) => {
+      const vehicleMatches = !wantedVehicleId || mockFleetVehicleMatches(vehicle, wantedVehicleId);
+      const driverMatches = (userId && vehicle.assignedDriverId === userId) ||
+        (userName && String(vehicle.assignedDriverName || "").trim().toLowerCase() === userName);
+      return vehicleMatches && driverMatches;
+    }) || null;
 }
 
 async function mockFleetVehiclesForUser(user) {
@@ -2897,7 +2900,7 @@ async function handleApi(request, response) {
         module: "hlaseni-ridicu",
         errorCode: "UNAUTHENTICATED",
         message: "Nejsi přihlášený.",
-        fallbackQuestion: "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.",
+        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.",
         apiStatus: "ready"
       });
       return true;
@@ -2916,28 +2919,30 @@ async function handleApi(request, response) {
         errorCode: "FORBIDDEN",
         message: "K tomu nemáš oprávnění.",
         permissions,
-        fallbackQuestion: "Vozidla se mi teď nepodařilo načíst. Řekni mi prosím typ, značku nebo SPZ.",
+        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.",
         apiStatus: "ready"
       });
       return true;
     }
 
-    const vehicles = (await mockFleetVehiclesForUser(user)).map(mockDriverReportContextVehicle);
-    const fallbackQuestion = vehicles.length > 1
-      ? `Vidím u tebe víc vozidel: ${vehicles.map((vehicle) => vehicle.displayName).slice(0, 5).join(", ")}. Kterého se to týká?`
-      : vehicles.length === 1
-        ? "Kterého vozidla se to týká?"
-        : "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?";
-    const message = vehicles.length === 1
-      ? `Vidím u tebe ${vehicles[0].displayName}. Mám hlášení zapsat k němu?`
-      : vehicles.length > 1 ? fallbackQuestion : fallbackQuestion;
+    const includeVehiclePicker = ["true", "1", "ano", "vehicle_picker"].includes(
+      String(url.searchParams.get("includeVehiclePicker") || url.searchParams.get("vehiclePicker") || url.searchParams.get("mode") || "").trim().toLowerCase()
+    );
+    const rawVehicles = (await mockFleetVehiclesForUser(user)).map(mockDriverReportContextVehicle);
+    const vehicles = includeVehiclePicker ? rawVehicles : [];
+    const fallbackQuestion = rawVehicles.length
+      ? "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla."
+      : "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
+    const message = rawVehicles.length
+      ? "Otevřu ti výběr vozidla v aplikaci."
+      : fallbackQuestion;
 
     sendJson(response, 200, {
       ok: true,
       module: "hlaseni-ridicu",
       currentModule: url.searchParams.get("currentModule") || "hlaseni-ridicu",
       sessionId: url.searchParams.get("sessionId") || url.searchParams.get("conversationId") || "",
-      status: vehicles.length > 1 ? "multiple" : vehicles.length === 1 ? "single" : "none",
+      status: rawVehicles.length > 1 ? "multiple" : rawVehicles.length === 1 ? "single" : "none",
       user: {
         id: user.id,
         name: user.name,
@@ -2948,6 +2953,9 @@ async function handleApi(request, response) {
         displayName: user.name,
         source: "local_mock"
       },
+      vehiclesVerified: includeVehiclePicker && rawVehicles.length > 0,
+      vehiclePickerAvailable: rawVehicles.length > 0,
+      vehicleLookupMode: rawVehicles.length ? (includeVehiclePicker ? "verified_ui_picker" : "ui_picker_or_manual_spz") : "manual_spz_required",
       vehicles,
       vehiclesCount: vehicles.length,
       permissions,
@@ -2991,10 +2999,15 @@ async function handleApi(request, response) {
 
     const parameters = payload.parameters && typeof payload.parameters === "object" ? payload.parameters : {};
     const defectDescription = mockDriverClean(parameters.defectDescription || parameters.description || payload.text || payload.transcript);
-    const assignedVehicle = mockFleetVehicleForUser(user);
+    const vehicleId = mockDriverClean(parameters.vehicleId || parameters.vehicle_id);
+    const spzValidated = parameters.spzValidated === true || parameters.spz_validated === true;
+    const manualSpz = normalizeLicensePlate(parameters.spzManual || parameters.manualSpz);
+    const assignedVehicle = vehicleId
+      ? mockFleetVehicleForUser(user, { vehicleId })
+      : null;
     const licensePlate = normalizeLicensePlate(
-      parameters.licensePlate ||
-      parameters.spz ||
+      manualSpz ||
+      (spzValidated ? (parameters.licensePlate || parameters.spz) : "") ||
       assignedVehicle?.licensePlate ||
       assignedVehicle?.tcarsLicensePlate ||
       extractLicensePlate(defectDescription)
@@ -3043,8 +3056,7 @@ async function handleApi(request, response) {
     const confirmed = parameters.confirmed === true || parameters.writeConfirmed === true;
     const partMatch = identifyProbablePartFromDescription(defectDescription);
     if (!confirmed) {
-      const intro = resolvedVehicle ? "Auto mám načtené podle tebe. " : "";
-      const reply = `${intro}Rozumím. Chceš nahlásit ${partMatch.probablePart || "náhradní díl"} na vozidle se SPZ ${licensePlate}. Potvrď prosím, že SPZ je správně, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
+      const reply = `Rozumím. Chceš nahlásit ${partMatch.probablePart || "náhradní díl"} na vybraném vozidle. Potvrď prosím, že vozidlo sedí, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
       sendJson(response, 200, {
         ok: false,
         status: "needs_confirmation",

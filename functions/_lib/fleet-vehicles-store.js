@@ -802,14 +802,10 @@ function fleetVehicleOptionLabels(vehicles = []) {
 export function fleetVehicleSelectionQuestion(vehicles = []) {
   const labels = fleetVehicleOptionLabels(vehicles).slice(0, 5);
   if (!labels.length) {
-    return "Na kterém vozidle to je? Řekni mi prosím typ, značku nebo SPZ.";
+    return "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
   }
 
-  const intro = vehicles.length === 1
-    ? "Máš přiřazené vozidlo"
-    : `Máš přiřazená ${vehicles.length} vozidla`;
-  const suffix = vehicles.length > labels.length ? " a další" : "";
-  return `${intro}: ${labels.join(", ")}${suffix}. O které jde? Můžeš říct typ, značku nebo interní název.`;
+  return "Vyber vozidlo v aplikaci pro aktuální hlášení.";
 }
 
 function withDriverVehicleMeta(vehicle, confidence, extra = {}) {
@@ -1122,28 +1118,20 @@ function truncateDynamicVariable(value, max = 260) {
 export async function driverReportVehicleDynamicVariables(env, user) {
   const match = await resolveFleetVehiclesForDriver(env, user);
   const vehicle = match.vehicle;
-  const vehicleName = cleanString(vehicle?.internalNumber || vehicle?.model || vehicle?.vehicleName || vehicle?.licensePlate);
   const licensePlate = cleanString(vehicle?.licensePlate || vehicle?.tcarsLicensePlate);
-  const vin = cleanString(vehicle?.vin);
-  const vehicleType = vehicleTypeForHumanTouch(vehicle);
-  const firstName = cleanString(user?.name).split(/\s+/).filter(Boolean)[0] || "řidiči";
 
   if (match.status === "multiple") {
-    const options = (match.labels || fleetVehicleOptionLabels(match.candidates)).join(", ");
     return {
-      driver_report_vehicle_status: "vice_moznosti",
+      driver_report_vehicle_status: "vyber_v_aplikaci",
       driver_report_vehicle_id: "",
       driver_report_vehicle_name: "",
       driver_report_vehicle_license_plate: "",
       driver_report_vehicle_vin: "",
       driver_report_vehicle_type: "",
-      driver_report_vehicle_options_count: String(match.candidates.length),
-      driver_report_vehicle_options: truncateDynamicVariable(options, 360),
-      driver_report_vehicle_selection_question: truncateDynamicVariable(match.question, 420),
-      driver_report_vehicle_context: truncateDynamicVariable(
-        `${firstName}: v Hlášení řidičů má řidič přiřazeno více vozidel: ${options}. Nevybírej automaticky. Vyjmenuj možnosti a požádej o typ, značku nebo interní název; SPZ chtěj až jako poslední možnost.`,
-        520
-      )
+      driver_report_vehicle_options_count: "0",
+      driver_report_vehicle_options: "",
+      driver_report_vehicle_selection_question: "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.",
+      driver_report_vehicle_context: "V Hlášení řidičů neříkej nahlas konkrétní vozidla. Otevři bezpečný výběr vozidla v aplikaci."
     };
   }
 
@@ -1157,25 +1145,22 @@ export async function driverReportVehicleDynamicVariables(env, user) {
       driver_report_vehicle_type: "",
       driver_report_vehicle_options_count: "0",
       driver_report_vehicle_options: "",
-      driver_report_vehicle_selection_question: "Nemám u tebe teď přiřazené žádné vozidlo. Můžeš mi říct SPZ, ke které chceš závadu nahlásit?",
-      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě přiřazené. Neříkej, že máš vozidla načtená, a požádej o SPZ pro ruční ověření."
+      driver_report_vehicle_selection_question: "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.",
+      driver_report_vehicle_context: "V Hlášení řidičů není vozidlo podle volajícího jistě přiřazené. Otevři výběr v aplikaci, nebo požádej o SPZ."
     };
   }
 
   return {
-    driver_report_vehicle_status: "nalezeno",
-    driver_report_vehicle_id: truncateDynamicVariable(vehicle.id || vehicle.vehicleId, 140),
-    driver_report_vehicle_name: truncateDynamicVariable(vehicleName, 160),
-    driver_report_vehicle_license_plate: truncateDynamicVariable(licensePlate, 80),
-    driver_report_vehicle_vin: truncateDynamicVariable(vin, 120),
-    driver_report_vehicle_type: truncateDynamicVariable(vehicleType, 80),
-    driver_report_vehicle_options_count: "1",
-    driver_report_vehicle_options: truncateDynamicVariable(fleetVehicleVoiceLabel(vehicle), 180),
-    driver_report_vehicle_selection_question: "",
-    driver_report_vehicle_context: truncateDynamicVariable(
-      `${firstName}: při hovoru v Hlášení řidičů máš ověřené přiřazené ${vehicleType}, SPZ ${licensePlate}${vin ? `, VIN ${vin}` : ""}. Můžeš říct krátce, že auto máš načtené. Firemní odlehčení použij jen u klidného neurgentního hlášení a maximálně jednou.`,
-      420
-    )
+    driver_report_vehicle_status: "vyber_v_aplikaci",
+    driver_report_vehicle_id: "",
+    driver_report_vehicle_name: "",
+    driver_report_vehicle_license_plate: "",
+    driver_report_vehicle_vin: "",
+    driver_report_vehicle_type: "",
+    driver_report_vehicle_options_count: "0",
+    driver_report_vehicle_options: "",
+    driver_report_vehicle_selection_question: "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.",
+    driver_report_vehicle_context: "V Hlášení řidičů neříkej nahlas konkrétní vozidla. Otevři bezpečný výběr vozidla v aplikaci."
   };
 }
 

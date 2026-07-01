@@ -8,7 +8,19 @@ const SARLOTA_AGENT_NAME_ALIASES = [
 ];
 const FIRST_MESSAGE_TEMPLATE = "{{intro_announcement}}";
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1/convai";
-const PROMPT_RULE_MARKER = "HLÁŠENÍ ŘIDIČŮ / VOZIDLA / OVĚŘENÁ VOZIDLA ONLY";
+const PROMPT_RULE_MARKER = "HLÁŠENÍ ŘIDIČŮ / VOZIDLA";
+const LEGACY_PROMPT_RULE_MARKERS = [
+  "HLÁŠENÍ ŘIDIČŮ / VOZIDLA / OVĚŘENÁ VOZIDLA ONLY",
+  "HLÁŠENÍ ŘIDIČŮ / VOZIDLA"
+];
+const FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES = [
+  "Moment, načtu si " + "vozidla",
+  "Vozidla smíš " + "vyjmenovat",
+  "Mám u tebe ověřené " + "tyto vozy",
+  "Vyjmenuj " + "možnosti",
+  "SPZ chtěj až jako " + "poslední možnost",
+  "typ, značku nebo " + "interní název"
+];
 const PROMPT_RULE_BLOCK = [
   "",
   PROMPT_RULE_MARKER,
@@ -70,9 +82,44 @@ function promptPathFromAgent(agentConfig) {
   return null;
 }
 
-function promptHasRule(promptText) {
+function promptHasCurrentRule(promptText) {
   return cleanString(promptText).includes(PROMPT_RULE_MARKER)
-    || cleanString(promptText).includes(SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE);
+    && cleanString(promptText).includes(SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE)
+    && cleanString(promptText).includes("V hlasovém flow nikdy neříkej konkrétní vozidlo");
+}
+
+function forbiddenPromptPhrases(promptText) {
+  const text = cleanString(promptText).toLowerCase();
+  return FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES.filter((phrase) => text.includes(phrase.toLowerCase()));
+}
+
+function promptHasLegacyRule(promptText) {
+  const text = cleanString(promptText);
+  return LEGACY_PROMPT_RULE_MARKERS.some((marker) => text.includes(marker)) &&
+    forbiddenPromptPhrases(text).length > 0;
+}
+
+function stripDriverReportPromptBlocks(promptText) {
+  const lines = String(promptText ?? "").split(/\r?\n/);
+  const output = [];
+  let skipRuleLine = false;
+
+  for (const line of lines) {
+    const trimmed = cleanString(line);
+    if (LEGACY_PROMPT_RULE_MARKERS.includes(trimmed)) {
+      skipRuleLine = true;
+      continue;
+    }
+
+    if (skipRuleLine) {
+      skipRuleLine = false;
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  return output.join("\n").trimEnd();
 }
 
 function bodyForPromptPatch(path, nextPrompt) {
@@ -156,12 +203,15 @@ function buildPlan(context) {
   const firstMessage = firstMessageFromAgent(context.agentConfig);
   const agentNameMatches = SARLOTA_AGENT_NAME_ALIASES.includes(cleanString(context.agentConfig?.name));
   const firstMessageMatches = firstMessage === FIRST_MESSAGE_TEMPLATE;
-  const hasRule = promptPath ? promptHasRule(promptPath.value) : false;
+  const hasCurrentRule = promptPath ? promptHasCurrentRule(promptPath.value) : false;
+  const hasLegacyRule = promptPath ? promptHasLegacyRule(promptPath.value) : false;
+  const forbiddenPhrases = promptPath ? forbiddenPromptPhrases(promptPath.value) : [];
+  const promptNeedsPatch = Boolean(promptPath) && (!hasCurrentRule || hasLegacyRule);
 
   return {
     mode: "dry_run",
-    ready: agentNameMatches && firstMessageMatches && Boolean(promptPath) && !hasRule,
-    alreadyApplied: hasRule,
+    ready: agentNameMatches && firstMessageMatches && promptNeedsPatch,
+    alreadyApplied: hasCurrentRule && !hasLegacyRule,
     generatedAt: new Date().toISOString(),
     agent: {
       expectedName: SARLOTA_AGENT_NAME,
@@ -172,7 +222,11 @@ function buildPlan(context) {
     prompt: {
       path: promptPath?.pathText || "",
       currentLength: promptPath?.value?.length || 0,
-      willAppendDriverReportVehicleRule: !hasRule
+      currentRulePresent: hasCurrentRule,
+      legacyRulePresent: hasLegacyRule,
+      forbiddenPhrasesPresent: forbiddenPhrases,
+      willAppendDriverReportVehicleRule: promptNeedsPatch,
+      willRemoveLegacyDriverReportVehicleRule: hasLegacyRule
     },
     safety: {
       returnsPromptText: false,
@@ -234,7 +288,8 @@ async function applyPayload(env) {
   }
 
   const promptPath = promptPathFromAgent(context.agentConfig);
-  const nextPrompt = `${promptPath.value.trimEnd()}${PROMPT_RULE_BLOCK}`;
+  const cleanedPrompt = stripDriverReportPromptBlocks(promptPath.value);
+  const nextPrompt = `${cleanedPrompt}${PROMPT_RULE_BLOCK}`;
   const patchBody = bodyForPromptPatch(promptPath.path, nextPrompt);
 
   try {
@@ -265,7 +320,9 @@ async function applyPayload(env) {
     path: `/agents/${encodeURIComponent(context.agentId)}`
   });
   const verifiedPrompt = promptPathFromAgent(verifiedAgentConfig);
-  const verified = verifiedPrompt ? promptHasRule(verifiedPrompt.value) : false;
+  const verified = verifiedPrompt
+    ? promptHasCurrentRule(verifiedPrompt.value) && forbiddenPromptPhrases(verifiedPrompt.value).length === 0
+    : false;
 
   return json({
     status: verified ? "ok" : "partial",
@@ -273,6 +330,7 @@ async function applyPayload(env) {
     prompt: {
       path: promptPath.pathText,
       rulePresent: verified,
+      forbiddenPhrasesPresent: verifiedPrompt ? forbiddenPromptPhrases(verifiedPrompt.value) : [],
       currentLength: verifiedPrompt?.value?.length || 0
     },
     agentPatch: {

@@ -220,8 +220,13 @@ function driverReportPromptDetail(prompt = null) {
     return "ElevenLabs prompt neověřen";
   }
 
+  const forbidden = safeArray(prompt.forbiddenPhrasesPresent);
+  if (forbidden.length) {
+    return `v promptu zůstává starý blok: ${forbidden.length} zakázaných frází`;
+  }
+
   if (prompt.rulePresent === true) {
-    return "pravidlo oprava/vozidla je v ElevenLabs promptu";
+    return "tvrdé pravidlo UI výběru je v ElevenLabs promptu";
   }
 
   if (prompt.rulePresent === false) {

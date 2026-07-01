@@ -417,6 +417,8 @@ function normalizeCreatePayload(payload, user, vehicle, driverContact = null) {
   }
 
   const licensePlate = normalizeLicensePlate(
+    payload.spzManual ||
+    payload.manualSpz ||
     payload.licensePlate ||
     payload.spz ||
     vehicle?.licensePlate ||
@@ -536,7 +538,23 @@ export async function createDriverPartRequest(env, user, payload = {}) {
 
   const db = database(env, true);
   const rawDescription = cleanString(payload.defectDescription || payload.description || payload.speechText);
+  const voiceSource = cleanString(payload.source).startsWith("voice");
+  const explicitVehicleId = cleanString(payload.vehicleId || payload.vehicle_id);
+  const explicitManualPlate = normalizeLicensePlate(
+    payload.spzManual ||
+    payload.manualSpz ||
+    (truthyFlag(payload.spzValidated || payload.spz_validated) ? (payload.licensePlate || payload.spz) : "")
+  );
+  if (voiceSource && !explicitVehicleId && !explicitManualPlate) {
+    throw new DriverPartRequestsStoreError(
+      "Vyberte vozidlo v aplikaci, nebo doplňte SPZ z vozidla.",
+      400,
+      "driver_vehicle_selection_required"
+    );
+  }
   const payloadLicensePlate = normalizeLicensePlate(
+    payload.spzManual ||
+    payload.manualSpz ||
     payload.licensePlate ||
     payload.spz ||
     extractLicensePlate(rawDescription)
@@ -555,6 +573,8 @@ export async function createDriverPartRequest(env, user, payload = {}) {
 
   const assignedDriverVehicle = assignedDriverMatch.vehicle || null;
   const licensePlate = normalizeLicensePlate(
+    payload.spzManual ||
+    payload.manualSpz ||
     payload.licensePlate ||
     payload.spz ||
     assignedDriverVehicle?.licensePlate ||

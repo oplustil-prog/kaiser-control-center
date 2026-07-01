@@ -23351,12 +23351,14 @@ function toggleSarlotaVoiceVehicleContextDiagnostic() {
 
 function sarlotaPromptSyncConfirmText(plan = {}) {
   return [
-    "Doplnit pravidlo Hlášení řidičů do ElevenLabs promptu Šarloty?",
+    "Doplnit bezpečné pravidlo Hlášení řidičů do ElevenLabs promptu Šarloty?",
     "",
     `Cesta promptu: ${plan.prompt?.path || "nenalezena"}`,
     `Pravidlo už je v promptu: ${plan.alreadyApplied ? "ano" : "ne"}`,
+    `Starý blok k odstranění: ${plan.prompt?.legacyRulePresent ? "ano" : "ne"}`,
     "",
     "Doplní se jen blok Hlášení řidičů / Vozidla.",
+    "Starý blok pro hlasové vyjmenování vozidel se odstraní.",
     "First message, model ani tools se nemění.",
     "Bez potvrzení se nic neprovede."
   ].join("\n");
@@ -23401,7 +23403,7 @@ async function syncSarlotaPrompt() {
     });
 
     sarlotaStatusState.syncMessage = result.status === "ok"
-      ? "ElevenLabs prompt Šarloty je doplněný."
+      ? "ElevenLabs prompt Šarloty je synchronizovaný."
       : "Prompt byl uložen částečně, zkontroluj prosím stav Šarloty.";
     await loadSarlotaStatus({ force: true, renderAfter: false });
   } catch (error) {

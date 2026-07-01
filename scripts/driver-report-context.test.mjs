@@ -21,7 +21,7 @@ const vehicles = [
   {
     id: "vehicle-radim-1",
     licensePlate: "1A1 1111",
-    model: "Mercedes Actros",
+    model: "Svoz 1",
     assignedDriverId: "employee-radim",
     assignedDriverName: "Radim Opluštil",
     assignedDriverPhone: "731 000 000",
@@ -30,7 +30,7 @@ const vehicles = [
   {
     id: "vehicle-radim-2",
     licensePlate: "2A2 2222",
-    model: "MAN TGE",
+    model: "Svoz 2",
     assignedDriverId: "user-radim",
     assignedDriverName: "Radim Opluštil",
     assignedDriverPhone: "731 000 000",
@@ -39,7 +39,7 @@ const vehicles = [
   {
     id: "vehicle-other",
     licensePlate: "3A4 1234",
-    model: "Ford Transit",
+    model: "Cizí vozidlo",
     assignedDriverId: "employee-other",
     assignedDriverName: "Radim Opluštil",
     assignedDriverPhone: "731 000 000",
@@ -118,7 +118,7 @@ const vehicles = [
       driverResolved: false,
       vehiclesVerified: false,
       vehicles: [
-        { id: "fake", displayName: "Mercedes Sprinter", licensePlate: "5A4 8912" }
+        { id: "fake", displayName: "Nesmí být řečeno", licensePlate: "5A4 8912" }
       ],
       vehiclesCount: 1,
       vehicleLookupMode: "manual_spz_required",
@@ -131,8 +131,8 @@ const vehicles = [
   assert.equal(result.ok, true);
   assert.equal(result.vehiclesVerified, false);
   assert.deepEqual(result.vehicles, []);
-  assert.match(result.answerText, /bezpečně ověřené žádné přiřazené vozidlo/);
-  assert.equal(result.answerText.includes("Mercedes Sprinter"), false);
+  assert.match(result.answerText, /Vyber|Otevřu|SPZ/);
+  assert.equal(result.answerText.includes("Nesmí být řečeno"), false);
   assert.equal(result.answerText.includes("5A4 8912"), false);
 }
 
@@ -146,21 +146,57 @@ const vehicles = [
       employeeResolved: true,
       driverResolved: true,
       vehiclesVerified: true,
+      vehiclePickerAvailable: true,
       vehicles: [
-        { id: "vehicle-radim-1", displayName: "Mercedes Actros", licensePlate: "1A1 1111" }
+        { id: "vehicle-radim-1", displayName: "Utajený vůz", licensePlate: "1A1 1111" }
       ],
       vehiclesCount: 1,
-      vehicleLookupMode: "verified_list",
-      messageForAssistant: "Vidím u tebe Mercedes Actros. Mám hlášení zapsat k němu?",
+      vehicleLookupMode: "verified_ui_picker",
+      messageForAssistant: "Otevřu ti výběr vozidla v aplikaci.",
       apiStatus: "ready"
     })
   });
   const result = await tools.get_driver_report_context({ sessionId: "voice-radim-verified" });
 
   assert.equal(result.ok, true);
-  assert.equal(result.vehiclesVerified, true);
-  assert.equal(result.vehicles.length, 1);
-  assert.match(result.answerText, /Mercedes Actros/);
+  assert.equal(result.vehiclesVerified, false);
+  assert.equal(result.vehiclePickerAvailable, true);
+  assert.deepEqual(result.vehicles, []);
+  assert.equal(result.vehiclesCount, 0);
+  assert.match(result.answerText, /výběr vozidla v aplikaci/);
+  assert.equal(result.answerText.includes("Utajený vůz"), false);
+  assert.equal(result.answerText.includes("1A1 1111"), false);
+}
+
+{
+  let posted = false;
+  const tools = createElevenLabsClientTools({
+    requestJson: async () => {
+      posted = true;
+      throw new Error("create_driver_part_request must not post without vehicle selection");
+    }
+  });
+  const result = await tools.create_driver_part_request({
+    defectDescription: "upadnuté zrcátko",
+    confirmed: true
+  });
+
+  assert.equal(posted, false);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "needs_input");
+  assert.equal(result.code, "DRIVER_VEHICLE_SELECTION_REQUIRED");
+}
+
+{
+  const tools = createElevenLabsClientTools();
+  const result = await tools.highlight_element({
+    selector: "[data-driver-report-vehicle]",
+    message: "Toto vozidlo"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, "DRIVER_VEHICLE_PICKER_REQUIRED");
+  assert.deepEqual(result.vehicles, []);
 }
 
 console.log("driver-report-context tests passed");

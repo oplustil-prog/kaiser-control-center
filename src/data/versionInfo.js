@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.279"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.280"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: vozidlo se vybírá v aplikaci",
+    text: "Hlasové Hlášení řidičů už neříká seznam, počet ani názvy vozidel. Šarlota otevře bezpečný výběr v aplikaci a do zápisu pustí jen ověřené vehicleId nebo ručně ověřenou SPZ."
+  },
   {
     title: "Šarlota: diagnostika respektuje fail-safe",
     text: "Panel Nastavení už u běžné signed-url cesty neukazuje předpočítaná vozidla. Diagnostika teď odpovídá produkčnímu fail-safe: driver_report_vehicle_* se do hlasu neposílá."

@@ -47,6 +47,7 @@ const ABSENCE_TYPE_LABELS = {
 };
 
 const ABSENCE_TYPE_OPTIONS_TEXT = "Dovolená, nemoc, OČR, lékař, náhradní volno, neplacené volno, nebo jiná nepřítomnost.";
+const DRIVER_VEHICLE_PICKER_OR_SPZ_MESSAGE = "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
 
 const ABSENCE_TYPE_ALIASES = {
   dovolena: "vacation",
@@ -938,10 +939,16 @@ function driverPartDraftFromPayload(payload, speechText) {
   const context = driverPartContext(payload);
   const description = driverPartDescription(payload, speechText);
   const licensePlate = normalizeLicensePlate(firstNonEmpty(
+    parameters.spzManual,
+    parameters.manualSpz,
     parameters.licensePlate,
     parameters.spz,
+    context.spzManual,
+    context.manualSpz,
     context.licensePlate,
     context.spz,
+    payload.spzManual,
+    payload.manualSpz,
     payload.licensePlate,
     payload.spz,
     extractLicensePlate(description)
@@ -1042,10 +1049,8 @@ function driverPartSummaryMessage(draft) {
   }
 
   const part = draft.probablePart || "náhradní díl";
-  const vehicleName = draft.vehicleName ? `na vozidle ${draft.vehicleName}` : "";
-  const vehicle = vehicleName || (draft.licensePlate ? `na vozidle se SPZ ${draft.licensePlate}` : "bez jasně vybraného vozidla");
-  const intro = draft.vehicleResolvedFromAssignedDriver ? "Auto mám načtené podle tebe. " : "";
-  return `${intro}Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že vozidlo sedí, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
+  const vehicle = draft.vehicleId || draft.licensePlate ? "na vybraném vozidle" : "bez jasně vybraného vozidla";
+  return `Rozumím. Chceš nahlásit ${part} ${vehicle}. Potvrď prosím, že vozidlo sedí, a pošli fotku poškození. Mám to uložit a předat k objednání dílu?`;
 }
 
 function driverPartPreparedAction(draft) {
@@ -1157,10 +1162,45 @@ async function driverPartRequestTool(env, user, payload, context, speechText) {
     };
   }
 
+  const parameters = driverPartParameters(payload);
+  const driverContext = driverPartContext(payload);
+  const rawDraft = driverPartDraftFromPayload(payload, speechText);
+  const explicitVehicleId = cleanString(rawDraft.vehicleId);
+  const explicitManualSpz = normalizeLicensePlate(firstNonEmpty(
+    parameters.spzManual,
+    parameters.manualSpz,
+    driverContext.spzManual,
+    driverContext.manualSpz,
+    payload.spzManual,
+    payload.manualSpz
+  ));
+  const spzValidated = boolValue(firstNonEmpty(
+    parameters.spzValidated,
+    parameters.spz_validated,
+    driverContext.spzValidated,
+    driverContext.spz_validated,
+    payload.spzValidated,
+    payload.spz_validated
+  ));
+  const speechLicensePlate = normalizeLicensePlate(extractLicensePlate(speechText));
+  const manualLicensePlate = explicitManualSpz || (spzValidated ? rawDraft.licensePlate : "") || speechLicensePlate;
+
+  if (!explicitVehicleId && !manualLicensePlate) {
+    return {
+      status: "needs_input",
+      verified: true,
+      message: DRIVER_VEHICLE_PICKER_OR_SPZ_MESSAGE,
+      preparedActions: []
+    };
+  }
+
   let draft = await enrichDriverPartDraftWithAssignedVehicle(
     env,
     user,
-    driverPartDraftFromPayload(payload, speechText),
+    {
+      ...rawDraft,
+      licensePlate: rawDraft.licensePlate || manualLicensePlate
+    },
     payload
   );
 
@@ -1222,6 +1262,8 @@ async function driverPartRequestTool(env, user, payload, context, speechText) {
       ...draft,
       driverName: draft.driverName || user?.name,
       driverPhone: draft.driverPhone || user?.phone,
+      spzManual: draft.licensePlate,
+      spzValidated: Boolean(draft.licensePlate),
       damagePhotoStatus: "requested",
       damagePhotoNote: "Šarlota požádala řidiče o fotku poškození před uložením hlášení.",
       source: "voice"
@@ -1567,7 +1609,7 @@ function systemPrompt() {
     sarlotaSystemPrompt(),
     "Tento endpoint vrací strojové rozhodnutí pro KSO backend. Odpověď pro uživatele dej do pole reply.",
     "Pro zápis dovolené, nemoci, OČR, lékaře, náhradního volna, neplaceného volna nebo jiné nepřítomnosti použij intent absence_request. Nezapisuj bez jasného potvrzení uživatele; když něco chybí, polož jen jednu otázku.",
-    "Pro servisní hlášení z modulu Hlášení řidičů použij intent driver_part_request. Když volající řekne, že chce opravu, servis, údržbu, závadu, poškození nebo jakoukoliv potřebu na vozidle, ber to jako Hlášení řidičů. V ElevenLabs hovoru má Šarlota nejdřív zavolat get_driver_report_context, nepředstírat načtení a až potom pokračovat nad skutečnými vozidly řidiče. Bez potvrzení nic nezapisuj ani neposílej; při chybějícím nebo nejednoznačném vozidle se ptej nejdřív na typ, značku nebo interní název vozidla a SPZ chtěj až jako poslední možnost. Při nejasné straně zrcátka polož jednu krátkou otázku. Mercedes díl podle VIN označ jako ověřený jen při oficiálním výsledku nebo ručním potvrzení.",
+    "Pro servisní hlášení z modulu Hlášení řidičů použij intent driver_part_request. Když volající řekne, že chce opravu, servis, údržbu, závadu, poškození nebo jakoukoliv potřebu na vozidle, ber to jako Hlášení řidičů. V ElevenLabs hovoru má Šarlota nejdřív zavolat get_driver_report_context, nepředstírat vozidla a potom otevřít bezpečný výběr vozidla v aplikaci. Bez potvrzení nic nezapisuj ani neposílej; při chybějícím vozidle použij UI výběr, SPZ jen jako náhradní možnost. Při nejasné straně zrcátka polož jednu krátkou otázku. Mercedes díl podle VIN označ jako ověřený jen při oficiálním výsledku nebo ručním potvrzení.",
     "Blok Firemní lidskost: pokud request.humanTouch.enabled obsahuje návrhy, můžeš nenásilně použít maximálně jednu krátkou poznámku. Použij jen dodaný ověřený návrh, nikdy si nevymýšlej počasí, svátky, narozeniny ani dovolené.",
     "Firemní lidskost nepoužívej při reklamaci, stížnosti, spěchu, stresu, chybě, nemoci, OČR, lékaři ani u citlivé absence. Nikdy nezmiňuj důvod absence, věk ani soukromé údaje. Nepoužívej texty známých písní.",
     "Vrať výhradně JSON."
