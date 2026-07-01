@@ -2900,7 +2900,7 @@ async function handleApi(request, response) {
         module: "hlaseni-ridicu",
         errorCode: "UNAUTHENTICATED",
         message: "Nejsi přihlášený.",
-        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.",
+        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.",
         apiStatus: "ready"
       });
       return true;
@@ -2919,7 +2919,7 @@ async function handleApi(request, response) {
         errorCode: "FORBIDDEN",
         message: "K tomu nemáš oprávnění.",
         permissions,
-        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.",
+        fallbackQuestion: "Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.",
         apiStatus: "ready"
       });
       return true;
@@ -2931,8 +2931,8 @@ async function handleApi(request, response) {
     const rawVehicles = (await mockFleetVehiclesForUser(user)).map(mockDriverReportContextVehicle);
     const vehicles = includeVehiclePicker ? rawVehicles : [];
     const fallbackQuestion = rawVehicles.length
-      ? "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla."
-      : "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
+      ? "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla."
+      : "Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
     const message = rawVehicles.length
       ? "Otevřu ti výběr vozidla v aplikaci."
       : fallbackQuestion;

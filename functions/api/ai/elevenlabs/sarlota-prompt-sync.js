@@ -19,7 +19,10 @@ const FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES = [
   "Mám u tebe ověřené " + "tyto vozy",
   "Vyjmenuj " + "možnosti",
   "SPZ chtěj až jako " + "poslední možnost",
-  "typ, značku nebo " + "interní název"
+  "typ, značku nebo " + "interní název",
+  "auto " + "3 brzdí divně",
+  "Zapíšu bezpečnostní závadu k vozidlu " + "3",
+  "Hotovo, závada je " + "zapsaná"
 ];
 const PROMPT_RULE_BLOCK = [
   "",
@@ -93,10 +96,29 @@ function forbiddenPromptPhrases(promptText) {
   return FORBIDDEN_DRIVER_REPORT_PROMPT_PHRASES.filter((phrase) => text.includes(phrase.toLowerCase()));
 }
 
+function promptHasLegacyUnsafeDriverReportExample(promptText) {
+  return forbiddenPromptPhrases(promptText).some((phrase) => [
+    "auto " + "3 brzdí divně",
+    "Zapíšu bezpečnostní závadu k vozidlu " + "3",
+    "Hotovo, závada je " + "zapsaná"
+  ].includes(phrase));
+}
+
 function promptHasLegacyRule(promptText) {
   const text = cleanString(promptText);
   return LEGACY_PROMPT_RULE_MARKERS.some((marker) => text.includes(marker)) &&
     forbiddenPromptPhrases(text).length > 0;
+}
+
+function stripLegacyDriverReportExamples(promptText) {
+  const pattern = new RegExp([
+    String.raw`(?:\n\s*)?Uživatel:\s*[„"]Zapiš závadu,\s*auto\s*3\s*brzdí divně\.[“”"]`,
+    String.raw`\s*Odpověď:\s*[„"]Rozumím\.\s*Zapíšu bezpečnostní závadu k vozidlu\s*3\.\s*Chceš doplnit ještě krátkou poznámku\?[“”"]`,
+    String.raw`\s*Uživatel:\s*[„"]Ne\.[“”"]`,
+    String.raw`\s*Odpověď:\s*[„"]Hotovo,\s*závada je zapsaná\.[“”"]`
+  ].join(""), "giu");
+
+  return String(promptText ?? "").replace(pattern, "\n").trimEnd();
 }
 
 function stripDriverReportPromptBlocks(promptText) {
@@ -205,13 +227,14 @@ function buildPlan(context) {
   const firstMessageMatches = firstMessage === FIRST_MESSAGE_TEMPLATE;
   const hasCurrentRule = promptPath ? promptHasCurrentRule(promptPath.value) : false;
   const hasLegacyRule = promptPath ? promptHasLegacyRule(promptPath.value) : false;
+  const hasLegacyUnsafeExample = promptPath ? promptHasLegacyUnsafeDriverReportExample(promptPath.value) : false;
   const forbiddenPhrases = promptPath ? forbiddenPromptPhrases(promptPath.value) : [];
-  const promptNeedsPatch = Boolean(promptPath) && (!hasCurrentRule || hasLegacyRule);
+  const promptNeedsPatch = Boolean(promptPath) && (!hasCurrentRule || hasLegacyRule || hasLegacyUnsafeExample);
 
   return {
     mode: "dry_run",
     ready: agentNameMatches && firstMessageMatches && promptNeedsPatch,
-    alreadyApplied: hasCurrentRule && !hasLegacyRule,
+    alreadyApplied: hasCurrentRule && !hasLegacyRule && !hasLegacyUnsafeExample,
     generatedAt: new Date().toISOString(),
     agent: {
       expectedName: SARLOTA_AGENT_NAME,
@@ -226,7 +249,8 @@ function buildPlan(context) {
       legacyRulePresent: hasLegacyRule,
       forbiddenPhrasesPresent: forbiddenPhrases,
       willAppendDriverReportVehicleRule: promptNeedsPatch,
-      willRemoveLegacyDriverReportVehicleRule: hasLegacyRule
+      willRemoveLegacyDriverReportVehicleRule: hasLegacyRule,
+      willRemoveLegacyUnsafeExample: hasLegacyUnsafeExample
     },
     safety: {
       returnsPromptText: false,
@@ -288,7 +312,7 @@ async function applyPayload(env) {
   }
 
   const promptPath = promptPathFromAgent(context.agentConfig);
-  const cleanedPrompt = stripDriverReportPromptBlocks(promptPath.value);
+  const cleanedPrompt = stripLegacyDriverReportExamples(stripDriverReportPromptBlocks(promptPath.value));
   const nextPrompt = `${cleanedPrompt}${PROMPT_RULE_BLOCK}`;
   const patchBody = bodyForPromptPatch(promptPath.path, nextPrompt);
 

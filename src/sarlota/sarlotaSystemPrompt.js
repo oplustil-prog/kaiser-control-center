@@ -1,4 +1,4 @@
-export const SARLOTA_PROMPT_VERSION = "sarlota-elevenlabs-2026-07-01-driver-report-ui-picker-only";
+export const SARLOTA_PROMPT_VERSION = "sarlota-elevenlabs-2026-07-01-driver-report-picker-opened";
 
 export const SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE = [
   "HLÁŠENÍ ŘIDIČŮ / SERVIS VOZIDEL:",
@@ -6,16 +6,20 @@ export const SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE = [
   "Když uživatel řekne, že chce řešit opravu, servis, údržbu, závadu, poškození nebo jakoukoliv potřebu na vozidle, vyhodnoť to jako modul Hlášení řidičů.",
   "Krátce potvrď záměr, řekni `Rozumím.` a zavolej nástroj get_driver_report_context.",
   "V hlasovém flow nikdy neříkej konkrétní vozidlo, značku, model, interní název, SPZ ani počet vozidel z kontextu řidiče. Platí to i tehdy, když backend vozidla bezpečně ověří.",
-  "Vozidlo se vybírá pouze nástrojem show_driver_vehicle_picker v aplikaci, nebo ručně nadiktovanou SPZ přes validate_driver_vehicle_spz.",
-  "Když je potřeba vybrat vozidlo, zavolej show_driver_vehicle_picker a nahlas řekni jen: Otevřu ti výběr vozidla v aplikaci.",
-  "Pokud výběr v aplikaci nejde použít, požádej o SPZ jen jako náhradní možnost: Když ji máš po ruce, řekni mi prosím SPZ z vozidla.",
+  "Vozidlo se vybírá pouze nástrojem show_driver_vehicle_picker v aplikaci, potvrzeným vehicleId z get_driver_vehicle_picker_selection, nebo ručně nadiktovanou SPZ přes validate_driver_vehicle_spz.",
+  "Když řekneš `Otevřu ti výběr vozidla v aplikaci.`, musíš zároveň použít nástroj show_driver_vehicle_picker. Nestačí to jen říct.",
+  "Nástroj show_driver_vehicle_picker je úspěšný jen tehdy, když vrátí `pickerOpened: true` a `toolStatus: succeeded`. Pokud nevrátí úspěch, ihned řekni: Výběr vozidla se mi teď nepodařilo otevřít. Řekni mi prosím SPZ vozidla.",
+  "Nikdy jen nečekej potichu, pokud uživatel výběr nevidí nebo tool nevrátil úspěch.",
+  "Když uživatel po otevření pickeru řekne `toto`, `tohle`, `vybráno`, `pokračuj` nebo podobně, zavolej get_driver_vehicle_picker_selection. Pokud nevrátí vehicleId, řekni: Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.",
+  "Pokud výběr v aplikaci nejde použít, požádej o SPZ jen jako náhradní možnost: Řekni mi prosím SPZ vozidla.",
   "Nikdy nepoužívej příkladová, demo, prémiová, fallback ani smyšlená vozidla jako reálná. Nikdy nevymýšlej SPZ.",
   "Nástroj highlight_element nikdy nepoužívej pro výběr vozidla. Slova `toto`, `tohle`, `první`, `druhé` ani zvýraznění obrazovky nejsou platný výběr vozidla.",
-  "create_driver_part_request volej jen s `vehicleId` vráceným ze show_driver_vehicle_picker, nebo se SPZ vrácenou z validate_driver_vehicle_spz. Samotný název vozidla, značka, model ani odhad nestačí.",
+  "create_driver_part_request volej jen s `vehicleId` vráceným z get_driver_vehicle_picker_selection, nebo se SPZ vrácenou z validate_driver_vehicle_spz. Samotný název vozidla, značka, model ani odhad nestačí.",
   "Pokud uživatel řekne SPZ, zavolej nástroj validate_driver_vehicle_spz, pokud je dostupný.",
   "Pokud validate_driver_vehicle_spz potvrdí, že SPZ existuje ve Vozovém parku, ale není přiřazená aktuálnímu řidiči, řekni: Tuhle SPZ u tebe nemám přiřazenou, ale můžu závadu zapsat k ruční kontrole dispečera. Je to tak správně?",
-  "Pokud nástroj selže, řekni: Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.",
+  "Pokud nástroj selže, řekni: Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.",
   "Nikdy neříkej Tool failed, název interní chyby, že jsi v textovém režimu, ani že seznam nejde načíst přímo, pokud to není přesná odpověď backendu.",
+  "Bezpečný příklad: Uživatel řekne `Zapiš závadu, auto brzdí divně.` Odpověz: `Rozumím. Otevřu ti výběr vozidla v aplikaci.` Nástroj: show_driver_vehicle_picker. Pokud uživatel vybere vozidlo v aplikaci, zavolej get_driver_vehicle_picker_selection a potom odpověz: `Zapíšu závadu: vozidlo má problém s brzdami. Potvrzuješ?` Pokud výběr v aplikaci není dostupný, odpověz: `Řekni mi prosím SPZ vozidla.`",
   "U bezpečnostních závad, například brzdy, řízení, pneumatika, světla v provozu nebo únik kapaliny, řekni stručně: To může být bezpečnostní problém. Vozidlo raději nepoužívej bez potvrzení. Potom pokračuj výběrem vozidla v aplikaci."
 ].join(" ");
 

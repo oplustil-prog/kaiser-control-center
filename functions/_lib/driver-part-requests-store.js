@@ -547,9 +547,9 @@ export async function createDriverPartRequest(env, user, payload = {}) {
   );
   if (voiceSource && !explicitVehicleId && !explicitManualPlate) {
     throw new DriverPartRequestsStoreError(
-      "Vyberte vozidlo v aplikaci, nebo doplňte SPZ z vozidla.",
+      "Vyberte vozidlo v aplikaci, nebo doplňte SPZ vozidla.",
       400,
-      "driver_vehicle_selection_required"
+      "VEHICLE_SPZ_REQUIRED"
     );
   }
   const payloadLicensePlate = normalizeLicensePlate(

@@ -102,7 +102,8 @@ const ABSENCE_TOOL_TYPE_LABELS = {
 };
 
 const DRIVER_REPORT_PICKER_MESSAGE = "Otevřu ti výběr vozidla v aplikaci.";
-const DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE = "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
+const DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE = "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
+const DRIVER_REPORT_PICKER_FAILED_MESSAGE = "Výběr vozidla se mi teď nepodařilo otevřít. Řekni mi prosím SPZ vozidla.";
 const DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE = "Vozidlo je vybrané v aplikaci.";
 
 export const ELEVENLABS_CLIENT_TOOL_SCHEMAS = [
@@ -144,12 +145,20 @@ export const ELEVENLABS_CLIENT_TOOL_SCHEMAS = [
   },
   {
     name: "show_driver_vehicle_picker",
-    description: "Otevře bezpečný výběr vozidla v aplikaci pro Hlášení řidičů. V hlasové odpovědi nikdy nejmenuje vozidla; vrací jen ověřené vehicleId.",
+    description: "Otevře bezpečný výběr vozidla v aplikaci pro Hlášení řidičů. Vrací úspěch hned po zobrazení pickeru; v hlasové odpovědi nikdy nejmenuje vozidla.",
     parameters: [
       { name: "sessionId", type: "string", required: false },
       { name: "conversationId", type: "string", required: false },
       { name: "transcriptIntent", type: "string", required: false },
       { name: "currentModule", type: "string", required: false }
+    ]
+  },
+  {
+    name: "get_driver_vehicle_picker_selection",
+    description: "Read-only ověří, jestli uživatel v bezpečném UI pickeru vybral vozidlo. Vrací pouze vehicleId; nikdy nevrací seznam ani názvy vozidel.",
+    parameters: [
+      { name: "sessionId", type: "string", required: false },
+      { name: "conversationId", type: "string", required: false }
     ]
   },
   {
@@ -211,7 +220,7 @@ export const ELEVENLABS_CLIENT_TOOL_SCHEMAS = [
   },
   {
     name: "create_driver_part_request",
-    description: "Zapíše potvrzené hlášení náhradního dílu přes KSO backend. Vyžaduje vehicleId ze show_driver_vehicle_picker nebo ručně ověřenou SPZ. Bez potvrzení nic nezapíše ani neodešle.",
+    description: "Zapíše potvrzené hlášení náhradního dílu přes KSO backend. Vyžaduje vehicleId z get_driver_vehicle_picker_selection nebo ručně ověřenou SPZ. Bez potvrzení nic nezapíše ani neodešle.",
     parameters: [
       { name: "defectDescription", type: "string", required: true },
       { name: "licensePlate", type: "string", required: false },
@@ -349,6 +358,8 @@ export function createElevenLabsClientTools({
   const safeRequestJson = requestJson || defaultRequestJson;
   const driverReportContextCache = new Map();
   const driverReportVehiclePickerCache = new Map();
+  const driverReportVehiclePickerOpenCache = new Map();
+  const driverReportVehiclePickerSelectionCache = new Map();
 
   function withQuery(path, params = {}) {
     const query = new URLSearchParams();
@@ -502,6 +513,67 @@ export function createElevenLabsClientTools({
     });
   }
 
+  function driverVehiclePickerDiagnostic(toolName, status, detail = {}) {
+    const statusText = status === "succeeded"
+      ? "succeeded"
+      : status === "called"
+        ? "called"
+        : "failed";
+    const eventText = `Tool ${statusText}: ${toolName}`;
+    const payload = {
+      toolName,
+      toolStatus: statusText,
+      eventText,
+      detail,
+      createdAt: new Date().toISOString()
+    };
+
+    if (typeof console !== "undefined") {
+      const logger = statusText === "failed" ? console.warn : console.info;
+      logger?.call(console, eventText, detail);
+    }
+
+    if (typeof window !== "undefined") {
+      window.__sarlotaDriverVehiclePickerDiagnostics = [
+        ...(Array.isArray(window.__sarlotaDriverVehiclePickerDiagnostics)
+          ? window.__sarlotaDriverVehiclePickerDiagnostics
+          : []),
+        payload
+      ].slice(-20);
+
+      if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+        window.dispatchEvent(new window.CustomEvent("sarlota-driver-vehicle-picker-tool", { detail: payload }));
+      }
+    }
+
+    return payload;
+  }
+
+  function toolDiagnosticFields(toolName, status, diagnostics = []) {
+    const current = driverVehiclePickerDiagnostic(toolName, status);
+    const eventTexts = [...diagnostics, current]
+      .map((item) => cleanString(item?.eventText))
+      .filter(Boolean);
+
+    return {
+      toolCalled: toolName,
+      toolStatus: current.toolStatus,
+      toolDiagnostic: current.eventText,
+      transcriptDiagnostic: current.eventText,
+      toolDiagnostics: eventTexts
+    };
+  }
+
+  function cacheDriverVehiclePickerSelection(key, payload = {}) {
+    const sessionKey = cleanString(key) || "active";
+    driverReportVehiclePickerSelectionCache.set(sessionKey, {
+      status: cleanString(payload.status || "selected"),
+      vehicleId: cleanString(payload.vehicleId || payload.vehicle?.vehicleId || payload.vehicle?.id),
+      vehicleSelectionSource: "backend_ui_picker",
+      selectedAt: new Date().toISOString()
+    });
+  }
+
   async function getDriverReportContext(parameters = {}) {
     const sessionKey = driverReportSessionKey(parameters);
     const forceReload = booleanToolValue(parameters.forceReload || parameters.force_reload);
@@ -533,7 +605,7 @@ export function createElevenLabsClientTools({
         ? "Nejsi přihlášený. Přihlas se a zkus to znovu."
         : code === "FORBIDDEN"
           ? "K tomu nemáš oprávnění."
-          : "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
+        : "Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
       return {
         ok: false,
         module: "hlaseni-ridicu",
@@ -686,101 +758,117 @@ export function createElevenLabsClientTools({
     document.querySelectorAll("[data-ai-driver-vehicle-picker]").forEach((element) => element.remove());
   }
 
-  function openDriverVehiclePickerDialog(vehicles = []) {
+  function openDriverVehiclePickerDialog(vehicles = [], { sessionKey = "active" } = {}) {
     if (typeof document === "undefined" || typeof window === "undefined") {
-      return Promise.resolve({ status: "unavailable" });
+      return { status: "unavailable", pickerOpened: false };
     }
 
     removeExistingDriverVehiclePicker();
 
-    return new Promise((resolve) => {
-      let settled = false;
-      let timeout = null;
-      const backdrop = document.createElement("div");
-      const dialog = document.createElement("section");
-      const eyebrow = document.createElement("span");
-      const title = document.createElement("h2");
-      const note = document.createElement("p");
-      const list = document.createElement("div");
-      const actions = document.createElement("div");
-      const cancel = document.createElement("button");
+    let settled = false;
+    let timeout = null;
+    const backdrop = document.createElement("div");
+    const dialog = document.createElement("section");
+    const eyebrow = document.createElement("span");
+    const title = document.createElement("h2");
+    const note = document.createElement("p");
+    const list = document.createElement("div");
+    const actions = document.createElement("div");
+    const cancel = document.createElement("button");
 
-      function settle(payload) {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        window.clearTimeout(timeout);
-        document.removeEventListener("keydown", onKeydown);
-        backdrop.remove();
-        resolve(payload);
+    function settle(payload) {
+      if (settled) {
+        return;
       }
 
-      function onKeydown(event) {
-        if (event.key === "Escape") {
-          settle({ status: "cancelled" });
-        }
-      }
-
-      backdrop.className = "ai-driver-vehicle-picker-backdrop";
-      backdrop.dataset.aiDriverVehiclePicker = "true";
-      backdrop.setAttribute("role", "presentation");
-      dialog.className = "ai-driver-vehicle-picker";
-      dialog.setAttribute("role", "dialog");
-      dialog.setAttribute("aria-modal", "true");
-      dialog.setAttribute("aria-labelledby", "ai-driver-vehicle-picker-title");
-      dialog.setAttribute("aria-describedby", "ai-driver-vehicle-picker-note");
-      eyebrow.className = "ai-driver-vehicle-picker__eyebrow";
-      eyebrow.textContent = "Hlášení řidičů";
-      title.id = "ai-driver-vehicle-picker-title";
-      title.textContent = "Vyber vozidlo";
-      note.id = "ai-driver-vehicle-picker-note";
-      note.textContent = "Potvrď vozidlo pro aktuální hlášení.";
-      list.className = "ai-driver-vehicle-picker__list";
-      actions.className = "ai-driver-vehicle-picker__actions";
-      cancel.className = "ai-secondary-button";
-      cancel.type = "button";
-      cancel.textContent = "Zrušit";
-      cancel.addEventListener("click", () => settle({ status: "cancelled" }));
-
-      vehicles.forEach((vehicle) => {
-        const button = document.createElement("button");
-        const label = document.createElement("strong");
-        const meta = document.createElement("span");
-        const vehicleId = cleanString(vehicle?.id || vehicle?.vehicleId);
-
-        button.className = "ai-driver-vehicle-picker__option";
-        button.type = "button";
-        button.disabled = !vehicleId;
-        label.textContent = driverVehiclePickerLabel(vehicle);
-        meta.textContent = driverVehiclePickerMeta(vehicle);
-        button.append(label, meta);
-        button.addEventListener("click", () => settle({
-          status: "selected",
-          vehicle: {
-            id: vehicleId,
-            vehicleId,
-            assignedToCurrentDriver: vehicle?.assignedToCurrentDriver === true,
-            existsInFleet: vehicle?.existsInFleet === true
-          }
-        }));
-        list.append(button);
+      settled = true;
+      window.clearTimeout(timeout);
+      document.removeEventListener("keydown", onKeydown);
+      backdrop.remove();
+      driverReportVehiclePickerOpenCache.set(sessionKey, {
+        status: cleanString(payload.status || "closed"),
+        pickerOpened: false,
+        updatedAt: new Date().toISOString()
       });
 
-      actions.append(cancel);
-      dialog.append(eyebrow, title, note, list, actions);
-      backdrop.append(dialog);
-      document.body.append(backdrop);
-      document.addEventListener("keydown", onKeydown);
-      timeout = window.setTimeout(() => settle({ status: "timeout" }), 90000);
-      const firstButton = list.querySelector("button:not(:disabled)");
-      firstButton?.focus?.();
+      if (payload.status === "selected" && payload.vehicle?.vehicleId) {
+        cacheDriverVehiclePickerSelection(sessionKey, payload);
+        toast({ type: "success", message: DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE });
+      }
+    }
+
+    function onKeydown(event) {
+      if (event.key === "Escape") {
+        settle({ status: "cancelled" });
+      }
+    }
+
+    backdrop.className = "ai-driver-vehicle-picker-backdrop";
+    backdrop.dataset.aiDriverVehiclePicker = "true";
+    backdrop.setAttribute("role", "presentation");
+    dialog.className = "ai-driver-vehicle-picker";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "ai-driver-vehicle-picker-title");
+    dialog.setAttribute("aria-describedby", "ai-driver-vehicle-picker-note");
+    eyebrow.className = "ai-driver-vehicle-picker__eyebrow";
+    eyebrow.textContent = "Hlášení řidičů";
+    title.id = "ai-driver-vehicle-picker-title";
+    title.textContent = "Vyber vozidlo";
+    note.id = "ai-driver-vehicle-picker-note";
+    note.textContent = "Potvrď vozidlo pro aktuální hlášení.";
+    list.className = "ai-driver-vehicle-picker__list";
+    actions.className = "ai-driver-vehicle-picker__actions";
+    cancel.className = "ai-secondary-button";
+    cancel.type = "button";
+    cancel.textContent = "Zrušit";
+    cancel.addEventListener("click", () => settle({ status: "cancelled" }));
+
+    vehicles.forEach((vehicle) => {
+      const button = document.createElement("button");
+      const label = document.createElement("strong");
+      const meta = document.createElement("span");
+      const vehicleId = cleanString(vehicle?.id || vehicle?.vehicleId);
+
+      button.className = "ai-driver-vehicle-picker__option";
+      button.type = "button";
+      button.disabled = !vehicleId;
+      label.textContent = driverVehiclePickerLabel(vehicle);
+      meta.textContent = driverVehiclePickerMeta(vehicle);
+      button.append(label, meta);
+      button.addEventListener("click", () => settle({
+        status: "selected",
+        vehicle: {
+          id: vehicleId,
+          vehicleId,
+          assignedToCurrentDriver: vehicle?.assignedToCurrentDriver === true,
+          existsInFleet: vehicle?.existsInFleet === true
+        }
+      }));
+      list.append(button);
     });
+
+    actions.append(cancel);
+    dialog.append(eyebrow, title, note, list, actions);
+    backdrop.append(dialog);
+    document.body.append(backdrop);
+    document.addEventListener("keydown", onKeydown);
+    timeout = window.setTimeout(() => settle({ status: "timeout" }), 90000);
+    const firstButton = list.querySelector("button:not(:disabled)");
+    firstButton?.focus?.();
+
+    driverReportVehiclePickerOpenCache.set(sessionKey, {
+      status: "opened",
+      pickerOpened: true,
+      openedAt: new Date().toISOString()
+    });
+
+    return { status: "opened", pickerOpened: true };
   }
 
   async function showDriverVehiclePicker(parameters = {}) {
     const sessionKey = driverReportSessionKey(parameters);
+    const calledDiagnostic = driverVehiclePickerDiagnostic("show_driver_vehicle_picker", "called", { sessionKey });
     let result;
 
     toast({ type: "info", message: DRIVER_REPORT_PICKER_MESSAGE });
@@ -793,7 +881,6 @@ export function createElevenLabsClientTools({
         includeVehiclePicker: "true"
       });
     } catch (error) {
-      const message = cleanString(error?.payload?.error || error?.message) || DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE;
       return {
         ok: false,
         status: "failed",
@@ -802,9 +889,10 @@ export function createElevenLabsClientTools({
         vehiclePickerAvailable: false,
         vehicles: [],
         vehiclesCount: 0,
-        messageForAssistant: `${message} ${DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE}`,
-        answerText: `${message} ${DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE}`,
-        apiStatus: error?.payload?.apiStatus || "waiting"
+        messageForAssistant: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        answerText: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        apiStatus: error?.payload?.apiStatus || "waiting",
+        ...toolDiagnosticFields("show_driver_vehicle_picker", "failed", [calledDiagnostic])
       };
     }
 
@@ -822,45 +910,93 @@ export function createElevenLabsClientTools({
         vehiclePickerAvailable: false,
         vehicles: [],
         vehiclesCount: 0,
-        messageForAssistant: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
-        answerText: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
-        apiStatus: result.apiStatus || "ready"
+        messageForAssistant: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        answerText: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        apiStatus: result.apiStatus || "ready",
+        ...toolDiagnosticFields("show_driver_vehicle_picker", "failed", [calledDiagnostic])
       };
     }
 
-    const selection = await openDriverVehiclePickerDialog(vehicles);
-    if (selection.status !== "selected" || !selection.vehicle?.vehicleId) {
-      const message = selection.status === "timeout"
-        ? "Výběr vozidla vypršel. Zkus ho otevřít znovu, nebo mi řekni SPZ z vozidla."
-        : "Výběr vozidla je zrušený. Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
+    const picker = openDriverVehiclePickerDialog(vehicles, { sessionKey });
+    if (picker.status !== "opened" || picker.pickerOpened !== true) {
       return {
         ok: false,
-        status: selection.status || "cancelled",
-        errorCode: "DRIVER_VEHICLE_NOT_SELECTED",
+        status: picker.status || "failed",
+        errorCode: "DRIVER_VEHICLE_PICKER_UNAVAILABLE",
         vehiclesVerified: false,
-        vehiclePickerAvailable: true,
+        vehiclePickerAvailable: false,
+        pickerOpened: false,
         vehicles: [],
         vehiclesCount: 0,
-        messageForAssistant: message,
-        answerText: message,
-        apiStatus: result.apiStatus || "ready"
+        messageForAssistant: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        answerText: DRIVER_REPORT_PICKER_FAILED_MESSAGE,
+        apiStatus: result.apiStatus || "ready",
+        ...toolDiagnosticFields("show_driver_vehicle_picker", "failed", [calledDiagnostic])
       };
     }
 
     return {
       ok: true,
-      status: "selected",
+      status: "picker_opened",
       intent: "driver_part_request",
-      vehicleId: selection.vehicle.vehicleId,
-      vehicleVerified: true,
+      pickerOpened: true,
+      vehicleId: null,
+      vehicleVerified: false,
       vehiclesVerified: false,
       vehicleSelectionSource: "backend_ui_picker",
       vehicles: [],
       vehiclesCount: 0,
-      message: DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE,
-      messageForAssistant: `${DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE} Nepojmenovávej ho nahlas; pokračuj potvrzením závady.`,
-      answerText: DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE,
-      apiStatus: result.apiStatus || "ready"
+      message: DRIVER_REPORT_PICKER_MESSAGE,
+      messageForAssistant: "Výběr vozidla je otevřený v aplikaci. Pokud uživatel řekne `toto`, `vybráno` nebo chce pokračovat, zavolej get_driver_vehicle_picker_selection. Pokud nevrátí vehicleId, řekni: Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.",
+      answerText: DRIVER_REPORT_PICKER_MESSAGE,
+      apiStatus: result.apiStatus || "ready",
+      ...toolDiagnosticFields("show_driver_vehicle_picker", "succeeded", [calledDiagnostic])
+    };
+  }
+
+  function getDriverVehiclePickerSelection(parameters = {}) {
+    const sessionKey = driverReportSessionKey(parameters);
+    const calledDiagnostic = driverVehiclePickerDiagnostic("get_driver_vehicle_picker_selection", "called", { sessionKey });
+    const selection = driverReportVehiclePickerSelectionCache.get(sessionKey);
+
+    if (selection?.vehicleId) {
+      return {
+        ok: true,
+        status: "selected",
+        intent: "driver_part_request",
+        vehicleId: selection.vehicleId,
+        vehicleVerified: true,
+        vehiclesVerified: false,
+        vehicleSelectionSource: selection.vehicleSelectionSource || "backend_ui_picker",
+        vehicles: [],
+        vehiclesCount: 0,
+        message: DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE,
+        messageForAssistant: "Vozidlo je vybrané v aplikaci. Nepojmenovávej ho nahlas; pokračuj potvrzením závady.",
+        answerText: DRIVER_REPORT_VEHICLE_SELECTED_MESSAGE,
+        apiStatus: "ready",
+        ...toolDiagnosticFields("get_driver_vehicle_picker_selection", "succeeded", [calledDiagnostic])
+      };
+    }
+
+    const pickerState = driverReportVehiclePickerOpenCache.get(sessionKey);
+    const code = pickerState?.pickerOpened === true
+      ? "DRIVER_VEHICLE_PICKER_SELECTION_PENDING"
+      : "VEHICLE_SPZ_REQUIRED";
+
+    return {
+      ok: false,
+      status: "needs_input",
+      code,
+      errorCode: code,
+      vehicleVerified: false,
+      vehiclesVerified: false,
+      vehicles: [],
+      vehiclesCount: 0,
+      message: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
+      messageForAssistant: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
+      answerText: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
+      apiStatus: "ready",
+      ...toolDiagnosticFields("get_driver_vehicle_picker_selection", "failed", [calledDiagnostic])
     };
   }
 
@@ -1082,6 +1218,7 @@ export function createElevenLabsClientTools({
   }
 
   async function createDriverPartRequest(parameters = {}) {
+    const sessionKey = driverReportSessionKey(parameters);
     const defectDescription = cleanString(
       parameters.defectDescription ||
       parameters.defect_description ||
@@ -1103,8 +1240,13 @@ export function createElevenLabsClientTools({
     let vehicleName = cleanString(parameters.vehicleName || parameters.vehicle || parameters.car);
     let vin = cleanString(parameters.vin || parameters.VIN);
     let vehicleBrand = cleanString(parameters.vehicleBrand || parameters.brand);
-    const vehicleSelectionSource = cleanString(parameters.vehicleSelectionSource || parameters.vehicle_selection_source);
+    let vehicleSelectionSource = cleanString(parameters.vehicleSelectionSource || parameters.vehicle_selection_source);
     const spokenSummary = cleanString(parameters.spokenSummary || parameters.summary || parameters.message);
+    const cachedSelection = driverReportVehiclePickerSelectionCache.get(sessionKey);
+    if (!vehicleId && cachedSelection?.vehicleId) {
+      vehicleId = cachedSelection.vehicleId;
+      vehicleSelectionSource = cachedSelection.vehicleSelectionSource || "backend_ui_picker";
+    }
     const vehicleSelectionValid = Boolean(vehicleId || licensePlate);
     if (vehicleSelectionValid) {
       vehicleName = "";
@@ -1169,7 +1311,8 @@ export function createElevenLabsClientTools({
         driverPartRequest: null,
         notificationsSent: false,
         apiStatus: "ready",
-        code: rawLicensePlate ? "DRIVER_VEHICLE_SPZ_VALIDATION_REQUIRED" : "DRIVER_VEHICLE_SELECTION_REQUIRED"
+        code: "VEHICLE_SPZ_REQUIRED",
+        errorCode: "VEHICLE_SPZ_REQUIRED"
       };
     }
 
@@ -1220,7 +1363,8 @@ export function createElevenLabsClientTools({
     const confirmationMessage = [
       "Šarlota chce vytvořit hlášení náhradního dílu a předat ho k objednání.",
       preparedParameters.defectDescription ? `Závada: ${preparedParameters.defectDescription}` : (defectDescription ? `Závada: ${defectDescription}` : ""),
-      preparedParameters.licensePlate ? `SPZ: ${preparedParameters.licensePlate}` : "Vozidlo se doplní z přiřazení řidiče, pokud je jednoznačné.",
+      preparedParameters.vehicleId ? "Vozidlo: vybrané v aplikaci" : "",
+      preparedParameters.licensePlate ? `SPZ: ${preparedParameters.licensePlate}` : "",
       preparedParameters.vehicleName ? `Vozidlo: ${preparedParameters.vehicleName}` : "",
       preparedParameters.vin ? `VIN: ${preparedParameters.vin}` : (vin ? `VIN: ${vin}` : ""),
       "Bez potvrzení se nic neuloží ani neodešle."
@@ -1336,6 +1480,10 @@ export function createElevenLabsClientTools({
       return showDriverVehiclePicker(parameters);
     },
 
+    async get_driver_vehicle_picker_selection(parameters = {}) {
+      return getDriverVehiclePickerSelection(parameters);
+    },
+
     async highlight_element(parameters = {}) {
       const selector = cleanString(parameters.selector);
       const message = cleanString(parameters.message);
@@ -1345,7 +1493,7 @@ export function createElevenLabsClientTools({
           ok: false,
           errorCode: "DRIVER_VEHICLE_PICKER_REQUIRED",
           message: DRIVER_REPORT_PICKER_OR_SPZ_MESSAGE,
-          messageForAssistant: "Vozidlo nejde vybrat slovem toto ani zvýrazněním. Otevři výběr vozidla v aplikaci, nebo požádej o SPZ.",
+          messageForAssistant: "Vozidlo nejde vybrat slovem toto ani zvýrazněním. Otevři výběr vozidla v aplikaci, nebo požádej o SPZ vozidla.",
           vehiclesVerified: false,
           vehicles: [],
           vehiclesCount: 0

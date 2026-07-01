@@ -47,7 +47,7 @@ const ABSENCE_TYPE_LABELS = {
 };
 
 const ABSENCE_TYPE_OPTIONS_TEXT = "Dovolená, nemoc, OČR, lékař, náhradní volno, neplacené volno, nebo jiná nepřítomnost.";
-const DRIVER_VEHICLE_PICKER_OR_SPZ_MESSAGE = "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
+const DRIVER_VEHICLE_PICKER_OR_SPZ_MESSAGE = "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
 
 const ABSENCE_TYPE_ALIASES = {
   dovolena: "vacation",

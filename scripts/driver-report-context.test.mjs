@@ -47,6 +47,118 @@ const vehicles = [
   }
 ];
 
+function findInFakeDom(nodes, predicate) {
+  for (const node of nodes || []) {
+    if (predicate(node)) {
+      return node;
+    }
+
+    const child = findInFakeDom(node.children || [], predicate);
+    if (child) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
+function createFakeElement(tagName) {
+  return {
+    tagName,
+    id: "",
+    type: "",
+    className: "",
+    textContent: "",
+    disabled: false,
+    dataset: {},
+    attributes: {},
+    children: [],
+    eventHandlers: {},
+    classList: {
+      add() {},
+      remove() {}
+    },
+    append(...children) {
+      this.children.push(...children);
+    },
+    appendChild(child) {
+      this.children.push(child);
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    addEventListener(type, handler) {
+      this.eventHandlers[type] = handler;
+    },
+    remove() {
+      this.removed = true;
+    },
+    focus() {
+      this.focused = true;
+    },
+    querySelector(selector) {
+      if (selector === "button:not(:disabled)") {
+        return findInFakeDom(this.children, (node) => node.tagName === "button" && !node.disabled);
+      }
+
+      return null;
+    }
+  };
+}
+
+async function withFakeDriverPickerDom(callback) {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const roots = [];
+  const listeners = {};
+
+  globalThis.document = {
+    body: {
+      append(node) {
+        roots.push(node);
+      }
+    },
+    createElement: createFakeElement,
+    querySelectorAll(selector) {
+      if (selector === "[data-ai-driver-vehicle-picker]") {
+        return roots.filter((node) => node.dataset?.aiDriverVehiclePicker === "true");
+      }
+
+      return [];
+    },
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    },
+    removeEventListener(type) {
+      delete listeners[type];
+    }
+  };
+  globalThis.window = {
+    location: { pathname: "/hlaseni-ridicu" },
+    setTimeout() {
+      return 1;
+    },
+    clearTimeout() {},
+    dispatchEvent() {},
+    CustomEvent: class CustomEvent {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    }
+  };
+
+  try {
+    await callback({
+      roots,
+      find: (predicate) => findInFakeDom(roots, predicate)
+    });
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  }
+}
+
 {
   const result = driverVehicleCandidateMatches(vehicles, {
     strictDriverAssignment: true,
@@ -184,7 +296,53 @@ const vehicles = [
   assert.equal(posted, false);
   assert.equal(result.ok, false);
   assert.equal(result.status, "needs_input");
-  assert.equal(result.code, "DRIVER_VEHICLE_SELECTION_REQUIRED");
+  assert.equal(result.code, "VEHICLE_SPZ_REQUIRED");
+  assert.equal(result.message, "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.");
+}
+
+{
+  await withFakeDriverPickerDom(async ({ find }) => {
+    const tools = createElevenLabsClientTools({
+      requestJson: async () => ({
+        ok: true,
+        module: "hlaseni-ridicu",
+        userName: "Radim",
+        userResolved: true,
+        employeeResolved: true,
+        driverResolved: true,
+        vehiclesVerified: true,
+        vehiclePickerAvailable: true,
+        vehicles: [
+          { id: "vehicle-radim-1", displayName: "Utajený vůz", licensePlate: "1A1 1111" }
+        ],
+        vehiclesCount: 1,
+        apiStatus: "ready"
+      })
+    });
+
+    const opened = await tools.show_driver_vehicle_picker({ sessionId: "picker-open-test" });
+    assert.equal(opened.ok, true);
+    assert.equal(opened.status, "picker_opened");
+    assert.equal(opened.pickerOpened, true);
+    assert.deepEqual(opened.vehicles, []);
+    assert.equal(opened.toolDiagnostics.includes("Tool called: show_driver_vehicle_picker"), true);
+    assert.equal(opened.toolDiagnostics.includes("Tool succeeded: show_driver_vehicle_picker"), true);
+
+    const pending = await tools.get_driver_vehicle_picker_selection({ sessionId: "picker-open-test" });
+    assert.equal(pending.ok, false);
+    assert.equal(pending.status, "needs_input");
+    assert.equal(pending.answerText, "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.");
+
+    const option = find((node) => node.className === "ai-driver-vehicle-picker__option" && !node.disabled);
+    assert.ok(option);
+    option.eventHandlers.click();
+
+    const selected = await tools.get_driver_vehicle_picker_selection({ sessionId: "picker-open-test" });
+    assert.equal(selected.ok, true);
+    assert.equal(selected.status, "selected");
+    assert.equal(selected.vehicleId, "vehicle-radim-1");
+    assert.deepEqual(selected.vehicles, []);
+  });
 }
 
 {

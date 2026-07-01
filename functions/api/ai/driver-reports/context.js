@@ -10,9 +10,9 @@ import { hasPermission } from "../../../../src/permissions.js";
 const MODULE_ID = "hlaseni-ridicu";
 const MODULE_KEY = "driver-reports";
 const VEHICLE_PICKER_MESSAGE = "Otevřu ti výběr vozidla v aplikaci.";
-const VEHICLE_PICKER_OR_SPZ_QUESTION = "Vyber vozidlo v aplikaci, nebo mi řekni SPZ z vozidla.";
-const NO_VERIFIED_VEHICLE_QUESTION = "Vozidlo se mi teď nepodařilo bezpečně ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
-const LOAD_FAILED_QUESTION = "Vozidlo se mi teď nepodařilo ověřit. Vyber ho prosím v aplikaci, nebo mi řekni SPZ z vozidla.";
+const VEHICLE_PICKER_OR_SPZ_QUESTION = "Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
+const NO_VERIFIED_VEHICLE_QUESTION = "Vozidlo se mi teď nepodařilo bezpečně ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
+const LOAD_FAILED_QUESTION = "Vozidlo se mi teď nepodařilo ověřit. Potřebuji vybrat vozidlo v aplikaci, nebo mi řekni SPZ vozidla.";
 
 function cleanString(value) {
   return String(value ?? "").trim();
