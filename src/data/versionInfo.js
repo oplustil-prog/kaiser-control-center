@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.292"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.293"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: zkratky obchodníků oddělené od odpadu",
+    text: "Parser 13 Excelů bere DPI, PLI, FKU, PČE/PCE, PPA a ROP jako zkratky obchodníků v metadatech řádku, ne jako typ odpadu. Tím se snižuje počet nejasných řádků bez přepsání zdrojové trasy."
+  },
   {
     title: "Trasy svozu: PDF náhled z 13 Excelů",
     text: "Svozové trasy mají rozšířený read-only PDF/tiskový náhled aktuálního filtru včetně dne, týdne, auta, batch ID, rozpadů odpadů a mapování, zdrojového Excelu/listu/řádku a Vistos problému bez ostrých tras."

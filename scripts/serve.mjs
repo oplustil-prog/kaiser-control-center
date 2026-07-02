@@ -740,19 +740,39 @@ function routeSourceWeek(value) {
   return "každý týden";
 }
 
+const routeSourceSalesCodes = new Set(["DPI", "PLI", "FKU", "PCE", "PPA", "ROP"]);
+
+function routeSourceCompactText(value) {
+  return normalizeRouteSourceText(value).replace(/[^A-Z0-9]+/g, "");
+}
+
+function routeSourceSalesCode(value) {
+  const parts = String(value || "").split("|").map((part) => part.trim()).filter(Boolean);
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const code = routeSourceCompactText(parts[index]);
+    if (routeSourceSalesCodes.has(code)) {
+      return code;
+    }
+  }
+  return "";
+}
+
 function routeSourceFieldLooksOperational(value) {
   const text = normalizeRouteSourceText(value);
+  const compact = routeSourceCompactText(value);
   return Boolean(
     text &&
     !/^\d+$/.test(text) &&
-    !/\b(SUDY|SUDE|LICHY|LICHE|PONDELI|UTERY|STREDA|CTVRTEK|PATEK|DPI|PLI|FKU|MAP)\b/.test(text) &&
+    !routeSourceSalesCodes.has(compact) &&
+    !/\b(SUDY|SUDE|LICHY|LICHE|PONDELI|UTERY|STREDA|CTVRTEK|PATEK|DPI|PLI|FKU|PCE|PPA|ROP|MAP)\b/.test(text) &&
     !/\b(1X7|2X7|3X7|5X7|1X14|1X30|KONT|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO)\b/.test(text)
   );
 }
 
-function routeSourceDerivedFields(row) {
+function routeSourceDerivedFields(row, context = {}) {
   const parts = String(row.originalText || "").split("|").map((part) => part.trim()).filter(Boolean);
   const operationalParts = parts.filter(routeSourceFieldLooksOperational);
+  const salesCode = String(context.salesCode || "").trim() || routeSourceSalesCode(row.originalText);
   const customerName = operationalParts[0] || "";
   const addressText = operationalParts.find((part) => /[,0-9]/.test(part) && part !== customerName) || operationalParts[1] || "";
   const note = parts.find((part) => /\b(pozn|pozastav|vyraz|vyřaz|konec|volat|klic|klíč|kontakt|brana|brána)\b/i.test(part)) || "";
@@ -769,7 +789,7 @@ function routeSourceDerivedFields(row) {
   } else if (!row.frequency || row.frequency === "-") {
     mappingStatus = "chybí frekvence";
     mappingIssue = "chybí četnost svozu";
-  } else if (issues.includes("needs-vistos-waste-type") || issues.includes("source-note-cancelled-or-stopped")) {
+  } else if ((issues.includes("needs-vistos-waste-type") && !salesCode) || issues.includes("source-note-cancelled-or-stopped")) {
     mappingStatus = "nejasné";
     mappingIssue = "typ odpadu nebo platnost řádku vyžaduje kontrolu";
   }
@@ -3583,7 +3603,8 @@ async function handleApi(request, response) {
           continue;
         }
         seen.add(key);
-        const derived = routeSourceDerivedFields(row);
+        const salesCode = routeSourceSalesCode(row.originalText);
+        const derived = routeSourceDerivedFields(row, { salesCode });
         sourceRows.push({
           id: `collection-route-source-row-${randomUUID()}`,
           batchId,
@@ -3618,6 +3639,8 @@ async function handleApi(request, response) {
             qualityStatus: row.qualityStatus,
             qualityIssues: row.qualityIssues || [],
             confidence: row.confidence,
+            salesCode,
+            salesCodeSource: salesCode ? "source-row-suffix" : "",
             vehicleSource: "working-draft",
             createsOperationalRoutes: false,
             sendsEmailOrSms: false,
