@@ -39,17 +39,24 @@ function normalizeModel(value) {
 }
 
 function modelFromAgent(agentConfig) {
-  return cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model"]))
+  return cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "llm"]))
+    || cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model"]))
     || cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model_id"]))
+    || cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "llm"]))
     || cleanString(getPathValue(agentConfig, ["conversation_config", "agent", "model"]));
 }
 
-function promptModelKey(agentConfig) {
+function promptModelPatch(agentConfig) {
+  const patch = {
+    llm: LLM_MODEL_EXPECTED_IN_ELEVENLABS,
+    model: LLM_MODEL_EXPECTED_IN_ELEVENLABS
+  };
+
   if (getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model_id"]) !== undefined) {
-    return "model_id";
+    patch.model_id = LLM_MODEL_EXPECTED_IN_ELEVENLABS;
   }
 
-  return "model";
+  return patch;
 }
 
 async function elevenLabsRequest({ apiKey, path, method = "GET", body = null }) {
@@ -92,9 +99,7 @@ function buildPatch(agentConfig) {
     conversation_config: {
       agent: {
         first_message: FIRST_MESSAGE_TEMPLATE,
-        prompt: {
-          [promptModelKey(agentConfig)]: LLM_MODEL_EXPECTED_IN_ELEVENLABS
-        }
+        prompt: promptModelPatch(agentConfig)
       }
     }
   };
