@@ -14214,6 +14214,7 @@ body:has(.data-box-page) {
   .collection-routes-tabs a,
   .collection-routes-source-switch__link,
   .collection-routes-import-form .primary-action,
+  .collection-routes-preview-block__actions .primary-action,
   .collection-routes-preview-block__actions .secondary-link {
     width: 100%;
     justify-content: center;

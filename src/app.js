@@ -13899,6 +13899,78 @@ function collectionRoutesSourceWeekLabel(value) {
   return value === "all" ? "všechny týdny" : value || "-";
 }
 
+const COLLECTION_ROUTES_SOURCE_WORKDAY_CODES = {
+  1: "PO",
+  2: "ÚT",
+  3: "ST",
+  4: "ČT",
+  5: "PÁ"
+};
+
+const COLLECTION_ROUTES_SOURCE_SMART_DAY_DEFS = [
+  { key: "today", label: "dnes", offsetDays: 0 },
+  { key: "tomorrow", label: "zítra", offsetDays: 1 },
+  { key: "after-tomorrow", label: "pozítří", offsetDays: 2 }
+];
+
+function collectionRoutesSourcePragueDateParts(offsetDays = 0, now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Prague",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now).reduce((result, part) => {
+    if (part.type !== "literal") {
+      result[part.type] = Number(part.value);
+    }
+    return result;
+  }, {});
+  const target = new Date(Date.UTC(parts.year, (parts.month || 1) - 1, (parts.day || 1) + offsetDays));
+  return {
+    year: target.getUTCFullYear(),
+    month: target.getUTCMonth() + 1,
+    day: target.getUTCDate(),
+    weekday: target.getUTCDay()
+  };
+}
+
+function collectionRoutesSourceIsoWeekNumber(dateParts) {
+  const date = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day));
+  const dayNumber = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+function collectionRoutesSourceWeekModeForDate(dateParts) {
+  return collectionRoutesSourceIsoWeekNumber(dateParts) % 2 === 0 ? "sudý týden" : "lichý týden";
+}
+
+function collectionRoutesSourceDateLabel(dateParts) {
+  return `${dateParts.day}. ${dateParts.month}. ${dateParts.year}`;
+}
+
+function collectionRoutesSourceSmartDateOptions() {
+  return COLLECTION_ROUTES_SOURCE_SMART_DAY_DEFS.map((definition) => {
+    const dateParts = collectionRoutesSourcePragueDateParts(definition.offsetDays);
+    const dayCode = COLLECTION_ROUTES_SOURCE_WORKDAY_CODES[dateParts.weekday] || "";
+    const weekMode = collectionRoutesSourceWeekModeForDate(dateParts);
+    return {
+      ...definition,
+      dateParts,
+      dateLabel: collectionRoutesSourceDateLabel(dateParts),
+      dayCode,
+      dayLabel: dayCode ? collectionRoutesSourceDayLabel(dayCode) : "víkend",
+      weekMode,
+      disabled: !dayCode
+    };
+  });
+}
+
+function collectionRoutesSourceShortWeekLabel(value) {
+  return String(value || "").replace(" týden", "") || "-";
+}
+
 function collectionRoutesSourceWasteLabel(value) {
   const labels = {
     SKO: "SKO",
@@ -13966,6 +14038,26 @@ function collectionRoutesSourceNormalizedVistosStatus(row) {
 
 function collectionRoutesSourceVistosIssue(row) {
   return row?.vistosIssue || row?.mappingIssue || "-";
+}
+
+function collectionRoutesSourceDriverContainerLabel(row) {
+  if (!row?.containerVolume && !row?.containerCount) {
+    return "-";
+  }
+  const count = row.containerCount || 1;
+  return row.containerVolume ? `${count}× ${row.containerVolume} l` : `${count}× nádoba`;
+}
+
+function collectionRoutesSourceDriverProblemLabel(row) {
+  const status = collectionRoutesSourceVistosStatus(row);
+  const issue = collectionRoutesSourceVistosIssue(row);
+  if (!status || status === "-") {
+    return issue || "-";
+  }
+  if (!issue || issue === "-" || issue === status) {
+    return status;
+  }
+  return `${status} · ${issue}`;
 }
 
 function collectionRoutesSourceVistosContract(row) {
@@ -14159,6 +14251,36 @@ function collectionRoutesSourceRepairDecision(row) {
   return "Ručně zkontrolovat zdrojový řádek a ponechat původní trasu beze změny.";
 }
 
+function collectionRoutesSourceDriverPreviewPanel() {
+  const rows = collectionRoutesPilotState.sourceRows;
+  const cappedRows = rows.slice(0, 300);
+  const actionsHtml = `
+    <button class="primary-action" type="button" data-collection-routes-source-print-driver ${rows.length ? "" : "disabled"}>
+      Tisk pro řidiče
+    </button>
+  `;
+  const extraNotice = rows.length > cappedRows.length
+    ? `<p class="module-feedback__notice">Zobrazeno prvních ${escapeHtml(cappedRows.length)} zastávek v řidičském náhledu. Tisk pro řidiče vezme celý aktuálně načtený filtr.</p>`
+    : "";
+
+  return `
+    <div class="collection-routes-phase-note collection-routes-source-review-note" id="collection-routes-source-driver-preview">
+      <strong>Řidičský náhled trasy.</strong>
+      <span>Read-only tiskový podklad z aktuálního filtru. Ukazuje jen praktické údaje pro jízdu a kontrolu zastávek; bez navigace, GPS, T-Cars, potvrzování svozu a ostré trasy.</span>
+    </div>
+    ${collectionRoutesPreviewTable(`Řidičský náhled: ${collectionRoutesSourceRouteTitle()}`, [
+      { label: "Pořadí", value: (row) => row.routeOrder },
+      { label: "Zákazník", value: (row) => row.customerName },
+      { label: "Adresa", value: (row) => row.addressText },
+      { label: "Nádoba", value: (row) => collectionRoutesSourceDriverContainerLabel(row) },
+      { label: "Počet", value: (row) => row.containerCount || (row.containerVolume ? 1 : "-") },
+      { label: "Poznámka", value: (row) => row.note },
+      { label: "Stav / problém", value: (row) => collectionRoutesSourceDriverProblemLabel(row) }
+    ], cappedRows, "Nahrajte 13 Excelů nebo upravte filtr. Řidičský náhled je jen read-only výstup aktuálního filtru.", actionsHtml)}
+    ${extraNotice}
+  `;
+}
+
 function collectionRoutesSourceRepairPanel() {
   const repairRows = collectionRoutesSourceRepairRows();
   const cappedRows = repairRows.slice(0, 250);
@@ -14345,6 +14467,46 @@ function collectionRoutesSourceFilters() {
   `;
 }
 
+function collectionRoutesSourceSmartFilterPanel() {
+  const options = collectionRoutesSourceSmartDateOptions();
+  const vehicles = ["A", "B", "C"];
+  const filters = collectionRoutesPilotState.sourceFilters || {};
+  const today = options[0];
+  return `
+    <div class="collection-routes-phase-note collection-routes-source-review-note" id="collection-routes-source-smart-filter">
+      <strong>Chytrý filtr pro tisk.</strong>
+      <span>Dnes je ${escapeHtml(today.dateLabel)}: ${escapeHtml(today.dayLabel)} / ${escapeHtml(today.weekMode)}. Vyber auto a termín; Smart nastaví den, týden a auto pro aktuální trasu z 13 Excelů.</span>
+    </div>
+    <div class="collection-routes-preview-block">
+      <div class="collection-routes-preview-block__head">
+        <h3>Rychlé trasy k tisku</h3>
+      </div>
+      <div class="collection-routes-preview-block__actions">
+        ${vehicles.flatMap((vehicle) => options.map((option) => {
+          const active = !option.disabled &&
+            filters.day === option.dayCode &&
+            filters.week === option.weekMode &&
+            filters.vehicle === vehicle &&
+            collectionRoutesSourceFilterValue("waste") === "all" &&
+            collectionRoutesSourceFilterValue("mappingStatus") === "all";
+          const title = option.disabled
+            ? `${option.label} ${option.dateLabel}: víkend, ve zdroji 13 Excelů zatím nejsou víkendové trasy`
+            : `${collectionRoutesSourceVehicleLabel(vehicle)} ${option.label}: ${option.dayCode} / ${collectionRoutesSourceShortWeekLabel(option.weekMode)} / ${option.dateLabel}`;
+          return `
+            <button class="${active ? "primary-action" : "secondary-link"}" type="button"
+              data-collection-routes-source-smart-day="${escapeHtml(option.key)}"
+              data-collection-routes-source-smart-vehicle="${escapeHtml(vehicle)}"
+              title="${escapeHtml(title)}"
+              ${option.disabled ? "disabled" : ""}>
+              ${escapeHtml(`${collectionRoutesSourceVehicleLabel(vehicle)} ${option.label} (${option.dayCode || "víkend"} / ${collectionRoutesSourceShortWeekLabel(option.weekMode)})`)}
+            </button>
+          `;
+        })).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function collectionRoutesSourceRouteTitle() {
   const filters = collectionRoutesPilotState.sourceFilters || {};
   return [
@@ -14392,8 +14554,10 @@ function collectionRoutesSourceRoutesSection(user) {
       ${collectionRoutesSourceVistosMatchStatus()}
 
       ${collectionRoutesSourceImportCards()}
+      ${collectionRoutesSourceSmartFilterPanel()}
       ${collectionRoutesSourceFilters()}
       ${collectionRoutesSourceSummaryCards()}
+      ${collectionRoutesSourceDriverPreviewPanel()}
       ${collectionRoutesSourceRepairPanel()}
       ${collectionRoutesSourceReviewPanel()}
 
@@ -14402,6 +14566,7 @@ function collectionRoutesSourceRoutesSection(user) {
           ${collectionRoutesPilotState.sourceVistosMatchLoading ? "Páruju s Vistosem..." : "Spustit Vistos match"}
         </button>
         <button class="secondary-link" type="button" data-collection-routes-source-export-csv ${rows.length ? "" : "disabled"}>Vybranou trasu do CSV</button>
+        <button class="secondary-link" type="button" data-collection-routes-source-print-driver ${rows.length ? "" : "disabled"}>Tisk pro řidiče</button>
         <button class="primary-action" type="button" data-collection-routes-source-print-pdf ${rows.length ? "" : "disabled"}>Vybranou trasu do PDF</button>
       </div>
 
@@ -21239,6 +21404,32 @@ async function focusCollectionRoutesSourceRepairStatus(status) {
   document.getElementById("collection-routes-source-repair-panel")?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
+async function applyCollectionRoutesSourceSmartFilter(dayKey, vehicle) {
+  const option = collectionRoutesSourceSmartDateOptions().find((item) => item.key === dayKey);
+  if (!option || !["A", "B", "C"].includes(vehicle)) {
+    return;
+  }
+  if (option.disabled) {
+    collectionRoutesPilotState.sourceImportError = `${option.label} ${option.dateLabel} je víkend. Svozové trasy z 13 Excelů teď obsahují pracovní dny pondělí až pátek.`;
+    collectionRoutesPilotState.sourceImportMessage = "";
+    render();
+    return;
+  }
+  collectionRoutesPilotState.sourceFilters = {
+    ...(collectionRoutesPilotState.sourceFilters || {}),
+    day: option.dayCode,
+    week: option.weekMode,
+    vehicle,
+    waste: "all",
+    mappingStatus: "all"
+  };
+  collectionRoutesPilotState.sourceImportError = "";
+  collectionRoutesPilotState.sourceImportMessage =
+    `Chytrý filtr: ${collectionRoutesSourceVehicleLabel(vehicle)} / ${option.label} ${option.dateLabel} / ${option.dayCode} / ${option.weekMode}. Teď můžeš dát Tisk pro řidiče.`;
+  await loadCollectionRoutesSourceRoutes({ renderAfter: true });
+  document.getElementById("collection-routes-source-driver-preview")?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 function printCollectionRoutesSourcePdf() {
   const rows = collectionRoutesPilotState.sourceRows;
   if (!rows.length) {
@@ -21367,6 +21558,114 @@ function printCollectionRoutesSourcePdf() {
   const printWindow = window.open("", "_blank", "noopener,noreferrer");
   if (!printWindow) {
     collectionRoutesPilotState.sourceImportError = "Prohlížeč zablokoval PDF náhled. Povolte vyskakovací okno pro tisk.";
+    render();
+    return;
+  }
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
+function printCollectionRoutesSourceDriverPreview() {
+  const rows = collectionRoutesPilotState.sourceRows;
+  if (!rows.length) {
+    collectionRoutesPilotState.sourceImportError = "Není co tisknout pro řidiče. Nahrajte 13 Excelů nebo upravte filtr.";
+    collectionRoutesPilotState.sourceImportMessage = "";
+    render();
+    return;
+  }
+
+  const summary = collectionRoutesPilotState.sourceSummary || {};
+  const filters = collectionRoutesPilotState.sourceFilters || {};
+  const selectedBatch = collectionRoutesSourceSelectedBatch();
+  const title = `Řidičský náhled ${collectionRoutesSourceRouteTitle()}`;
+  const generatedAt = formatDateTime(new Date().toISOString()) || new Date().toISOString();
+  const batchLabel = formatDateTime(selectedBatch?.createdAt) || selectedBatch?.id || "aktuální import";
+  const html = `<!doctype html>
+    <html lang="cs">
+      <head>
+        <meta charset="utf-8">
+        <title>${escapeHtml(title)}</title>
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; color: #172033; margin: 18px; }
+          h1 { font-size: 24px; margin: 0 0 6px; }
+          .subtitle { color: #40506a; font-size: 12px; margin: 0 0 12px; }
+          .meta { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+          .meta div { border: 1px solid #cfd7e6; padding: 7px; min-height: 44px; }
+          .meta span { display: block; color: #5d6b82; font-size: 10px; text-transform: uppercase; }
+          .meta strong { display: block; font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+          .safety { border: 1px solid #d8deea; background: #f7f9fc; color: #40506a; margin: 12px 0; padding: 8px; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
+          th, td { border: 1px solid #d8deea; padding: 5px; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+          th { background: #eef3f8; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          .col-order { width: 5%; }
+          .col-customer { width: 17%; }
+          .col-address { width: 24%; }
+          .col-container { width: 10%; }
+          .col-count { width: 6%; }
+          .col-note { width: 20%; }
+          .col-problem { width: 18%; }
+          .print-actions { margin: 0 0 12px; display: flex; gap: 8px; }
+          .print-actions button { border: 1px solid #93a4bc; background: #172033; color: #fff; padding: 7px 10px; border-radius: 4px; cursor: pointer; }
+          @media print {
+            body { margin: 0; }
+            .print-actions { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-actions">
+          <button type="button" onclick="window.print()">Tisk / uložit jako PDF</button>
+          <button type="button" onclick="window.close()">Zavřít</button>
+        </div>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="subtitle">Read-only tiskový podklad z aktuálního filtru. Pořadí je podle zdrojového Excelu; nejde o optimalizovanou ani ostrou trasu.</p>
+        <div class="meta">
+          <div><span>Datum</span><strong>${escapeHtml(generatedAt)}</strong></div>
+          <div><span>Den</span><strong>${escapeHtml(collectionRoutesSourceDayLabel(filters.day || "all"))}</strong></div>
+          <div><span>Týden</span><strong>${escapeHtml(collectionRoutesSourceWeekLabel(filters.week || "all"))}</strong></div>
+          <div><span>Auto</span><strong>${escapeHtml(collectionRoutesSourceVehicleLabel(filters.vehicle || "all"))}</strong></div>
+          <div><span>Zastávky</span><strong>${escapeHtml(summary.rowCount || rows.length)}</strong></div>
+          <div><span>Nádoby</span><strong>${escapeHtml(summary.containerCount || 0)}</strong></div>
+          <div><span>Import</span><strong>${escapeHtml(batchLabel)}</strong></div>
+        </div>
+        <p class="safety">Bez navigace, GPS, T-Cars, potvrzování svozu, SMS/e-mailů a automatizací. Vistos je jen read-only mapování řádků ze 13 Excelů.</p>
+        <table>
+          <thead>
+            <tr>
+              <th class="col-order">#</th>
+              <th class="col-customer">Zákazník</th>
+              <th class="col-address">Adresa</th>
+              <th class="col-container">Nádoba</th>
+              <th class="col-count">Počet</th>
+              <th class="col-note">Poznámka</th>
+              <th class="col-problem">Stav / problém</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.routeOrder || "-")}</td>
+                <td>${escapeHtml(row.customerName || "-")}</td>
+                <td>${escapeHtml(row.addressText || "-")}</td>
+                <td>${escapeHtml(collectionRoutesSourceDriverContainerLabel(row))}</td>
+                <td>${escapeHtml(row.containerCount || (row.containerVolume ? 1 : "-"))}</td>
+                <td>${escapeHtml(row.note || "")}</td>
+                <td>${escapeHtml(collectionRoutesSourceDriverProblemLabel(row))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </body>
+    </html>`;
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if (!printWindow) {
+    collectionRoutesPilotState.sourceImportError = "Prohlížeč zablokoval řidičský tiskový náhled. Povolte vyskakovací okno pro tisk.";
     render();
     return;
   }
@@ -28374,9 +28673,24 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const collectionRoutesSourceSmartFilter = event.target.closest("[data-collection-routes-source-smart-day]");
+  if (collectionRoutesSourceSmartFilter) {
+    await applyCollectionRoutesSourceSmartFilter(
+      collectionRoutesSourceSmartFilter.dataset.collectionRoutesSourceSmartDay || "",
+      collectionRoutesSourceSmartFilter.dataset.collectionRoutesSourceSmartVehicle || ""
+    );
+    return;
+  }
+
   const collectionRoutesSourcePrintPdf = event.target.closest("[data-collection-routes-source-print-pdf]");
   if (collectionRoutesSourcePrintPdf) {
     printCollectionRoutesSourcePdf();
+    return;
+  }
+
+  const collectionRoutesSourcePrintDriver = event.target.closest("[data-collection-routes-source-print-driver]");
+  if (collectionRoutesSourcePrintDriver) {
+    printCollectionRoutesSourceDriverPreview();
     return;
   }
 
