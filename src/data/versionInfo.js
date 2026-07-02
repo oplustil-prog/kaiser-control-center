@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.290"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.291"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Trasy svozu: silnější parser a Vistos match",
+    text: "Svozové trasy berou den a týden primárně ze zdrojového Excelu/listu, umí lépe rozdělit buňku zákazník + adresa a Vistos match bezpečněji mapuje jasné shody bez vytvoření ostrých tras."
+  },
   {
     title: "Šarlota: kratší systémové načtení",
     text: "Prompt Šarloty v Hlášení řidičů používá kratší větu `Rozumím. Podívám se do systému.` a drží pravidlo, že SPZ není hlavní cesta výběru vozidla."

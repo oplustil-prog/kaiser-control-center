@@ -44,8 +44,21 @@ const VISTOS_MATCH_STOP_WORDS = new Set([
   "AND",
   "SPOL",
   "SRO",
+  "SR",
+  "RO",
   "A.S",
   "AS",
+  "VOS",
+  "VO",
+  "OS",
+  "DRUZSTVO",
+  "PRISPEVKOVA",
+  "ORGANIZACE",
+  "CESKA",
+  "CESKY",
+  "CZECH",
+  "REPUBLIC",
+  "REPUBLIKA",
   "ICO",
   "DIC",
   "UL",
@@ -62,9 +75,62 @@ const VISTOS_MATCH_STOP_WORDS = new Set([
   "KONT",
   "NADOBA",
   "NADOBY",
+  "POPELNICE",
+  "TEL",
+  "TELEFON",
+  "KLIC",
+  "MAPA",
+  "AREAL",
+  "SKLAD",
   "SVOZ",
   "ODPAD",
   "GROUP"
+]);
+const ROUTE_SOURCE_NON_CUSTOMER_TOKENS = new Set([
+  "VSE",
+  "VSECHNO",
+  "ZVLAST",
+  "ZVLASTT",
+  "JEDNO",
+  "MISTO",
+  "MISTA",
+  "ZMENA",
+  "CETNOSTI",
+  "OD",
+  "TEL",
+  "TELEFON",
+  "KONTAKT",
+  "KLIC",
+  "KLEC",
+  "MAPA",
+  "SRO",
+  "AS",
+  "VOS",
+  "SPOL",
+  "DRUZSTVO"
+]);
+const ROUTE_SOURCE_ADDRESS_HINTS = new Set([
+  "BRNO",
+  "BLANSKO",
+  "MODRICE",
+  "TROUBSKO",
+  "POPUVKY",
+  "BOSONOHY",
+  "STRELICE",
+  "SLAPANICE",
+  "HOLASICE",
+  "PODOLI",
+  "JIRIKOVICE",
+  "OSTROVACICE",
+  "LISEN",
+  "ZABOVRESKY",
+  "RECKOVICE",
+  "SLATINA",
+  "HUSOVICE",
+  "KOMAROV",
+  "MEDLANKY",
+  "TUŘANY",
+  "TURANY"
 ]);
 
 export class CollectionRouteSourcesError extends Error {
@@ -220,13 +286,19 @@ function serviceCompatibility(details = {}, context = {}) {
 function strongMatchEvidence(details = {}, context = {}) {
   const addressEvidence = addressEvidenceFromOverlap(details.addressOverlap || []);
   const embeddedAddressEvidence = addressEvidenceFromOverlap(details.nameOverlap || []);
-  const reliableName = hasReliableNameOverlap(details.nameOverlap || [], context);
-  const reliableAddress = addressEvidence.hasSpecificAddress || embeddedAddressEvidence.hasSpecificAddress;
+  const reliableName = hasReliableNameOverlap(details.nameOverlap || [], context) || numericValue(details.exactName) >= 0.74;
+  const reliableAddress =
+    addressEvidence.hasSpecificAddress ||
+    embeddedAddressEvidence.hasSpecificAddress ||
+    numericValue(details.exactAddress) >= 0.62 ||
+    (numericValue(details.exactName) >= 0.74 && (addressEvidence.alphaCount + embeddedAddressEvidence.alphaCount) >= 1);
   const serviceCompatible = serviceCompatibility(details, context);
   return {
     reliableName,
     reliableAddress,
     serviceCompatible,
+    exactName: numericValue(details.exactName),
+    exactAddress: numericValue(details.exactAddress),
     addressEvidenceTokens: addressEvidence.tokens,
     embeddedAddressEvidenceTokens: embeddedAddressEvidence.tokens,
     safeSpecificMatch: reliableName && reliableAddress && serviceCompatible
@@ -261,11 +333,21 @@ function compactContainmentScore(source, candidate) {
 }
 
 function normalizeMatchFrequency(value) {
-  return normalizeText(value)
+  const compact = normalizeText(value)
     .replace(/\s+/g, "")
-    .replace("1XTYDNE", "1X7")
-    .replace("1X14DNI", "1X14")
-    .replace("1X30DNI", "1X30");
+    .replace(/([1235])XTYDNE/g, "$1X7")
+    .replace(/([1235])X7DNI/g, "$1X7")
+    .replace(/([1235])XZA7DNI/g, "$1X7")
+    .replace(/([1235])X14DNI/g, "$1X14")
+    .replace(/([1235])XZA14DNI/g, "$1X14")
+    .replace(/([1235])X30DNI/g, "$1X30")
+    .replace(/([1235])XZA30DNI/g, "$1X30")
+    .replace(/14DENNI/g, "1X14")
+    .replace(/MESICNE/g, "1X30");
+  if (compact === "TYDNE") return "1X7";
+  if (compact === "OBTYDEN") return "1X14";
+  if (compact === "MESICNE" || compact === "MESICNI") return "1X30";
+  return compact;
 }
 
 function normalizeMatchWaste(value) {
@@ -274,7 +356,7 @@ function normalizeMatchWaste(value) {
   if (text.includes("PLAST") || text.includes("200139") || text.includes("150102")) return "PLAST";
   if (text.includes("SKLO") || text.includes("200102")) return "SKLO";
   if (text.includes("BIO") || text.includes("200201") || text.includes("200108")) return "BIO";
-  if (text.includes("SKO") || text.includes("SMES") || text.includes("200301")) return "SKO";
+  if (text.includes("SKO") || text.includes("SMES") || text.includes("KOMUNAL") || text.includes("200301")) return "SKO";
   return text;
 }
 
@@ -474,6 +556,9 @@ function scoreVistosCandidate(candidate, context) {
     nameOverlap: nameOverlap.overlap,
     addressOverlap: addressOverlap.overlap,
     originalOverlap: originalOverlap.overlap,
+    exactName,
+    exactAddress,
+    allContainment,
     wasteMatches,
     frequencyMatches,
     volumeMatches
@@ -521,6 +606,14 @@ function buildVistosSourceMatch(sourceRow, candidates, createdAt, context = sour
     safeSpecificMatch: false
   };
   const clearSpecificMatch = Boolean(best && evidence.safeSpecificMatch && score >= 70 && score - secondScore >= 10);
+  const directSpecificMatch = Boolean(
+    best &&
+    evidence.safeSpecificMatch &&
+    score >= 62 &&
+    score - secondScore >= 8 &&
+    (evidence.exactName >= 0.74 || best.details.nameOverlap.length >= 2) &&
+    (evidence.exactAddress >= 0.62 || best.details.addressOverlap.length >= 1)
+  );
   const safeAmbiguousMatch = Boolean(best && evidence.safeSpecificMatch && score >= 74);
 
   let status = "nenamapováno";
@@ -530,7 +623,7 @@ function buildVistosSourceMatch(sourceRow, candidates, createdAt, context = sour
     status = sourceIssueStatus;
     confidence = score >= 58 ? "částečná" : "nízká";
     issue = `${cleanString(sourceRow.mapping_issue) || "Zdrojový Excel řádek má datový problém."} Vistos match je jen pomocný údaj.`;
-  } else if (best && ((score >= 74 && (!ambiguous || safeAmbiguousMatch)) || clearSpecificMatch)) {
+  } else if (best && ((score >= 74 && (!ambiguous || safeAmbiguousMatch)) || clearSpecificMatch || directSpecificMatch)) {
     status = "namapováno";
     confidence = ambiguous ? "vysoká se shodným specifickým důkazem" : "vysoká";
     issue = evidence.safeSpecificMatch && (ambiguous || score < 74)
@@ -597,6 +690,18 @@ function weekFromText(value) {
   return "každý týden";
 }
 
+function weekFromSourceContext(value) {
+  const text = normalizeText(value);
+  const hasMonthly = text.includes("1X30") || text.includes("MESIC");
+  const hasEven = text.includes("SUDE") || text.includes("SUDY") || text.includes("SUDA");
+  const hasOdd = text.includes("LICHE") || text.includes("LICHY") || text.includes("LICHA");
+  if (hasMonthly) return "měsíční";
+  if (hasEven && hasOdd) return "každý týden";
+  if (hasEven) return "sudý";
+  if (hasOdd) return "lichý";
+  return "každý týden";
+}
+
 function vehicleFromText(value) {
   const text = normalizeText(value);
   if (text.includes("3BN 3558") || text.includes("AUTO A")) return "A";
@@ -614,20 +719,90 @@ function routeModeFromWeek(weekMode) {
 
 function fieldLooksOperational(value) {
   const text = normalizeText(value);
+  const compact = compactText(value);
   return Boolean(
     text &&
     !/^\d+$/.test(text) &&
+    !/^[0-9+\s./-]{6,}$/.test(text) &&
+    !/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/.test(text) &&
+    !ROUTE_SOURCE_NON_CUSTOMER_TOKENS.has(text) &&
+    !ROUTE_SOURCE_NON_CUSTOMER_TOKENS.has(compact) &&
     !/^(SUDY|SUDE|LICHY|LICHE|PONDELI|UTERY|STREDA|CTVRTEK|PATEK|KONTAKT|DPI|PLI|FKU|MAP)$/.test(text) &&
     !/\b(SUDY|SUDE|LICHY|LICHE|PONDELI|UTERY|STREDA|CTVRTEK|PATEK|DPI|PLI|FKU|MAP)\b/.test(text) &&
     !/\b(1X7|2X7|3X7|5X7|1X14|1X30|KONT|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO)\b/.test(text)
   );
 }
 
+function addressCandidateScore(value) {
+  const tokens = textTokens(value);
+  const normalizedTokens = tokens.map(normalizeText);
+  const alphaCount = normalizedTokens.filter((token) => /^[A-Z]{4,}$/.test(token)).length;
+  const numberCount = normalizedTokens.filter(isAddressNumberToken).length;
+  const cityCount = normalizedTokens.filter((token) => ROUTE_SOURCE_ADDRESS_HINTS.has(token)).length;
+  const hasStreetLike = alphaCount >= 1 && numberCount >= 1;
+  const hasCityAndStreet = cityCount >= 1 && alphaCount >= 2;
+  const hasCommaAddress = cleanString(value).includes(",") && alphaCount >= 1;
+  return (hasStreetLike ? 3 : 0) + (hasCityAndStreet ? 2 : 0) + (hasCommaAddress ? 1 : 0);
+}
+
+function looksLikeAddressCandidate(value) {
+  return addressCandidateScore(value) >= 2;
+}
+
+function splitCombinedCustomerAddress(value) {
+  const text = cleanString(value);
+  if (!text) {
+    return { customerName: "", addressText: "" };
+  }
+
+  const commaParts = text.split(",").map(cleanString).filter(Boolean);
+  const commaRest = commaParts.slice(1).join(", ");
+  const commaRestCompact = compactText(commaRest);
+  const commaRestIsOnlyLegalSuffix = ["SRO", "SPOLSRRO", "AS", "VOS"].includes(commaRestCompact);
+  if (commaParts.length >= 2 && fieldLooksOperational(commaParts[0]) && !commaRestIsOnlyLegalSuffix) {
+    return {
+      customerName: commaParts[0],
+      addressText: commaRest
+    };
+  }
+
+  const dashParts = text.split(/\s+-\s+/).map(cleanString).filter(Boolean);
+  if (dashParts.length >= 2 && fieldLooksOperational(dashParts[0])) {
+    const rest = dashParts.slice(1).join(" - ");
+    if (looksLikeAddressCandidate(rest) || normalizeText(rest).includes("BRNO")) {
+      return {
+        customerName: dashParts[0],
+        addressText: rest
+      };
+    }
+  }
+
+  if (looksLikeAddressCandidate(text)) {
+    return {
+      customerName: text,
+      addressText: text
+    };
+  }
+
+  return {
+    customerName: text,
+    addressText: ""
+  };
+}
+
 function deriveFields(row) {
   const parts = cleanString(row.originalText).split("|").map((part) => cleanString(part)).filter(Boolean);
   const operationalParts = parts.filter(fieldLooksOperational);
-  const customerName = operationalParts[0] || "";
-  const addressText = operationalParts.find((part) => /[,0-9]/.test(part) && part !== customerName) || operationalParts[1] || "";
+  const splitPrimary = splitCombinedCustomerAddress(operationalParts[0] || "");
+  const customerName = splitPrimary.customerName || "";
+  const addressText = splitPrimary.addressText ||
+    operationalParts
+      .slice(1)
+      .find((part) => looksLikeAddressCandidate(part) && part !== customerName) ||
+    operationalParts.find((part) => /[,0-9]/.test(part) && part !== customerName) ||
+    splitCombinedCustomerAddress(operationalParts[1] || "").addressText ||
+    operationalParts[1] ||
+    "";
   const note = parts.find((part) => /\b(pozn|pozastav|vyraz|vyřaz|konec|volat|klic|klíč|kontakt|brana|brána)\b/i.test(part)) || "";
   const issues = Array.isArray(row.qualityIssues) ? row.qualityIssues : [];
   let mappingStatus = "nenamapováno";
@@ -769,12 +944,15 @@ function buildSourceRows(preview, batchId, fileIds) {
     const textDay = dayFromText(row.originalText);
     const filenameDay = dayFromText(`${sourceFile} ${row.sheetName || ""}`);
     const textWeek = weekFromText(row.originalText);
-    const filenameWeek = weekFromText(`${sourceFile} ${row.sheetName || ""}`);
-    const sourceWeek = textWeek !== "každý týden"
-      ? routeModeFromWeek(textWeek)
-      : row.originalWeek && row.originalWeek !== "-"
-        ? row.originalWeek
-        : routeModeFromWeek(filenameWeek);
+    const filenameWeek = weekFromSourceContext(`${sourceFile} ${row.sheetName || ""}`);
+    const sourceWeek = filenameWeek !== "každý týden"
+      ? routeModeFromWeek(filenameWeek)
+      : textWeek !== "každý týden"
+          ? routeModeFromWeek(textWeek)
+          : row.originalWeek && row.originalWeek !== "-"
+            ? row.originalWeek
+            : routeModeFromWeek(filenameWeek);
+    const sourceVehicle = vehicleFromText(sourceFile) || cleanString(row.vehicleCode || "");
     const derived = deriveFields(row);
     const textKey = normalizeText(row.originalText);
     const isDuplicate = (duplicateCounts.get(textKey) || 0) > 1;
@@ -790,9 +968,9 @@ function buildSourceRows(preview, batchId, fileIds) {
       sourceSheet: cleanString(row.sheetName),
       sourceRowNumber: numericValue(row.sourceRowNumber),
       originalText: cleanString(row.originalText).slice(0, 1000),
-      dayCode: textDay || (row.originalDay && row.originalDay !== "-" ? row.originalDay : "") || filenameDay || cleanString(row.suggestedDay),
+      dayCode: filenameDay || (row.originalDay && row.originalDay !== "-" ? row.originalDay : "") || textDay || cleanString(row.suggestedDay),
       weekMode: sourceWeek,
-      vehicleCode: cleanString(row.vehicleCode || vehicleFromText(sourceFile) || ""),
+      vehicleCode: sourceVehicle,
       wasteType: row.wasteType === "-" ? "" : cleanString(row.wasteType),
       wasteCode: row.wasteCode === "-" ? "" : cleanString(row.wasteCode),
       frequency: cleanString(row.frequency),
@@ -812,7 +990,7 @@ function buildSourceRows(preview, batchId, fileIds) {
         qualityStatus: row.qualityStatus,
         qualityIssues: row.qualityIssues || [],
         confidence: row.confidence,
-        vehicleSource: vehicleFromText(sourceFile) ? "source" : "working-draft",
+        vehicleSource: vehicleFromText(sourceFile) ? "source-file" : "working-draft",
         createsOperationalRoutes: false,
         sendsEmailOrSms: false,
         startsAutomation: false
