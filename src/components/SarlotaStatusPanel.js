@@ -344,6 +344,7 @@ export function SarlotaStatusPanel({
   ].join("");
   const promptSyncDisabled = loading || syncing || data.driverReportPrompt?.syncAllowed === false || selectedConfig.promptSyncAllowed === false;
   const diagnosticSyncDisabled = loading || syncing || selectedConfig.assistantKey !== "sarlota";
+  const smart2RepairDisabled = loading || syncing || selectedConfig.assistantKey !== "sarlota-smart-2";
 
   return `
     <section class="sarlota-status users-panel" aria-labelledby="sarlota-status-title">
@@ -364,6 +365,9 @@ export function SarlotaStatusPanel({
           </button>
           <button class="primary-action sarlota-status__sync" type="button" data-sarlota-tools-sync ${loading || syncing ? "disabled" : ""}>
             ${syncing ? "Synchronizuji..." : "Synchronizovat tools"}
+          </button>
+          <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-smart-2-repair ${smart2RepairDisabled ? "disabled" : ""}>
+            Opravit Smart 2 základ
           </button>
           <button class="secondary-link sarlota-status__sync" type="button" data-sarlota-tools-diagnostic ${diagnosticSyncDisabled ? "disabled" : ""}>
             Diagnostika: odpojit tools
@@ -387,7 +391,7 @@ export function SarlotaStatusPanel({
       </dl>
       ${diagnosticDetails(data)}
       <p class="sarlota-status__meta">
-        Aktualizováno: ${escapeHtml(generatedAt)}. Tools a prompt se synchronizují odděleně; first message a model se nemění. Hlasový test bez vozidel je jen v této otevřené stránce.
+        Aktualizováno: ${escapeHtml(generatedAt)}. Tools a prompt se synchronizují odděleně; Smart 2 základ opravuje jen first message a model. Hlasový test bez vozidel je jen v této otevřené stránce.
       </p>
     </section>
   `;

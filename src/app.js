@@ -23284,6 +23284,64 @@ async function syncSarlotaTools() {
   }
 }
 
+function sarlotaSmart2RepairConfirmText() {
+  return [
+    "Opravit základní ElevenLabs konfiguraci Smart 2?",
+    "",
+    "Změní se jen testovací agent Šarlota Smart 2 – test.",
+    "Nastaví se first message na {{intro_announcement}}.",
+    "Nastaví se LLM model na Qwen3.5-397B-A17B.",
+    "Prompt ani tools se tímto krokem nemění.",
+    "Produkční Šarlota se nemění.",
+    "",
+    "Bez potvrzení se nic neprovede."
+  ].join("\n");
+}
+
+async function repairSarlotaSmart2Base() {
+  if (!authState.user || sarlotaStatusState.syncing || !canManageAppearanceSettings(authState.user)) {
+    return;
+  }
+
+  if (selectedSarlotaAssistantConfig().assistantKey !== "sarlota-smart-2") {
+    sarlotaStatusState.syncError = "Oprava základu je povolená jen pro Šarlotu Smart 2.";
+    sarlotaStatusState.syncMessage = "";
+    render();
+    return;
+  }
+
+  if (!window.confirm(sarlotaSmart2RepairConfirmText())) {
+    sarlotaStatusState.syncMessage = "Oprava Smart 2 zrušena.";
+    sarlotaStatusState.syncError = "";
+    render();
+    return;
+  }
+
+  sarlotaStatusState.syncing = true;
+  sarlotaStatusState.syncError = "";
+  sarlotaStatusState.syncMessage = "Opravuji základní konfiguraci Smart 2...";
+  render();
+
+  try {
+    const result = await apiJson("/api/ai/elevenlabs/sarlota-smart-2-repair", {
+      method: "POST",
+      body: JSON.stringify({ apply: true })
+    });
+
+    sarlotaStatusState.syncMessage = result.status === "ok"
+      ? "Smart 2 základ je opravený. Teď můžeš synchronizovat tools a prompt."
+      : "Smart 2 základ je opravený jen částečně, zkontroluj status.";
+    await loadSarlotaStatus({ force: true, renderAfter: false });
+  } catch (error) {
+    console.error("smart_odpady_sarlota_smart_2_repair_failed", error);
+    sarlotaStatusState.syncError = error.payload?.error || "Oprava základní konfigurace Smart 2 se nepodařila.";
+    sarlotaStatusState.syncMessage = "";
+  } finally {
+    sarlotaStatusState.syncing = false;
+    render();
+  }
+}
+
 function sarlotaToolsDiagnosticConfirmText(plan = {}) {
   const configuredCount = Number(plan.agentTools?.configuredCount || plan.backup?.configuredCount || 0);
   const path = plan.agentTools?.path || "nenalezena";
@@ -27311,6 +27369,13 @@ document.addEventListener("click", async (event) => {
   if (sarlotaToolsSync) {
     event.preventDefault();
     await syncSarlotaTools();
+    return;
+  }
+
+  const sarlotaSmart2Repair = event.target.closest("[data-sarlota-smart-2-repair]");
+  if (sarlotaSmart2Repair) {
+    event.preventDefault();
+    await repairSarlotaSmart2Base();
     return;
   }
 
