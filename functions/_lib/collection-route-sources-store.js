@@ -733,6 +733,7 @@ function fieldLooksOperational(value) {
     !/^\d+$/.test(text) &&
     !/^[0-9+\s./-]{6,}$/.test(text) &&
     !/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/.test(text) &&
+    !sourcePartLooksContactOrNote(value) &&
     !ROUTE_SOURCE_NON_CUSTOMER_TOKENS.has(text) &&
     !ROUTE_SOURCE_NON_CUSTOMER_TOKENS.has(compact) &&
     !ROUTE_SOURCE_SALES_CODES.has(compact) &&
@@ -753,11 +754,25 @@ function routeSourceSalesCode(value) {
   return "";
 }
 
+function sourcePartLooksContactOrNote(value) {
+  const text = normalizeText(value);
+  const compact = compactText(value);
+  return Boolean(
+    /\b(TEL|TELEFON|MOBIL|KONTAKT)\b/.test(text) ||
+    /^OD\s+\d/.test(text) ||
+    compact === "MYVSE" ||
+    compact === "VSE" ||
+    (/^\+?\d{6,}$/.test(compact) && !/[A-Z]{2,}/.test(text))
+  );
+}
+
 function addressCandidateScore(value) {
   const tokens = textTokens(value);
   const normalizedTokens = tokens.map(normalizeText);
   const alphaCount = normalizedTokens.filter((token) => /^[A-Z]{4,}$/.test(token)).length;
-  const numberCount = normalizedTokens.filter(isAddressNumberToken).length;
+  const rawNumberCount = (normalizeText(value).match(/\b\d+[A-Z]?(?:\/\d+[A-Z]?)?\b/g) || [])
+    .filter((token) => !isYearToken(token)).length;
+  const numberCount = Math.max(normalizedTokens.filter(isAddressNumberToken).length, rawNumberCount);
   const cityCount = normalizedTokens.filter((token) => ROUTE_SOURCE_ADDRESS_HINTS.has(token)).length;
   const hasStreetLike = alphaCount >= 1 && numberCount >= 1;
   const hasCityAndStreet = cityCount >= 1 && alphaCount >= 2;
@@ -767,6 +782,20 @@ function addressCandidateScore(value) {
 
 function looksLikeAddressCandidate(value) {
   return addressCandidateScore(value) >= 2;
+}
+
+function sourcePartLooksLikeServiceOnly(value) {
+  const text = normalizeText(value);
+  if (!text) {
+    return true;
+  }
+  const hasServiceToken = /\b(1X7|2X7|3X7|5X7|1X14|1X30|KONT|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO|NADOBA|NADOBY|POPELNICE)\b/.test(text);
+  const hasSpecificAddress = looksLikeAddressCandidate(value);
+  const nonServiceAlphaTokens = textTokens(value).filter((token) =>
+    /^[A-Z]/.test(token) &&
+    !["SKO", "PAPIR", "PLAST", "SKLO", "BIO", "KONT", "LTR", "LITR", "NADOBA", "NADOBY", "POPELNICE", "VLASTNI"].includes(token)
+  );
+  return hasServiceToken && (!hasSpecificAddress || nonServiceAlphaTokens.length === 0) && nonServiceAlphaTokens.length <= 1;
 }
 
 function splitCombinedCustomerAddress(value) {
@@ -810,43 +839,140 @@ function splitCombinedCustomerAddress(value) {
   };
 }
 
+function sourcePartLooksLikeCustomerAddress(value) {
+  const text = cleanString(value);
+  const normalized = normalizeText(text);
+  const compact = compactText(text);
+  if (
+    !text ||
+    /^\d+$/.test(normalized) ||
+    ROUTE_SOURCE_SALES_CODES.has(compact) ||
+    sourcePartLooksContactOrNote(text) ||
+    sourcePartLooksLikeServiceOnly(text)
+  ) {
+    return false;
+  }
+  const split = splitCombinedCustomerAddress(text);
+  return Boolean(split.customerName && split.addressText);
+}
+
+function sourceMappingFromFields(row, { customerName = "", addressText = "", salesCode = "" } = {}) {
+  const issues = Array.isArray(row.qualityIssues) ? row.qualityIssues : [];
+  if (!customerName || !addressText) {
+    return {
+      mappingStatus: "chybí adresa",
+      mappingIssue: "chybí zákazník nebo adresa z Excel řádku"
+    };
+  }
+  if (issues.includes("missing-container-volume")) {
+    return {
+      mappingStatus: "chybí nádoba",
+      mappingIssue: "chybí nebo není jistý objem nádoby"
+    };
+  }
+  if (!row.frequency || row.frequency === "-") {
+    return {
+      mappingStatus: "chybí frekvence",
+      mappingIssue: "chybí četnost svozu"
+    };
+  }
+  if (issues.includes("needs-vistos-waste-type") && !salesCode) {
+    return {
+      mappingStatus: "nejasné",
+      mappingIssue: "typ odpadu je potřeba potvrdit přes Vistos nebo ručně"
+    };
+  }
+  if (issues.includes("source-note-cancelled-or-stopped")) {
+    return {
+      mappingStatus: "nejasné",
+      mappingIssue: "zdrojový řádek obsahuje pozastavení, konec nebo vyřazení"
+    };
+  }
+  return {
+    mappingStatus: "nenamapováno",
+    mappingIssue: "čeká na Vistos match"
+  };
+}
+
 function deriveFields(row, context = {}) {
   const parts = cleanString(row.originalText).split("|").map((part) => cleanString(part)).filter(Boolean);
   const operationalParts = parts.filter(fieldLooksOperational);
+  const customerAddressParts = parts.filter(sourcePartLooksLikeCustomerAddress);
+  const candidateParts = [...customerAddressParts];
+  for (const part of operationalParts) {
+    if (!candidateParts.includes(part)) {
+      candidateParts.push(part);
+    }
+  }
   const salesCode = cleanString(context.salesCode) || routeSourceSalesCode(row.originalText);
-  const splitPrimary = splitCombinedCustomerAddress(operationalParts[0] || "");
+  const splitPrimary = splitCombinedCustomerAddress(candidateParts[0] || "");
   const customerName = splitPrimary.customerName || "";
   const addressText = splitPrimary.addressText ||
-    operationalParts
+    candidateParts
       .slice(1)
       .find((part) => looksLikeAddressCandidate(part) && part !== customerName) ||
-    operationalParts.find((part) => /[,0-9]/.test(part) && part !== customerName) ||
-    splitCombinedCustomerAddress(operationalParts[1] || "").addressText ||
-    operationalParts[1] ||
+    candidateParts.find((part) => /[,0-9]/.test(part) && part !== customerName && !sourcePartLooksContactOrNote(part)) ||
+    splitCombinedCustomerAddress(candidateParts[1] || "").addressText ||
+    candidateParts[1] ||
     "";
   const note = parts.find((part) => /\b(pozn|pozastav|vyraz|vyřaz|konec|volat|klic|klíč|kontakt|brana|brána)\b/i.test(part)) || "";
-  const issues = Array.isArray(row.qualityIssues) ? row.qualityIssues : [];
-  let mappingStatus = "nenamapováno";
-  let mappingIssue = "čeká na Vistos match";
+  const { mappingStatus, mappingIssue } = sourceMappingFromFields(row, { customerName, addressText, salesCode });
 
-  if (!customerName || !addressText) {
-    mappingStatus = "chybí adresa";
-    mappingIssue = "chybí zákazník nebo adresa z Excel řádku";
-  } else if (issues.includes("missing-container-volume")) {
-    mappingStatus = "chybí nádoba";
-    mappingIssue = "chybí nebo není jistý objem nádoby";
-  } else if (!row.frequency || row.frequency === "-") {
-    mappingStatus = "chybí frekvence";
-    mappingIssue = "chybí četnost svozu";
-  } else if (issues.includes("needs-vistos-waste-type") && !salesCode) {
-    mappingStatus = "nejasné";
-    mappingIssue = "typ odpadu je potřeba potvrdit přes Vistos nebo ručně";
-  } else if (issues.includes("source-note-cancelled-or-stopped")) {
-    mappingStatus = "nejasné";
-    mappingIssue = "zdrojový řádek obsahuje pozastavení, konec nebo vyřazení";
+  return { customerName, addressText, note, mappingStatus, mappingIssue, continuationRow: false };
+}
+
+function sourceRowHasRoutePayload(row) {
+  const text = normalizeText(row.originalText);
+  return Boolean(
+    cleanString(row.frequency) ||
+    numericValue(row.containerVolume) ||
+    numericValue(row.containerCount) ||
+    cleanString(row.wasteType).replace("-", "") ||
+    /\b(1X7|2X7|3X7|5X7|1X14|1X30|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO|NADOBA|NADOBY|POPELNICE)\b/.test(text)
+  );
+}
+
+function sourceNameIsContinuationPlaceholder(value) {
+  const compact = compactText(value);
+  return ["VLASTNINADOBA", "VLASTNINADOBY", "VLASTNIPOPELNICE"].includes(compact);
+}
+
+function shouldInheritPreviousStop(row, derived, previousStop) {
+  if (!previousStop?.customerName || !previousStop?.addressText || !sourceRowHasRoutePayload(row)) {
+    return false;
   }
+  if (derived.customerName && derived.addressText) {
+    return false;
+  }
+  const parts = cleanString(row.originalText).split("|").map((part) => cleanString(part)).filter(Boolean);
+  if (parts.some(sourcePartLooksLikeCustomerAddress)) {
+    return false;
+  }
+  return !derived.customerName || sourceNameIsContinuationPlaceholder(derived.customerName);
+}
 
-  return { customerName, addressText, note, mappingStatus, mappingIssue };
+function deriveFieldsWithInheritedStop(row, context = {}) {
+  const derived = deriveFields(row, context);
+  const previousStop = context.previousStop || null;
+  if (!shouldInheritPreviousStop(row, derived, previousStop)) {
+    return derived;
+  }
+  const customerName = previousStop.customerName;
+  const addressText = previousStop.addressText;
+  const { mappingStatus, mappingIssue } = sourceMappingFromFields(row, {
+    customerName,
+    addressText,
+    salesCode: context.salesCode
+  });
+  return {
+    ...derived,
+    customerName,
+    addressText,
+    mappingStatus,
+    mappingIssue,
+    continuationRow: true,
+    inheritedStop: previousStop
+  };
 }
 
 function rowToSourceBatch(row) {
@@ -946,6 +1072,7 @@ function buildSourceRows(preview, batchId, fileIds) {
   }
 
   const emitted = new Set();
+  const previousStopByScope = new Map();
   for (const row of preview.rows || []) {
     const dedupeKey = [
       row.sourceFile,
@@ -975,11 +1102,17 @@ function buildSourceRows(preview, batchId, fileIds) {
             : routeModeFromWeek(filenameWeek);
     const sourceVehicle = vehicleFromText(sourceFile) || cleanString(row.vehicleCode || "");
     const salesCode = routeSourceSalesCode(row.originalText);
-    const derived = deriveFields(row, { salesCode });
+    const sourceSheet = cleanString(row.sheetName);
+    const scopeKey = [sourceFile, sourceSheet].join("\u0001");
+    const derived = deriveFieldsWithInheritedStop(row, {
+      salesCode,
+      previousStop: previousStopByScope.get(scopeKey) || null
+    });
     const textKey = normalizeText(row.originalText);
-    const isDuplicate = (duplicateCounts.get(textKey) || 0) > 1;
+    const isDuplicate = !derived.continuationRow && (duplicateCounts.get(textKey) || 0) > 1;
     const mappingStatus = isDuplicate && derived.mappingStatus === "nenamapováno" ? "duplicita" : derived.mappingStatus;
     const mappingIssue = isDuplicate && derived.mappingStatus === "nenamapováno" ? "duplicitní text v historických řádcích" : derived.mappingIssue;
+    const inheritedStop = derived.inheritedStop || null;
 
     rows.push({
       id: randomId("collection-route-source-row"),
@@ -987,7 +1120,7 @@ function buildSourceRows(preview, batchId, fileIds) {
       fileId,
       routeOrder,
       sourceFile,
-      sourceSheet: cleanString(row.sheetName),
+      sourceSheet,
       sourceRowNumber: numericValue(row.sourceRowNumber),
       originalText: cleanString(row.originalText).slice(0, 1000),
       dayCode: filenameDay || (row.originalDay && row.originalDay !== "-" ? row.originalDay : "") || textDay || cleanString(row.suggestedDay),
@@ -1014,12 +1147,30 @@ function buildSourceRows(preview, batchId, fileIds) {
         confidence: row.confidence,
         salesCode,
         salesCodeSource: salesCode ? "source-row-suffix" : "",
+        continuationRow: Boolean(derived.continuationRow),
+        inheritedStopSource: inheritedStop ? {
+          sourceFile: inheritedStop.sourceFile,
+          sourceSheet: inheritedStop.sourceSheet,
+          sourceRowNumber: inheritedStop.sourceRowNumber,
+          routeOrder: inheritedStop.routeOrder
+        } : null,
         vehicleSource: vehicleFromText(sourceFile) ? "source-file" : "working-draft",
         createsOperationalRoutes: false,
         sendsEmailOrSms: false,
         startsAutomation: false
       }
     });
+
+    if (derived.customerName && derived.addressText) {
+      previousStopByScope.set(scopeKey, {
+        customerName: derived.customerName,
+        addressText: derived.addressText,
+        sourceFile,
+        sourceSheet,
+        sourceRowNumber: inheritedStop?.sourceRowNumber || numericValue(row.sourceRowNumber),
+        routeOrder: inheritedStop?.routeOrder || routeOrder
+      });
+    }
   }
 
   return rows;

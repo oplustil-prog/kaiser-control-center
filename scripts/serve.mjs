@@ -757,44 +757,177 @@ function routeSourceSalesCode(value) {
   return "";
 }
 
+function routeSourcePartLooksContactOrNote(value) {
+  const text = normalizeRouteSourceText(value);
+  const compact = routeSourceCompactText(value);
+  return Boolean(
+    /\b(TEL|TELEFON|MOBIL|KONTAKT)\b/.test(text) ||
+    /^OD\s+\d/.test(text) ||
+    compact === "MYVSE" ||
+    compact === "VSE" ||
+    (/^\+?\d{6,}$/.test(compact) && !/[A-Z]{2,}/.test(text))
+  );
+}
+
 function routeSourceFieldLooksOperational(value) {
   const text = normalizeRouteSourceText(value);
   const compact = routeSourceCompactText(value);
   return Boolean(
     text &&
     !/^\d+$/.test(text) &&
+    !routeSourcePartLooksContactOrNote(value) &&
     !routeSourceSalesCodes.has(compact) &&
     !/\b(SUDY|SUDE|LICHY|LICHE|PONDELI|UTERY|STREDA|CTVRTEK|PATEK|DPI|PLI|FKU|PCE|PPA|ROP|MAP)\b/.test(text) &&
     !/\b(1X7|2X7|3X7|5X7|1X14|1X30|KONT|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO)\b/.test(text)
   );
 }
 
+function routeSourceLooksLikeAddress(value) {
+  const text = normalizeRouteSourceText(value);
+  const alphaCount = (text.match(/\b[A-Z]{4,}\b/g) || []).length;
+  const numberCount = (text.match(/\b\d+[A-Z]?(?:\/\d+[A-Z]?)?\b/g) || []).length;
+  return alphaCount >= 1 && numberCount >= 1;
+}
+
+function routeSourceSplitCombinedCustomerAddress(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return { customerName: "", addressText: "" };
+  }
+  const commaParts = text.split(",").map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length >= 2 && routeSourceFieldLooksOperational(commaParts[0])) {
+    return { customerName: commaParts[0], addressText: commaParts.slice(1).join(", ") };
+  }
+  const dashParts = text.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+  if (dashParts.length >= 2 && routeSourceFieldLooksOperational(dashParts[0])) {
+    const rest = dashParts.slice(1).join(" - ");
+    if (routeSourceLooksLikeAddress(rest) || normalizeRouteSourceText(rest).includes("BRNO")) {
+      return { customerName: dashParts[0], addressText: rest };
+    }
+  }
+  return routeSourceLooksLikeAddress(text)
+    ? { customerName: text, addressText: text }
+    : { customerName: text, addressText: "" };
+}
+
+function routeSourcePartLooksLikeServiceOnly(value) {
+  const text = normalizeRouteSourceText(value);
+  const hasServiceToken = /\b(1X7|2X7|3X7|5X7|1X14|1X30|KONT|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO|NADOBA|NADOBY|POPELNICE)\b/.test(text);
+  const nonServiceAlphaTokens = text
+    .split(/\s+/)
+    .filter((token) => /^[A-Z]/.test(token) && !["SKO", "PAPIR", "PLAST", "SKLO", "BIO", "KONT", "LTR", "LITR", "NADOBA", "NADOBY", "POPELNICE", "VLASTNI"].includes(token));
+  return hasServiceToken && (!routeSourceLooksLikeAddress(value) || nonServiceAlphaTokens.length === 0) && nonServiceAlphaTokens.length <= 1;
+}
+
+function routeSourcePartLooksLikeCustomerAddress(value) {
+  const text = String(value || "").trim();
+  const normalized = normalizeRouteSourceText(text);
+  const compact = routeSourceCompactText(text);
+  if (
+    !text ||
+    /^\d+$/.test(normalized) ||
+    routeSourceSalesCodes.has(compact) ||
+    routeSourcePartLooksContactOrNote(text) ||
+    routeSourcePartLooksLikeServiceOnly(text)
+  ) {
+    return false;
+  }
+  const split = routeSourceSplitCombinedCustomerAddress(text);
+  return Boolean(split.customerName && split.addressText);
+}
+
+function routeSourceMappingFromFields(row, { customerName = "", addressText = "", salesCode = "" } = {}) {
+  const issues = Array.isArray(row.qualityIssues) ? row.qualityIssues : [];
+  if (!customerName || !addressText) {
+    return { mappingStatus: "chybí adresa", mappingIssue: "chybí zákazník nebo adresa z Excel řádku" };
+  }
+  if (issues.includes("missing-container-volume")) {
+    return { mappingStatus: "chybí nádoba", mappingIssue: "chybí nebo není jistý objem nádoby" };
+  }
+  if (!row.frequency || row.frequency === "-") {
+    return { mappingStatus: "chybí frekvence", mappingIssue: "chybí četnost svozu" };
+  }
+  if ((issues.includes("needs-vistos-waste-type") && !salesCode) || issues.includes("source-note-cancelled-or-stopped")) {
+    return { mappingStatus: "nejasné", mappingIssue: "typ odpadu nebo platnost řádku vyžaduje kontrolu" };
+  }
+  return { mappingStatus: "nenamapováno", mappingIssue: "čeká na Vistos match" };
+}
+
 function routeSourceDerivedFields(row, context = {}) {
   const parts = String(row.originalText || "").split("|").map((part) => part.trim()).filter(Boolean);
   const operationalParts = parts.filter(routeSourceFieldLooksOperational);
-  const salesCode = String(context.salesCode || "").trim() || routeSourceSalesCode(row.originalText);
-  const customerName = operationalParts[0] || "";
-  const addressText = operationalParts.find((part) => /[,0-9]/.test(part) && part !== customerName) || operationalParts[1] || "";
-  const note = parts.find((part) => /\b(pozn|pozastav|vyraz|vyřaz|konec|volat|klic|klíč|kontakt|brana|brána)\b/i.test(part)) || "";
-  const issues = Array.isArray(row.qualityIssues) ? row.qualityIssues : [];
-  let mappingStatus = "nenamapováno";
-  let mappingIssue = "čeká na Vistos match";
-
-  if (!customerName || !addressText) {
-    mappingStatus = "chybí adresa";
-    mappingIssue = "chybí zákazník nebo adresa z Excel řádku";
-  } else if (issues.includes("missing-container-volume")) {
-    mappingStatus = "chybí nádoba";
-    mappingIssue = "chybí nebo není jistý objem nádoby";
-  } else if (!row.frequency || row.frequency === "-") {
-    mappingStatus = "chybí frekvence";
-    mappingIssue = "chybí četnost svozu";
-  } else if ((issues.includes("needs-vistos-waste-type") && !salesCode) || issues.includes("source-note-cancelled-or-stopped")) {
-    mappingStatus = "nejasné";
-    mappingIssue = "typ odpadu nebo platnost řádku vyžaduje kontrolu";
+  const customerAddressParts = parts.filter(routeSourcePartLooksLikeCustomerAddress);
+  const candidateParts = [...customerAddressParts];
+  for (const part of operationalParts) {
+    if (!candidateParts.includes(part)) {
+      candidateParts.push(part);
+    }
   }
+  const salesCode = String(context.salesCode || "").trim() || routeSourceSalesCode(row.originalText);
+  const splitPrimary = routeSourceSplitCombinedCustomerAddress(candidateParts[0] || "");
+  const customerName = splitPrimary.customerName || "";
+  const addressText = splitPrimary.addressText ||
+    candidateParts.find((part) => /[,0-9]/.test(part) && part !== customerName && !routeSourcePartLooksContactOrNote(part)) ||
+    candidateParts[1] ||
+    "";
+  const note = parts.find((part) => /\b(pozn|pozastav|vyraz|vyřaz|konec|volat|klic|klíč|kontakt|brana|brána)\b/i.test(part)) || "";
+  const { mappingStatus, mappingIssue } = routeSourceMappingFromFields(row, { customerName, addressText, salesCode });
 
-  return { customerName, addressText, note, mappingStatus, mappingIssue };
+  return { customerName, addressText, note, mappingStatus, mappingIssue, continuationRow: false };
+}
+
+function routeSourceRowHasRoutePayload(row) {
+  const text = normalizeRouteSourceText(row.originalText);
+  return Boolean(
+    row.frequency ||
+    Number(row.containerVolume || 0) ||
+    Number(row.containerCount || 0) ||
+    String(row.wasteType || "").replace("-", "") ||
+    /\b(1X7|2X7|3X7|5X7|1X14|1X30|LTR|LITR|SKO|PAPIR|PLAST|SKLO|BIO|NADOBA|NADOBY|POPELNICE)\b/.test(text)
+  );
+}
+
+function routeSourceNameIsContinuationPlaceholder(value) {
+  const compact = routeSourceCompactText(value);
+  return ["VLASTNINADOBA", "VLASTNINADOBY", "VLASTNIPOPELNICE"].includes(compact);
+}
+
+function routeSourceShouldInheritPreviousStop(row, derived, previousStop) {
+  if (!previousStop?.customerName || !previousStop?.addressText || !routeSourceRowHasRoutePayload(row)) {
+    return false;
+  }
+  if (derived.customerName && derived.addressText) {
+    return false;
+  }
+  const parts = String(row.originalText || "").split("|").map((part) => part.trim()).filter(Boolean);
+  if (parts.some(routeSourcePartLooksLikeCustomerAddress)) {
+    return false;
+  }
+  return !derived.customerName || routeSourceNameIsContinuationPlaceholder(derived.customerName);
+}
+
+function routeSourceDerivedFieldsWithInheritedStop(row, context = {}) {
+  const derived = routeSourceDerivedFields(row, context);
+  const previousStop = context.previousStop || null;
+  if (!routeSourceShouldInheritPreviousStop(row, derived, previousStop)) {
+    return derived;
+  }
+  const customerName = previousStop.customerName;
+  const addressText = previousStop.addressText;
+  const { mappingStatus, mappingIssue } = routeSourceMappingFromFields(row, {
+    customerName,
+    addressText,
+    salesCode: context.salesCode
+  });
+  return {
+    ...derived,
+    customerName,
+    addressText,
+    mappingStatus,
+    mappingIssue,
+    continuationRow: true,
+    inheritedStop: previousStop
+  };
 }
 
 function routeSourceSummary(rows = []) {
@@ -3597,6 +3730,7 @@ async function handleApi(request, response) {
       });
       const seen = new Set();
       const sourceRows = [];
+      const previousStopByScope = new Map();
       for (const row of parsed.rows || []) {
         const key = [row.sourceFile, row.sheetName, row.sourceRowNumber, row.originalText].join("\u0001");
         if (seen.has(key)) {
@@ -3604,14 +3738,22 @@ async function handleApi(request, response) {
         }
         seen.add(key);
         const salesCode = routeSourceSalesCode(row.originalText);
-        const derived = routeSourceDerivedFields(row, { salesCode });
+        const sourceFile = row.sourceFile || "";
+        const sourceSheet = row.sheetName || "";
+        const scopeKey = [sourceFile, sourceSheet].join("\u0001");
+        const derived = routeSourceDerivedFieldsWithInheritedStop(row, {
+          salesCode,
+          previousStop: previousStopByScope.get(scopeKey) || null
+        });
+        const routeOrder = sourceRows.length + 1;
+        const inheritedStop = derived.inheritedStop || null;
         sourceRows.push({
           id: `collection-route-source-row-${randomUUID()}`,
           batchId,
           fileId: fileIds.get(row.sourceFile) || "",
-          routeOrder: sourceRows.length + 1,
-          sourceFile: row.sourceFile || "",
-          sourceSheet: row.sheetName || "",
+          routeOrder,
+          sourceFile,
+          sourceSheet,
           sourceRowNumber: row.sourceRowNumber || 0,
           originalText: row.originalText || "",
           dayCode: routeSourceDay(row.originalText) || (row.originalDay && row.originalDay !== "-" ? row.originalDay : "") || routeSourceDay(`${row.sourceFile} ${row.sheetName}`) || row.suggestedDay || "",
@@ -3641,6 +3783,13 @@ async function handleApi(request, response) {
             confidence: row.confidence,
             salesCode,
             salesCodeSource: salesCode ? "source-row-suffix" : "",
+            continuationRow: Boolean(derived.continuationRow),
+            inheritedStopSource: inheritedStop ? {
+              sourceFile: inheritedStop.sourceFile,
+              sourceSheet: inheritedStop.sourceSheet,
+              sourceRowNumber: inheritedStop.sourceRowNumber,
+              routeOrder: inheritedStop.routeOrder
+            } : null,
             vehicleSource: "working-draft",
             createsOperationalRoutes: false,
             sendsEmailOrSms: false,
@@ -3648,6 +3797,16 @@ async function handleApi(request, response) {
           },
           createdAt
         });
+        if (derived.customerName && derived.addressText) {
+          previousStopByScope.set(scopeKey, {
+            customerName: derived.customerName,
+            addressText: derived.addressText,
+            sourceFile,
+            sourceSheet,
+            sourceRowNumber: inheritedStop?.sourceRowNumber || row.sourceRowNumber || 0,
+            routeOrder: inheritedStop?.routeOrder || routeOrder
+          });
+        }
       }
       const summary = routeSourceSummary(sourceRows);
       const batch = {
