@@ -4,7 +4,7 @@ export const SARLOTA_DRIVER_REPORT_EL_PROMPT_RULE = [
   "HLÁŠENÍ ŘIDIČŮ / SERVIS VOZIDEL",
   "Toto pravidlo má přednost před všemi staršími pravidly k Hlášení řidičů a vozidlům.",
   "Když uživatel řeší opravu, servis, údržbu, závadu, poškození nebo potřebu na vozidle, vyhodnoť to jako Hlášení řidičů.",
-  "Nejdřív řekni: `Rozumím. Podívám se do Smart systému.`",
+  "Nejdřív řekni: `Rozumím. Podívám se do systému.`",
   "Potom zavolej get_driver_report_context.",
   "Vozidla smíš v hlasu vyjmenovat pouze tehdy, když tool vrátí `vehiclesVerified: true` a neprázdné pole `vehicles`.",
   "Každé vyjmenované vozidlo musí být ověřené z backendu a musí mít: vehicleId, displayName, spz, assignedToCurrentDriver: true, existsInFleet: true, active: true, source: fleet_db.",

@@ -9,7 +9,7 @@ function valueOrUnknown(value, fallback = UNKNOWN) {
 
 export const versionInfo = {
   appName: "Smart odpady",
-  version: valueOrUnknown(buildMeta.version, "v0.1.289"),
+  version: valueOrUnknown(buildMeta.version, "v0.1.290"),
   status: "development",
   backupName: "Bod nula – Evidence pneumatik",
   backupNote: "Plně funkční původní aplikace evidence pneumatik.",
@@ -20,6 +20,10 @@ export const versionInfo = {
 };
 
 export const versionNews = [
+  {
+    title: "Šarlota: kratší systémové načtení",
+    text: "Prompt Šarloty v Hlášení řidičů používá kratší větu `Rozumím. Podívám se do systému.` a drží pravidlo, že SPZ není hlavní cesta výběru vozidla."
+  },
   {
     title: "Šarlota Smart 2: čistý agent bez klonu",
     text: "Automatické založení Smart 2 klonem produkční Šarloty je vypnuté. Testovací Smart 2 se zakládá jen jako nový prázdný ElevenLabs agent a potom se napojí přes Agent ID."
