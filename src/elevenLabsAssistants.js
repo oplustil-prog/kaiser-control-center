@@ -66,6 +66,10 @@ export function normalizeElevenLabsAgentName(value) {
 
 export function elevenLabsAgentNameMatchesExpected(agentName, assistantConfig = {}) {
   const normalizedAgentName = normalizeElevenLabsAgentName(agentName);
+  if (assistantConfig.isTest === true && normalizedAgentName) {
+    return true;
+  }
+
   return Boolean(normalizedAgentName) && (assistantConfig.expectedAgentNames || [])
     .map((name) => normalizeElevenLabsAgentName(name))
     .includes(normalizedAgentName);

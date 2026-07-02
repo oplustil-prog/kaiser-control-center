@@ -28,7 +28,9 @@ assert.equal(smart2.isTest, true);
 assert.equal(smart2.promptSyncAllowed, true);
 assert.equal(elevenLabsAgentNameMatchesExpected("Šarlota Smart 2 - test", smart2), true);
 assert.equal(elevenLabsAgentNameMatchesExpected("Sarlota Smart 2 – test", smart2), true);
-assert.equal(elevenLabsAgentNameMatchesExpected("Nanolab production", smart2), false);
+assert.equal(elevenLabsAgentNameMatchesExpected("Nanolab production", smart2), true);
+assert.equal(elevenLabsAgentNameMatchesExpected("Nanolab production", sarlota), false);
+assert.equal(elevenLabsAgentNameMatchesExpected("", smart2), false);
 
 const marek = resolveElevenLabsAssistantConfig("marek", env);
 assert.equal(marek.assistantKey, "marek");
