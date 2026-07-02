@@ -47,16 +47,35 @@ function modelFromAgent(agentConfig) {
 }
 
 function promptModelPatch(agentConfig) {
-  const patch = {
-    llm: LLM_MODEL_EXPECTED_IN_ELEVENLABS,
-    model: LLM_MODEL_EXPECTED_IN_ELEVENLABS
-  };
+  const patch = {};
 
   if (getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model_id"]) !== undefined) {
     patch.model_id = LLM_MODEL_EXPECTED_IN_ELEVENLABS;
   }
 
+  if (getPathValue(agentConfig, ["conversation_config", "agent", "prompt", "model"]) !== undefined) {
+    patch.model = LLM_MODEL_EXPECTED_IN_ELEVENLABS;
+  }
+
+  if (!Object.keys(patch).length) {
+    patch.model = LLM_MODEL_EXPECTED_IN_ELEVENLABS;
+  }
+
   return patch;
+}
+
+function promptModelPatchFromSource(sourceAgentConfig, fallbackAgentConfig) {
+  const patch = {};
+  const sourcePrompt = getPathValue(sourceAgentConfig, ["conversation_config", "agent", "prompt"]) || {};
+
+  for (const key of ["llm", "model", "model_id"]) {
+    const value = cleanString(sourcePrompt?.[key]);
+    if (value) {
+      patch[key] = value;
+    }
+  }
+
+  return Object.keys(patch).length ? patch : promptModelPatch(fallbackAgentConfig);
 }
 
 async function elevenLabsRequest({ apiKey, path, method = "GET", body = null }) {
@@ -94,12 +113,12 @@ function upstreamErrorSummary(error) {
   return cleanString(error?.payload?.message || error?.payload?.error || error?.message || "upstream_error");
 }
 
-function buildPatch(agentConfig) {
+function buildPatch(agentConfig, sourceAgentConfig) {
   return {
     conversation_config: {
       agent: {
         first_message: FIRST_MESSAGE_TEMPLATE,
-        prompt: promptModelPatch(agentConfig)
+        prompt: promptModelPatchFromSource(sourceAgentConfig, agentConfig)
       }
     }
   };
@@ -108,10 +127,11 @@ function buildPatch(agentConfig) {
 async function repairSmart2(env, user) {
   const apiKey = cleanString(env?.ELEVENLABS_API_KEY);
   const assistantConfig = resolveElevenLabsAssistantConfig("sarlota-smart-2", env);
+  const sourceAssistantConfig = resolveElevenLabsAssistantConfig("sarlota", env);
 
-  if (!apiKey || !assistantConfig?.agentId) {
+  if (!apiKey || !assistantConfig?.agentId || !sourceAssistantConfig?.agentId) {
     return json({
-      error: "Chybí ELEVENLABS_API_KEY nebo ELEVENLABS_AGENT_ID_SARLOTA_SMART_2.",
+      error: "Chybí ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID_SARLOTA_SMART_2 nebo ELEVENLABS_AGENT_ID_SARLOTA.",
       code: "SMART_2_CONFIGURATION_MISSING",
       apiStatus: "waiting"
     }, 409);
@@ -141,11 +161,16 @@ async function repairSmart2(env, user) {
   const beforeModelMatches = normalizeModel(beforeModel) === normalizeModel(LLM_MODEL_EXPECTED_IN_ELEVENLABS);
 
   if (!beforeFirstMessageMatches || !beforeModelMatches) {
+    const sourceAgentConfig = await elevenLabsRequest({
+      apiKey,
+      path: `/agents/${encodeURIComponent(sourceAssistantConfig.agentId)}`
+    });
+
     await elevenLabsRequest({
       apiKey,
       path: `/agents/${encodeURIComponent(assistantConfig.agentId)}`,
       method: "PATCH",
-      body: buildPatch(agentConfig)
+      body: buildPatch(agentConfig, sourceAgentConfig)
     });
   }
 
